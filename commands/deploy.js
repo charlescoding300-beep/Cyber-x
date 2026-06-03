@@ -3,16 +3,7 @@ const axios = require("axios")
 module.exports = {
   pattern: "deploy",
 
-  run: async ({ sock, from, isOwner, msg }) => {
-
-    // OWNER ONLY CHECK
-    if (!isOwner) {
-      return sock.sendMessage(
-        from,
-        { text: "🚫 Access denied. Owner only command." },
-        { quoted: msg }
-      )
-    }
+  run: async ({ sock, from, msg }) => {
 
     const hook = process.env.RENDER_DEPLOY_HOOK
 
@@ -25,7 +16,6 @@ module.exports = {
     }
 
     try {
-      // START MESSAGE (QUOTED REPLY)
       await sock.sendMessage(
         from,
         {
@@ -34,10 +24,8 @@ module.exports = {
         { quoted: msg }
       )
 
-      // TRIGGER RENDER DEPLOY
       await axios.get(hook)
 
-      // SUCCESS MESSAGE (QUOTED REPLY)
       await sock.sendMessage(
         from,
         {
@@ -47,8 +35,6 @@ module.exports = {
       )
 
     } catch (error) {
-
-      // ERROR MESSAGE (QUOTED REPLY)
       await sock.sendMessage(
         from,
         {
