@@ -1,75 +1,59 @@
-const os = require("os")
-const fs = require("fs")
-const path = require("path")
-
 module.exports = {
-  pattern: ".menu",
+  pattern: "kick",
 
-  run: async ({ sock, from, msg, sender, commands }) => {
+  run: async ({ sock, from, msg, args, isOwner }) => {
 
-    const tag = sender.split("@")[0]
+    const header = `⚡ 𝘾𝙔𝘽𝙀𝙍 𝙓\n${"─".repeat(20)}\n`
 
-    // ───────── SYSTEM INFO ─────────
-    const getDate = () => new Date().toDateString()
-
-    const getUptime = () => {
-      const u = process.uptime()
-      return `${Math.floor(u / 60)}m ${Math.floor(u % 60)}s`
+    // OWNER ONLY
+    if (!isOwner) {
+      return sock.sendMessage(
+        from,
+        { text: `${header}🚫 Access denied. Owner only command.` },
+        { quoted: msg }
+      )
     }
 
-    const getRam = () => {
-      const used = process.memoryUsage().rss / 1024 / 1024
-      const total = os.totalmem() / 1024 / 1024
-      return `${used.toFixed(2)}MB / ${total.toFixed(0)}MB`
+    // GROUP ONLY
+    if (!from.endsWith("@g.us")) {
+      return sock.sendMessage(
+        from,
+        { text: `${header}❌ This command only works in groups.` },
+        { quoted: msg }
+      )
     }
 
-    // ───────── LOCAL COMMANDS ─────────
-    const cmdPath = path.join(process.cwd(), "commands")
+    // GET TARGET — tagged user or replied-to user
+    let target =
+      msg.message?.extendedTextMessage?.contextInfo?.participant ||
+      (args[0] ? args[0].replace(/[^0-9]/g, "") + "@s.whatsapp.net" : null)
 
-    let files = []
+    if (!target) {
+      return sock.sendMessage(
+        from,
+        { text: `${header}❌ Tag a user or reply to their message.\n\n📌 Usage: .kick @user` },
+        { quoted: msg }
+      )
+    }
+
     try {
-      files = fs.readdirSync(cmdPath)
-    } catch {}
+      await sock.groupParticipantsUpdate(from, [target], "remove")
 
-    const localCmds = files
-      .filter(f => f.endsWith(".js"))
-      .map(f => `.${f.replace(".js", "")}`)
+      await sock.sendMessage(
+        from,
+        {
+          text: `${header}✅ @${target.split("@")[0]} has been kicked.\n\n👢 Removed by owner.`,
+          mentions: [target]
+        },
+        { quoted: msg }
+      )
 
-    // ───────── GLOBAL COMMANDS ─────────
-    const globalCmds = Array.from(commands.keys())
-      .map(c => c.startsWith(".") ? c : `.${c}`)
-
-    // ───────── MERGE + REMOVE DUPLICATES ─────────
-    const allCmds = [...new Set([...localCmds, ...globalCmds])].sort()
-
-    // ───────── BOLD MENU TEXT ─────────
-    let text =
-`╭━━━━━━━━━━━━━━━╮
-┃ *🤖 𝘾𝙔𝘽𝙀𝙍 𝙓 MENU*
-╰━━━━━━━━━━━━━━━╯
-
-👤 *User:* @${tag}
-📅 *Date:* ${getDate()}
-⏱ *Uptime:* ${getUptime()}
-💾 *RAM:* ${getRam()}
-📦 *Total Commands:* ${allCmds.length}
-
-╭──〔 *COMMANDS* 〕──╮
-`
-
-    for (const c of allCmds) {
-      text += `┃ ◦ *${c}*\n`
+    } catch (error) {
+      await sock.sendMessage(
+        from,
+        { text: `${header}❌ Failed to kick:\n${error.message}` },
+        { quoted: msg }
+      )
     }
-
-    text += `
-╰━━━━━━━━━━━━━━━╯
-
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃*
-`
-
-    await sock.sendMessage(from, {
-      text,
-      mentions: [sender]
-    }, { quoted: msg })
   }
 }
