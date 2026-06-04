@@ -13,15 +13,31 @@ module.exports = {
     // ───────── SYSTEM INFO ─────────
     const getDate = () => new Date().toDateString()
 
+    const getTime = () => new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit", minute: "2-digit", hour12: true
+    })
+
     const getUptime = () => {
       const u = process.uptime()
-      return `${Math.floor(u / 60)}m ${Math.floor(u % 60)}s`
+      const h = Math.floor(u / 3600)
+      const m = Math.floor((u % 3600) / 60)
+      const s = Math.floor(u % 60)
+      return `${h}h ${m}m ${s}s`
     }
 
     const getRam = () => {
       const used = process.memoryUsage().rss / 1024 / 1024
       const total = os.totalmem() / 1024 / 1024
       return `${used.toFixed(2)}MB / ${total.toFixed(0)}MB`
+    }
+
+    const getCpu = () => {
+      const cpus = os.cpus()
+      return cpus[0].model.split(" ").slice(0, 3).join(" ")
+    }
+
+    const getPlatform = () => {
+      return `${os.type()} ${os.arch()}`
     }
 
     // ───────── LOCAL COMMANDS ─────────
@@ -43,30 +59,43 @@ module.exports = {
     // ───────── MERGE + REMOVE DUPLICATES ─────────
     const allCmds = [...new Set([...localCmds, ...globalCmds])].sort()
 
-    // ───────── BOLD MENU TEXT ─────────
+    // ───────── BUILD FANCY MENU ─────────
     let text =
-`╭━━━━━━━━━━━━━━━╮
-┃ *🤖 𝘾𝙔𝘽𝙀𝙍 𝙓 MENU*
-╰━━━━━━━━━━━━━━━╯
+`╔════════════════════╗
+║  🤖 *𝘾𝙔𝘽𝙀𝙍 𝙓 BOT*  ║
+╚════════════════════╝
 
-👤 *User:* @${tag}
-📅 *Date:* ${getDate()}
-⏱ *Uptime:* ${getUptime()}
-💾 *RAM:* ${getRam()}
-📦 *Total Commands:* ${allCmds.length}
+┌─────〔 👤 *USER INFO* 〕─────
+│ 👤 *User:* @${tag}
+│ 📅 *Date:* ${getDate()}
+│ 🕐 *Time:* ${getTime()}
+└──────────────────────────
 
-╭──〔 *𝘾𝙔𝘽𝙀𝙍 𝙓  COMMANDS* 〕──╮
+┌─────〔 🖥️ *BOT STATUS* 〕─────
+│ ⏱️ *Uptime:* ${getUptime()}
+│ 💾 *RAM:* ${getRam()}
+│ 🖥️ *CPU:* ${getCpu()}
+│ 🌐 *Platform:* ${getPlatform()}
+│ 📦 *Total Cmds:* ${allCmds.length}
+└──────────────────────────
+
+╔════〔 ⚡ *COMMANDS* 〕════╗
 `
 
     for (const c of allCmds) {
-      text += `┃ ◦ *${c}*\n`
+      text += `║  ◈ *${c}*\n`
     }
 
-    text += `
-╰━━━━━━━━━━━━━━━╯
+    text +=
+`╚══════════════════════╝
 
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃*
-`
+❏ *𝘾𝙔𝘽𝙀𝙍 𝙓* — Always Online 24/7
+❏ Powered by *Charles Tech*
+❏ Type any command to get started!
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™* | All Rights Reserved
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰`
 
     // ───────── LOAD MENU IMAGE FROM CATBOX ─────────
     const imgUrl = "https://files.catbox.moe/ncpwqt.jpg"
@@ -79,5 +108,33 @@ module.exports = {
       caption: text,
       mentions: [sender]
     }, { quoted: msg })
+
+    // ───────── FETCH & SEND USER PROFILE PHOTO ─────────
+    try {
+      const ppUrl = await sock.profilePictureUrl(sender, "image")
+      const ppRes = await fetch(ppUrl)
+      const ppImage = Buffer.from(await ppRes.arrayBuffer())
+
+      await sock.sendMessage(from, {
+        image: ppImage,
+        caption:
+`┌─────〔 📸 *PROFILE* 〕─────
+│ 👤 *User:* @${tag}
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        mentions: [sender]
+      }, { quoted: msg })
+
+    } catch {
+      await sock.sendMessage(from, {
+        text:
+`┌─────〔 📸 *PROFILE* 〕─────
+│ ⚠️ @${tag} has no profile photo
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        mentions: [sender]
+      }, { quoted: msg })
+    }
+
   }
 }
