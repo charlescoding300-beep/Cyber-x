@@ -1,7 +1,3 @@
-// ─────────────────────────────────────────────────────────
-//  CYBER X — ULTRA FAST STABLE LOADER  [Termux Optimised]
-// ─────────────────────────────────────────────────────────
-
 require("dotenv").config()
 
 const fs    = require("fs")
@@ -15,225 +11,189 @@ const {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore
+  makeCacheableSignalKeyStore,
 } = require("@whiskeysockets/baileys")
 
-const { settings } = require("./lib/settings")
-
 // ─────────────────────────────────────────────────────────
-//  KEEP-ALIVE SERVER  (port 3000 + auto-ping every 4 min)
+// CRASH GUARD
 // ─────────────────────────────────────────────────────────
 
-const PORT      = process.env.PORT || 3000
-const SELF_URL  = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
-const PING_MS   = 4 * 60 * 1000   // 4 minutes
+process.on("uncaughtException", err => {
+  console.log("⚠️ Crash:", err.message)
+  process.exit(1)
+})
 
-let pingCount   = 0
-let lastPing    = null
-let serverReady = false
+process.on("unhandledRejection", err => {
+  console.log("⚠️ Promise:", err.message)
+  process.exit(1)
+})
 
-// Minimal HTTP server — no extra packages needed
+// ─────────────────────────────────────────────────────────
+// LIB LOADER
+// ─────────────────────────────────────────────────────────
+
+const LIB_DIR = path.join(__dirname, "lib")
+const lib = {}
+
+if (fs.existsSync(LIB_DIR)) {
+  for (const file of fs.readdirSync(LIB_DIR).filter(f => f.endsWith(".js"))) {
+    try {
+      const name = path.basename(file, ".js")
+      const exp = require(path.join(LIB_DIR, file))
+
+      lib[name] = exp
+      Object.assign(lib, exp)
+
+      console.log(`[LIB] ✔ ${file}`)
+    } catch (e) {
+      console.error(`[LIB] ✗ ${file}: ${e.message}`)
+    }
+  }
+}
+
+// SETTINGS
+const settings = lib.settings || {
+  botName: process.env.BOT_NAME || "CYBER X",
+  prefix:  process.env.PREFIX || ".",
+  owner:   process.env.OWNER_NUMBER || "000000"
+}
+
+// ─────────────────────────────────────────────────────────
+// PATHS
+// ─────────────────────────────────────────────────────────
+
+const CMD_DIR = path.join(__dirname, "commands")
+const SESSION_DIR = path.join(__dirname, "session")
+
+if (!fs.existsSync(CMD_DIR)) fs.mkdirSync(CMD_DIR, { recursive: true })
+if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true })
+
+// ─────────────────────────────────────────────────────────
+// PORT + SERVER
+// ─────────────────────────────────────────────────────────
+
+const PORT = process.env.PORT || 3000
+const SELF_URL =
+  process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
+
+let pingCount = 0
+let lastPing = null
+
 const server = http.createServer((req, res) => {
-  const now = new Date().toISOString()
-
   if (req.url === "/ping") {
-    res.writeHead(200, { "Content-Type": "text/plain" })
-    res.end("pong")
-    return
+    res.writeHead(200)
+    return res.end("pong")
   }
 
   if (req.url === "/status") {
-    res.writeHead(200, { "Content-Type": "application/json" })
-    res.end(JSON.stringify({
-      bot:       settings.botName,
-      status:    "online",
-      uptime:    Math.floor(process.uptime()) + "s",
-      pings:     pingCount,
-      lastPing,
-      time:      now,
+    res.writeHead(200)
+    return res.end(JSON.stringify({
+      bot: settings.botName,
+      uptime: process.uptime(),
+      pings: pingCount,
+      lastPing
     }))
-    return
   }
 
-  // Root — visible status page
-  res.writeHead(200, { "Content-Type": "text/html" })
-  res.end(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta http-equiv="refresh" content="30">
-      <title>${settings.botName}</title>
-      <style>
-        body { font-family: monospace; background: #0d0d0d; color: #00ff99;
-               display: flex; justify-content: center; align-items: center;
-               height: 100vh; margin: 0; }
-        .box { border: 1px solid #00ff99; padding: 2rem; border-radius: 8px;
-               min-width: 300px; }
-        h1   { margin: 0 0 1rem; font-size: 1.4rem; }
-        p    { margin: .3rem 0; color: #aaa; }
-        span { color: #00ff99; }
-      </style>
-    </head>
-    <body>
-      <div class="box">
-        <h1>⚡ ${settings.botName}</h1>
-        <p>Status  : <span>ONLINE</span></p>
-        <p>Uptime  : <span>${Math.floor(process.uptime())}s</span></p>
-        <p>Pings   : <span>${pingCount}</span></p>
-        <p>Last ping: <span>${lastPing ?? "—"}</span></p>
-        <p>Port    : <span>${PORT}</span></p>
-        <p style="margin-top:1rem;font-size:.75rem;color:#555">
-          Auto-refreshes every 30s
-        </p>
-      </div>
-    </body>
-    </html>
-  `)
+  res.end("CYBER X ONLINE")
 })
 
 server.listen(PORT, () => {
-  serverReady = true
-  console.log(`[WEB] ✔ Server live → http://localhost:${PORT}`)
-  console.log(`[WEB] ✔ Status page → ${SELF_URL}`)
+  console.log(`[WEB] LIVE → ${PORT}`)
   startPinger()
 })
 
-// ── Auto-pinger ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// AUTO PING (EVERY 4 MINUTES)
+// ─────────────────────────────────────────────────────────
 
 function ping() {
   const url = `${SELF_URL}/ping`
-  const lib  = url.startsWith("https") ? https : http
+  const libReq = url.startsWith("https") ? https : http
 
-  const req = lib.get(url, (res) => {
+  const req = libReq.get(url, () => {
     pingCount++
     lastPing = new Date().toISOString()
-    console.log(`[PING] ✔ #${pingCount} — ${lastPing}`)
+    console.log(`[PING] ✔ #${pingCount}`)
   })
 
-  req.on("error", (e) => {
-    console.warn(`[PING] ✗ ${e.message}`)
-  })
+  req.on("error", e => console.warn("[PING] ✗", e.message))
 
-  req.setTimeout(10_000, () => {
+  req.setTimeout(10000, () => {
     req.destroy()
-    console.warn("[PING] ✗ Timeout after 10s")
+    console.warn("[PING] ✗ timeout")
   })
 }
 
 function startPinger() {
-  // First ping after 10s (let bot connect first), then every 4 min
   setTimeout(() => {
     ping()
-    setInterval(ping, PING_MS)
-  }, 10_000)
+    setInterval(ping, 4 * 60 * 1000) // 4 minutes
+  }, 10000)
 
-  console.log(`[PING] ✔ Auto-ping every ${PING_MS / 60000} min → ${SELF_URL}/ping`)
+  console.log("[PING] AUTO PING ENABLED (4 min)")
 }
 
 // ─────────────────────────────────────────────────────────
-//  COMMAND REGISTRY
+// COMMAND SYSTEM (FAST)
 // ─────────────────────────────────────────────────────────
-
-const CMD_DIR = path.join(__dirname, "commands")
 
 const registry = {
-  map:  new Map(),   // key → command object
-  list: [],          // flat list of patterns (for !menu etc.)
+  map: new Map(),
+  list: []
 }
 
-// Validate a required command shape
-function isValidCmd(mod) {
-  return (
-    mod &&
-    typeof mod.pattern === "string" &&
-    typeof mod.run     === "function"
-  )
-}
+const isValidCmd = m =>
+  m && typeof m.pattern === "string" && typeof m.run === "function"
 
-// Normalise a pattern → lookup key
-function toKey(pattern) {
-  return pattern.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
-}
+const toKey = p =>
+  p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
-// Load ONE file — safe, returns true on success
-function loadFile(file) {
-  const fullPath = path.join(CMD_DIR, file)
-  try {
-    // Bust require cache so edits are picked up on reload
-    delete require.cache[require.resolve(fullPath)]
-    const mod = require(fullPath)
-
-    if (!isValidCmd(mod)) return false
-
-    const key = toKey(mod.pattern)
-    registry.map.set(key, mod)
-    return true
-  } catch (e) {
-    console.error(`[CMD] ✗ ${file}: ${e.message}`)
-    return false
-  }
-}
-
-// Full load — reads directory once, loads in parallel chunks
-// Chunking prevents Termux from hitting the per-process file-descriptor cap
 async function loadCommands() {
-  if (!fs.existsSync(CMD_DIR)) fs.mkdirSync(CMD_DIR, { recursive: true })
-
   const files = fs.readdirSync(CMD_DIR).filter(f => f.endsWith(".js"))
-  if (!files.length) {
-    console.log("[CMD] No commands found in ./commands/")
-    return
-  }
 
   registry.map.clear()
   registry.list = []
 
-  const CHUNK = 10          // files per micro-batch (safe for Termux)
   let ok = 0, fail = 0
-
   const t = Date.now()
 
-  for (let i = 0; i < files.length; i += CHUNK) {
-    const batch = files.slice(i, i + CHUNK)
+  for (const file of files) {
+    try {
+      const full = path.join(CMD_DIR, file)
 
-    // Use Promise.allSettled so one bad file never blocks the batch
-    await Promise.allSettled(
-      batch.map(f => Promise.resolve(loadFile(f) ? ok++ : fail++))
-    )
+      delete require.cache[require.resolve(full)]
+      const mod = require(full)
+
+      if (!isValidCmd(mod)) {
+        fail++
+        continue
+      }
+
+      registry.map.set(toKey(mod.pattern), mod)
+      ok++
+    } catch (e) {
+      fail++
+    }
   }
 
-  // Build flat list AFTER map is fully populated
   registry.list = [...registry.map.values()].map(c => c.pattern)
 
-  const ms = Date.now() - t
-  console.log(
-    `[CMD] ✔ ${ok} loaded${fail ? ` | ✗ ${fail} failed` : ""} — ${ms}ms`
-  )
+  console.log(`[CMD] ⚡ ${ok} OK | ${fail} FAIL | ${Date.now() - t}ms`)
 }
 
-// ─────────────────────────────────────────────────────────
-//  HOT-RELOAD WATCHER  (lightweight, Termux-safe)
-// ─────────────────────────────────────────────────────────
-
-let reloadTimer = null
-
 function watchCommands() {
-  // fs.watch is lighter than chokidar — fine for Termux
-  fs.watch(CMD_DIR, { persistent: false }, (event, filename) => {
-    if (!filename?.endsWith(".js")) return
+  fs.watch(CMD_DIR, { persistent: false }, (_, f) => {
+    if (!f?.endsWith(".js")) return
 
-    // Debounce: only reload once even if many files change together
-    clearTimeout(reloadTimer)
-    reloadTimer = setTimeout(async () => {
-      console.log(`[CMD] ♻️  Change detected (${filename}) — reloading…`)
-      await loadCommands()
-    }, 400)
+    setTimeout(() => {
+      loadCommands()
+    }, 200)
   })
 }
 
 // ─────────────────────────────────────────────────────────
-//  MESSAGE HANDLER
+// MESSAGE HANDLER
 // ─────────────────────────────────────────────────────────
 
 function extractBody(msg) {
@@ -253,19 +213,19 @@ async function handleMessage(sock, msg) {
   const body = extractBody(msg)
   if (!body.startsWith(settings.prefix)) return
 
-  const from   = msg.key.remoteJid
+  const from = msg.key.remoteJid
   const sender = msg.key.participant || from
 
-  const sliced = body.slice(settings.prefix.length).trim()
-  const [rawCmd, ...args] = sliced.split(/\s+/)
-  const cmd = rawCmd?.toLowerCase()
-  if (!cmd) return
+  const [cmdRaw, ...args] =
+    body.slice(settings.prefix.length).trim().split(/\s+/)
 
+  const cmd = cmdRaw?.toLowerCase()
   const command = registry.map.get(cmd)
   if (!command) return
 
-  // Owner check — exact JID match, no partial-string false positives
-  const isOwner = sender === settings.owner || sender.startsWith(`${settings.owner}@`)
+  const isOwner =
+    sender === settings.owner ||
+    sender.startsWith(`${settings.owner}@`)
 
   try {
     await command.run({
@@ -274,56 +234,50 @@ async function handleMessage(sock, msg) {
       msg,
       sender,
       args,
-      text:      args.join(" "),   // clean arg string (no command word)
-      full:      sliced,           // full text after prefix if needed
-      commands:  registry.map,
-      cmdList:   registry.list,
+      text: args.join(" "),
+      full: body,
+      commands: registry.map,
+      cmdList: registry.list,
       settings,
-      isOwner,
+      lib,
+      isOwner
     })
   } catch (e) {
-    console.error(`[RUN] ✗ ${cmd}: ${e.message}`)
+    console.log("[RUN ERROR]", e.message)
   }
 }
 
 // ─────────────────────────────────────────────────────────
-//  BOT CORE
+// BOT CORE
 // ─────────────────────────────────────────────────────────
 
 let retries = 0
-const MAX_RETRIES = 10
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState("./session")
-  const { version }          = await fetchLatestBaileysVersion()
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
+  const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
     version,
     auth: {
       creds: state.creds,
-      // makeCacheableSignalKeyStore reduces repeated disk reads — big win on Termux
       keys: makeCacheableSignalKeyStore(state.keys, Pino({ level: "silent" }))
     },
-    logger:            Pino({ level: "silent" }),
+    logger: Pino({ level: "silent" }),
     printQRInTerminal: true,
-    markOnlineOnConnect: false,   // saves battery / data on mobile
-    syncFullHistory:   false,
-    generateHighQualityLinkPreview: false,
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
   })
 
-  // Load commands once, then watch for changes
   await loadCommands()
   watchCommands()
 
-  // ── Events ─────────────────────────────────────────────
-
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return
-    // Process messages concurrently — fine for a small bot
     await Promise.allSettled(messages.map(m => handleMessage(sock, m)))
   })
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
     if (connection === "open") {
       retries = 0
       console.log(`⚡ ${settings.botName} ONLINE`)
@@ -331,22 +285,14 @@ async function startBot() {
 
     if (connection === "close") {
       const code = lastDisconnect?.error?.output?.statusCode
-      const out  = code === DisconnectReason.loggedOut
+      const loggedOut = code === DisconnectReason.loggedOut
 
-      console.log(`[NET] Disconnected — code ${code ?? "unknown"}`)
+      if (loggedOut) return process.exit(0)
 
-      if (out) {
-        console.log("❌ Logged out. Delete ./session and restart.")
-        process.exit(0)
-      }
-
-      if (retries < MAX_RETRIES) {
+      if (retries < 10) {
         retries++
-        const delay = Math.min(3000 * retries, 30_000)  // back-off up to 30 s
-        console.log(`♻️  Reconnecting in ${delay / 1000}s… (attempt ${retries}/${MAX_RETRIES})`)
-        setTimeout(startBot, delay)
+        setTimeout(startBot, 500)
       } else {
-        console.log("❌ Max retries reached. Exiting.")
         process.exit(1)
       }
     }
@@ -356,10 +302,10 @@ async function startBot() {
 }
 
 // ─────────────────────────────────────────────────────────
-//  ENTRY
+// START
 // ─────────────────────────────────────────────────────────
 
 startBot().catch(e => {
-  console.error("[BOOT]", e.message)
+  console.log("[BOOT]", e.message)
   process.exit(1)
 })

@@ -1,6 +1,7 @@
 const os = require("os")
 const fs = require("fs")
 const path = require("path")
+const fetch = require("node-fetch")
 
 module.exports = {
   pattern: ".menu",
@@ -54,7 +55,7 @@ module.exports = {
 💾 *RAM:* ${getRam()}
 📦 *Total Commands:* ${allCmds.length}
 
-╭──〔 *COMMANDS* 〕──╮
+╭──〔 *𝘾𝙔𝘽𝙀𝙍 𝙓  COMMANDS* 〕──╮
 `
 
     for (const c of allCmds) {
@@ -67,8 +68,15 @@ module.exports = {
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃*
 `
 
+    // ───────── LOAD MENU IMAGE FROM CATBOX ─────────
+    const imgUrl = "https://files.catbox.moe/ncpwqt.jpg"
+    const imgRes = await fetch(imgUrl)
+    const image = Buffer.from(await imgRes.arrayBuffer())
+
+    // ───────── SEND IMAGE + MENU AS CAPTION ─────────
     await sock.sendMessage(from, {
-      text,
+      image,
+      caption: text,
       mentions: [sender]
     }, { quoted: msg })
   }

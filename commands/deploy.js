@@ -19,7 +19,7 @@ module.exports = {
       await sock.sendMessage(
         from,
         {
-          text: "🚀 CYBER X Deploying...\n⚡ Sending request to Render..."
+          text: "🚀 𝘾𝙔𝘽𝙀𝙍 𝙓  Deploying...\n⚡ Sending request to Render..."
         },
         { quoted: msg }
       )
@@ -29,7 +29,7 @@ module.exports = {
       await sock.sendMessage(
         from,
         {
-          text: "✅ Deploy triggered successfully!\n🔁 Render is updating CYBER X now..."
+          text: "✅ Deploy triggered successfully!\n✅ 𝘾𝙔𝘽𝙀𝙍 𝙓 Updated Successfully 🌡️   now..."
         },
         { quoted: msg }
       )
