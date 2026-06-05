@@ -1,55 +1,38 @@
-// commands/video.js — CYBER X AI (Video Only | Render Stable)
+// CYBER X AI — VIDEO COMMAND (RENDER STABLE + FAST)
 
+const fs = require("fs")
+const path = require("path")
+const axios = require("axios")
 const { exec } = require("child_process")
-const fs       = require("fs")
-const path     = require("path")
-const axios    = require("axios")
-const util     = require("util")
+const util = require("util")
 
 const execAsync = util.promisify(exec)
 
 const CREDIT = "© 𝕮𝖄𝕭𝕰𝕽 𝖃"
 
-// ─────────────────────────────────────────────────────────
-// Render-safe temp directory (DO NOT use /tmp unicode folders)
-// ─────────────────────────────────────────────────────────
-
+// ───── SAFE TEMP DIR ─────
 const TMP = path.join(process.cwd(), "tmp", "cyberx")
 
 if (!fs.existsSync(TMP)) {
   fs.mkdirSync(TMP, { recursive: true })
 }
 
-// ─────────────────────────────────────────────────────────
-
-function cleanName(str) {
-  return str.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50)
+// ───── HELPERS ─────
+function cleanName(str = "") {
+  return str.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)
 }
 
-function formatDuration(secs) {
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
+function formatDuration(sec = 0) {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
   return `${m}:${s.toString().padStart(2, "0")}`
 }
 
-// ─────────────────────────────────────────────────────────
-// YouTube search (yt-dlp required on Render)
-// ─────────────────────────────────────────────────────────
-
-async function searchYouTube(query) {
-  const { stdout } = await execAsync(
-    `yt-dlp "ytsearch1:${query}" --dump-json --no-playlist --no-warnings`
-  )
-  return JSON.parse(stdout.trim())
-}
-
-// ─────────────────────────────────────────────────────────
-
-async function getThumbnail(url) {
+async function getThumb(url) {
   try {
     const res = await axios.get(url, {
       responseType: "arraybuffer",
-      timeout: 10000
+      timeout: 8000
     })
     return Buffer.from(res.data)
   } catch {
@@ -57,8 +40,7 @@ async function getThumbnail(url) {
   }
 }
 
-// ─────────────────────────────────────────────────────────
-
+// ───── MAIN COMMAND ─────
 module.exports = {
   pattern: "video",
 
@@ -68,112 +50,82 @@ module.exports = {
     if (!query) {
       return sock.sendMessage(from, {
         text:
-          `🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO — Usage*\n\n` +
-          `*.video <video name>*\n\n` +
-          `*Examples:*\n` +
-          `• .video Burna Boy Last Last\n` +
-          `• .video Funny cats compilation\n` +
-          `• .video Ronaldo skills 2024\n\n` +
-          `⚠️ Max duration: *5 minutes*\n\n` +
-          `> ${CREDIT}`
+`🎬 𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO
+
+.video <name>
+
+Example:
+• .video Burna Boy Last Last
+• .video Ronaldo skills
+• .video Funny cats
+
+> ${CREDIT}`
       }, { quoted: msg })
     }
 
     await sock.sendMessage(from, {
       text:
-        `🔍 *𝘾𝙔𝘽𝙀𝙍 𝙓  AI*\n\n` +
-        `🎬 Searching: _${query}_\nPlease wait...\n\n` +
-        `> ${CREDIT}`
+`⚡ 𝘾𝙔𝘽𝙀𝙍 𝙓  decrypting...🦠
+🔍 Searching: ${query}`
     }, { quoted: msg })
 
-    await sock.sendPresenceUpdate("recording", from)
-
-    const fileId   = `${Date.now()}_${cleanName(query)}`
-    const videoOut = path.join(TMP, `${fileId}.mp4`)
+    const file = path.join(TMP, `${Date.now()}_${cleanName(query)}.mp4`)
 
     try {
-      // ── Search YouTube ─────────────────────────────────────────────
-      const info = await searchYouTube(query)
-
-      const title    = info.title || query
-      const uploader = info.uploader || "Unknown"
-      const duration = info.duration ? formatDuration(info.duration) : "?"
-      const vidUrl   = info.webpage_url || info.url
-      const thumbUrl = info.thumbnail || null
-      const views    = info.view_count
-        ? Number(info.view_count).toLocaleString()
-        : "?"
-
-      // ── Duration Guard (Render-safe) ───────────────────────────────
-      if (info.duration > 300) {
-        return sock.sendMessage(from, {
-          text:
-            `❌ Video too long (max 5 mins)\n` +
-            `Found: _${title}_ (${formatDuration(info.duration)})\n\n` +
-            `> ${CREDIT}`
-        }, { quoted: msg })
-      }
-
-      // ── Thumbnail ───────────────────────────────────────────────────
-      const thumb = thumbUrl ? await getThumbnail(thumbUrl) : null
-
-      if (thumb) {
-        await sock.sendMessage(from, {
-          image: thumb,
-          caption:
-            `╔═══════════════════╗\n` +
-            `║  🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO*  ║\n` +
-            `╚═══════════════════╝\n\n` +
-            `🎬 *${title}*\n` +
-            `👤 *Channel:* ${uploader}\n` +
-            `⏱️ *Duration:* ${duration}\n` +
-            `👁️ *Views:* ${views}\n\n` +
-            `⏳ _Downloading video..._\n\n` +
-            `> ${CREDIT}`
-        }, { quoted: msg })
-      }
-
-      // ── Download (Render-safe yt-dlp) ──────────────────────────────
-      await execAsync(
-        `yt-dlp -f "bv*+ba/best" --merge-output-format mp4 ` +
+      // ───── DIRECT DOWNLOAD (FAST + NO PRESEARCH CRASH) ─────
+      const cmd =
+        `yt-dlp "ytsearch1:${query}" ` +
+        `-f "bv*+ba/best" ` +
+        `--merge-output-format mp4 ` +
         `--no-playlist --no-warnings ` +
-        `-o "${videoOut}" "ytsearch1:${query}"`
-      )
+        `-o "${file}"`
 
-      if (!fs.existsSync(videoOut)) {
-        throw new Error("Download failed or file missing")
+      await execAsync(cmd)
+
+      if (!fs.existsSync(file)) {
+        throw new Error("Video file not created")
       }
 
-      const videoBuf = fs.readFileSync(videoOut)
+      const stat = fs.statSync(file)
 
-      // ── Send video (safe for Render memory) ────────────────────────
+      // safety: avoid huge files crashing Render
+      if (stat.size > 45 * 1024 * 1024) {
+        fs.unlinkSync(file)
+
+        return sock.sendMessage(from, {
+          text: "❌ Video too large (limit 45MB)"
+        }, { quoted: msg })
+      }
+
+      const buffer = fs.readFileSync(file)
+
       await sock.sendMessage(from, {
-        video: videoBuf,
+        video: buffer,
         mimetype: "video/mp4",
         caption:
-          `🎬 *${title}*\n\n` +
-          `👤 ${uploader}\n` +
-          `⏱️ ${duration}\n\n` +
-          `> ${CREDIT}`
+`🎬 𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO
+
+${query}
+
+> ${CREDIT}`
       }, { quoted: msg })
 
-      // ── Cleanup ────────────────────────────────────────────────────
-      try {
-        fs.unlinkSync(videoOut)
-      } catch {}
+      fs.unlinkSync(file)
 
     } catch (e) {
-      console.error("VIDEO ERROR:", e.message)
+      console.log("VIDEO ERROR:", e.message)
 
       try {
-        if (fs.existsSync(videoOut)) fs.unlinkSync(videoOut)
+        if (fs.existsSync(file)) fs.unlinkSync(file)
       } catch {}
 
       await sock.sendMessage(from, {
         text:
-          `⚠️ Could not download video\n` +
-          `Try a shorter or different query.\n\n` +
-          `> ${CREDIT}`
+`❌ VIDEO FAILED
+
+Query: ${query}
+
+Try shorter or different video`
       }, { quoted: msg })
     }
   }
