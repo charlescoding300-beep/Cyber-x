@@ -59,7 +59,7 @@ module.exports = {
     // ───────── MERGE + REMOVE DUPLICATES ─────────
     const allCmds = [...new Set([...localCmds, ...globalCmds])].sort()
 
-    // ───────── BUILD FANCY MENU ─────────
+    // ───────── BUILD MENU TEXT ─────────
     let text =
 `╔════════════════════╗
 ║  🤖 *𝘾𝙔𝘽𝙀𝙍 𝙓 BOT*  ║
@@ -79,7 +79,7 @@ module.exports = {
 │ 📦 *Total Cmds:* ${allCmds.length}
 └──────────────────────────
 
-╔════〔 ⚡ *COMMANDS* 〕════╗
+╔════〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓  COMMANDS* 〕════╗
 `
 
     for (const c of allCmds) {
@@ -94,7 +94,7 @@ module.exports = {
 ❏ Type any command to get started!
 
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™* | All Rights Reserved
+> © *𝕮𝖄𝖡𝙴𝚁 𝖃 ™* | All Rights Reserved
 ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰`
 
     // ───────── LOAD MENU IMAGE FROM CATBOX ─────────
@@ -108,33 +108,5 @@ module.exports = {
       caption: text,
       mentions: [sender]
     }, { quoted: msg })
-
-    // ───────── FETCH & SEND USER PROFILE PHOTO ─────────
-    try {
-      const ppUrl = await sock.profilePictureUrl(sender, "image")
-      const ppRes = await fetch(ppUrl)
-      const ppImage = Buffer.from(await ppRes.arrayBuffer())
-
-      await sock.sendMessage(from, {
-        image: ppImage,
-        caption:
-`┌─────〔 📸 *PROFILE* 〕─────
-│ 👤 *User:* @${tag}
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        mentions: [sender]
-      }, { quoted: msg })
-
-    } catch {
-      await sock.sendMessage(from, {
-        text:
-`┌─────〔 📸 *PROFILE* 〕─────
-│ ⚠️ @${tag} has no profile photo
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        mentions: [sender]
-      }, { quoted: msg })
-    }
-
   }
 }
