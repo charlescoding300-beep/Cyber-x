@@ -6,7 +6,7 @@ const axios = require("axios")
 const ytdlp = require("yt-dlp-exec")
 
 const CREDIT = "© 𝕮𝖄𝕭𝕰𝕽 𝖃"
-const TMP = "/tmp/cyberx"
+const TMP = path.join(process.cwd(), "tmp", "cyberx")
 
 if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true })
 
@@ -22,7 +22,10 @@ function formatDuration(sec = 0) {
 
 async function getThumb(url) {
   try {
-    const res = await axios.get(url, { responseType: "arraybuffer" })
+    const res = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout: 10000
+    })
     return Buffer.from(res.data)
   } catch {
     return null
@@ -52,7 +55,6 @@ Examples:
       }, { quoted: msg })
     }
 
-    // ⚡ FAST STATUS MESSAGE
     await sock.sendMessage(from, {
       text:
 `⚡ 𝘾𝙔𝘽𝙀𝙍 𝙓  decrypting...🖕
@@ -61,15 +63,21 @@ Examples:
     }, { quoted: msg })
 
     try {
-      // ───── FAST YOUTUBE SEARCH ─────
+
+      // ───── FIX 1: safer search (prevents crash JSON parse issues)
       const info = await ytdlp(`ytsearch1:${query}`, {
         dumpSingleJson: true,
         noPlaylist: true,
-        quiet: true
+        quiet: true,
+        defaultSearch: "ytsearch1"
       })
 
+      if (!info || !info.title) {
+        throw new Error("No video found")
+      }
+
       const title = info.title || query
-      const url = info.webpage_url || info.original_url
+      const url = info.webpage_url || info.url
       const duration = info.duration || 0
 
       if (duration > 600) {
@@ -82,8 +90,11 @@ Song too long (max 10 min)
         }, { quoted: msg })
       }
 
-      // ───── THUMBNAIL ─────
-      const thumb = info.thumbnail ? await getThumb(info.thumbnail) : null
+      // ───── FIX 2: thumbnail safety + faster response
+      let thumb = null
+      if (info.thumbnail) {
+        thumb = await getThumb(info.thumbnail)
+      }
 
       if (thumb) {
         await sock.sendMessage(from, {
@@ -101,22 +112,26 @@ Song too long (max 10 min)
         }, { quoted: msg })
       }
 
-      // ───── FILE OUTPUT ─────
       const file = path.join(TMP, `${Date.now()}_${cleanName(title)}.mp3`)
 
-      // ───── DOWNLOAD (FAST + CLEAN) ─────
+      // ───── FIX 3: more stable download flags for Render
       await ytdlp(url, {
         extractAudio: true,
         audioFormat: "mp3",
         audioQuality: 0,
         output: file,
         noWarnings: true,
-        noPlaylist: true
+        noPlaylist: true,
+        quiet: true,
+        retries: 3
       })
+
+      if (!fs.existsSync(file)) {
+        throw new Error("Download failed")
+      }
 
       const audio = fs.readFileSync(file)
 
-      // ───── SEND AUDIO ─────
       await sock.sendMessage(from, {
         audio,
         mimetype: "audio/mpeg",
@@ -124,7 +139,6 @@ Song too long (max 10 min)
         fileName: `${title}.mp3`
       }, { quoted: msg })
 
-      // cleanup
       fs.unlinkSync(file)
 
     } catch (e) {

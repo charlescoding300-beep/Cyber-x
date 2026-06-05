@@ -1,22 +1,13 @@
-// CYBER X SAY — USA FEMALE VOICE (EDGE TTS)
+// commands/say.js — CYBER X CLEAN COMMAND
 
 const fs = require("fs")
-const path = require("path")
-const { exec } = require("child_process")
-const util = require("util")
-
-const execAsync = util.promisify(exec)
-
-const TMP = path.join(process.cwd(), "tmp", "cyberx")
-
-if (!fs.existsSync(TMP)) {
-  fs.mkdirSync(TMP, { recursive: true })
-}
+const { say } = require("../lib/say")
 
 module.exports = {
   pattern: "say",
 
   run: async ({ sock, from, msg, args }) => {
+
     const text = args.join(" ").trim()
 
     if (!text) {
@@ -25,15 +16,10 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    const file = path.join(TMP, `${Date.now()}.mp3`)
-
     try {
-      // 🇺🇸 USA FEMALE VOICE (GEMINI-LIKE STYLE)
-      await execAsync(
-        `npx edge-tts --text "${text}" --voice en-US-JennyNeural --write-media "${file}"`
-      )
+      const audioPath = await say(text)
 
-      const audio = fs.readFileSync(file)
+      const audio = fs.readFileSync(audioPath)
 
       await sock.sendMessage(from, {
         audio,
@@ -41,14 +27,15 @@ module.exports = {
         ptt: true
       }, { quoted: msg })
 
-      fs.unlinkSync(file)
+      fs.unlinkSync(audioPath)
 
     } catch (err) {
-      console.log("TTS ERROR:", err.message)
+      console.log("SAY COMMAND ERROR:", err.message)
 
       await sock.sendMessage(from, {
-        text: "❌ Voice failed. Try again."
+        text: "❌ Voice failed. CYBER ENGINE ERROR"
       }, { quoted: msg })
     }
   }
 }
+

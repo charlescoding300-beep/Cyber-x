@@ -1,7 +1,7 @@
 const os = require("os")
 const fs = require("fs")
 const path = require("path")
-const fetch = require("node-fetch")
+const axios = require("axios")
 
 module.exports = {
   pattern: ".menu",
@@ -13,9 +13,12 @@ module.exports = {
     // ───────── SYSTEM INFO ─────────
     const getDate = () => new Date().toDateString()
 
-    const getTime = () => new Date().toLocaleTimeString("en-US", {
-      hour: "2-digit", minute: "2-digit", hour12: true
-    })
+    const getTime = () =>
+      new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      })
 
     const getUptime = () => {
       const u = process.uptime()
@@ -36,11 +39,10 @@ module.exports = {
       return cpus[0].model.split(" ").slice(0, 3).join(" ")
     }
 
-    const getPlatform = () => {
-      return `${os.type()} ${os.arch()}`
-    }
+    const getPlatform = () =>
+      `${os.type()} ${os.arch()}`
 
-    // ───────── LOCAL COMMANDS ─────────
+    // ───────── COMMAND LIST ─────────
     const cmdPath = path.join(process.cwd(), "commands")
 
     let files = []
@@ -52,14 +54,13 @@ module.exports = {
       .filter(f => f.endsWith(".js"))
       .map(f => `.${f.replace(".js", "")}`)
 
-    // ───────── GLOBAL COMMANDS ─────────
-    const globalCmds = Array.from(commands.keys())
-      .map(c => c.startsWith(".") ? c : `.${c}`)
+    const globalCmds = Array.from(commands.keys()).map(c =>
+      c.startsWith(".") ? c : `.${c}`
+    )
 
-    // ───────── MERGE + REMOVE DUPLICATES ─────────
     const allCmds = [...new Set([...localCmds, ...globalCmds])].sort()
 
-    // ───────── BUILD MENU TEXT ─────────
+    // ───────── MENU TEXT ─────────
     let text =
 `╔════════════════════╗
 ║  🤖 *𝘾𝙔𝘽𝙀𝙍 𝙓 BOT*  ║
@@ -87,26 +88,37 @@ module.exports = {
     }
 
     text +=
-`╚══════════════════════╝
-
+`\n╚══════════════════════╝
 ❏ *𝘾𝙔𝘽𝙀𝙍 𝙓* — Always Online 24/7
 ❏ Powered by *Charles Tech*
-❏ Type any command to get started!
+> © 𝕮𝖄𝖡𝙴𝚁 𝖃 ™`
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
-> © *𝕮𝖄𝖡𝙴𝚁 𝖃 ™* | All Rights Reserved
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰`
-
-    // ───────── LOAD MENU IMAGE FROM CATBOX ─────────
+    // ───────── FAST IMAGE (FIXED) ─────────
     const imgUrl = "https://files.catbox.moe/ncpwqt.jpg"
-    const imgRes = await fetch(imgUrl)
-    const image = Buffer.from(await imgRes.arrayBuffer())
 
-    // ───────── SEND IMAGE + MENU AS CAPTION ─────────
-    await sock.sendMessage(from, {
-      image,
-      caption: text,
-      mentions: [sender]
-    }, { quoted: msg })
+    let imageBuffer
+    try {
+      const res = await axios.get(imgUrl, {
+        responseType: "arraybuffer",
+        timeout: 10000
+      })
+      imageBuffer = Buffer.from(res.data)
+    } catch (e) {
+      imageBuffer = null
+    }
+
+    // ───────── SEND MENU ─────────
+    if (imageBuffer) {
+      await sock.sendMessage(from, {
+        image: imageBuffer,
+        caption: text,
+        mentions: [sender]
+      }, { quoted: msg })
+    } else {
+      await sock.sendMessage(from, {
+        text: text,
+        mentions: [sender]
+      }, { quoted: msg })
+    }
   }
 }
