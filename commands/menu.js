@@ -80,7 +80,7 @@ module.exports = {
 │ 📦 *Total Cmds:* ${allCmds.length}
 └──────────────────────────
 
-╔════〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓  COMMANDS* 〕════╗
+╔════〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓 COMMANDS* 〕════╗
 `
 
     for (const c of allCmds) {

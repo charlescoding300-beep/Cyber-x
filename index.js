@@ -1,10 +1,10 @@
 require("dotenv").config()
 
-const fs    = require("fs")
-const path  = require("path")
-const http  = require("http")
+const fs = require("fs")
+const path = require("path")
+const http = require("http")
 const https = require("https")
-const Pino  = require("pino")
+const Pino = require("pino")
 
 const {
   default: makeWASocket,
@@ -14,53 +14,16 @@ const {
   makeCacheableSignalKeyStore,
 } = require("@whiskeysockets/baileys")
 
-// ─────────────────────────────────────────────────────────
-// CRASH GUARD
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
+// SAFETY
+// ─────────────────────────────
 
-process.on("uncaughtException", err => {
-  console.log("⚠️ Crash:", err.message)
-  process.exit(1)
-})
+process.on("uncaughtException", err => console.log("⚠️", err.message))
+process.on("unhandledRejection", err => console.log("⚠️", err?.message || err))
 
-process.on("unhandledRejection", err => {
-  console.log("⚠️ Promise:", err.message)
-  process.exit(1)
-})
-
-// ─────────────────────────────────────────────────────────
-// LIB LOADER
-// ─────────────────────────────────────────────────────────
-
-const LIB_DIR = path.join(__dirname, "lib")
-const lib = {}
-
-if (fs.existsSync(LIB_DIR)) {
-  for (const file of fs.readdirSync(LIB_DIR).filter(f => f.endsWith(".js"))) {
-    try {
-      const name = path.basename(file, ".js")
-      const exp = require(path.join(LIB_DIR, file))
-
-      lib[name] = exp
-      Object.assign(lib, exp)
-
-      console.log(`[LIB] ✔ ${file}`)
-    } catch (e) {
-      console.error(`[LIB] ✗ ${file}: ${e.message}`)
-    }
-  }
-}
-
-// SETTINGS
-const settings = lib.settings || {
-  botName: process.env.BOT_NAME || "CYBER X",
-  prefix:  process.env.PREFIX || ".",
-  owner:   process.env.OWNER_NUMBER || "000000"
-}
-
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
 // PATHS
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
 
 const CMD_DIR = path.join(__dirname, "commands")
 const SESSION_DIR = path.join(__dirname, "session")
@@ -68,133 +31,102 @@ const SESSION_DIR = path.join(__dirname, "session")
 if (!fs.existsSync(CMD_DIR)) fs.mkdirSync(CMD_DIR, { recursive: true })
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true })
 
-// ─────────────────────────────────────────────────────────
-// PORT + SERVER
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
+// SETTINGS
+// ─────────────────────────────
+
+const settings = {
+  botName: process.env.BOT_NAME || "CYBER X",
+  prefix: process.env.PREFIX || ".",
+  owner: process.env.OWNER_NUMBER || ""
+}
+
+// ─────────────────────────────
+// WEB SERVER (RENDER KEEP ALIVE BASE)
+// ─────────────────────────────
 
 const PORT = process.env.PORT || 3000
-const SELF_URL =
+const BASE_URL =
   process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
 
 let pingCount = 0
-let lastPing = null
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/ping") {
-    res.writeHead(200)
-    return res.end("pong")
-  }
+http.createServer((req, res) => {
+  if (req.url === "/") return res.end("CYBER X ONLINE")
+  if (req.url === "/ping") return res.end("pong")
 
   if (req.url === "/status") {
-    res.writeHead(200)
     return res.end(JSON.stringify({
       bot: settings.botName,
       uptime: process.uptime(),
-      pings: pingCount,
-      lastPing
+      pings: pingCount
     }))
   }
 
-  res.end("CYBER X ONLINE")
-})
-
-server.listen(PORT, () => {
+  res.end("OK")
+}).listen(PORT, () => {
   console.log(`[WEB] LIVE → ${PORT}`)
-  startPinger()
 })
 
-// ─────────────────────────────────────────────────────────
-// AUTO PING (EVERY 4 MINUTES)
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
+// KEEP ALIVE PING SYSTEM
+// ─────────────────────────────
 
 function ping() {
-  const url = `${SELF_URL}/ping`
-  const libReq = url.startsWith("https") ? https : http
+  const url = `${BASE_URL}/ping`
+  const lib = url.startsWith("https") ? https : http
 
-  const req = libReq.get(url, () => {
+  const req = lib.get(url, () => {
     pingCount++
-    lastPing = new Date().toISOString()
-    console.log(`[PING] ✔ #${pingCount}`)
+    console.log(`[PING] #${pingCount}`)
   })
 
-  req.on("error", e => console.warn("[PING] ✗", e.message))
-
-  req.setTimeout(10000, () => {
-    req.destroy()
-    console.warn("[PING] ✗ timeout")
-  })
+  req.on("error", () => {})
+  req.setTimeout(8000, () => req.destroy())
 }
 
-function startPinger() {
-  setTimeout(() => {
-    ping()
-    setInterval(ping, 4 * 60 * 1000) // 4 minutes
-  }, 10000)
+setInterval(ping, 4 * 60 * 1000) // every 4 min
 
-  console.log("[PING] AUTO PING ENABLED (4 min)")
-}
+// ─────────────────────────────
+// COMMAND SYSTEM (FAST LOAD)
+// ─────────────────────────────
 
-// ─────────────────────────────────────────────────────────
-// COMMAND SYSTEM (FAST)
-// ─────────────────────────────────────────────────────────
+const registry = new Map()
 
-const registry = {
-  map: new Map(),
-  list: []
-}
+function loadCommands() {
+  registry.clear()
 
-const isValidCmd = m =>
-  m && typeof m.pattern === "string" && typeof m.run === "function"
-
-const toKey = p =>
-  p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
-
-async function loadCommands() {
   const files = fs.readdirSync(CMD_DIR).filter(f => f.endsWith(".js"))
-
-  registry.map.clear()
-  registry.list = []
-
-  let ok = 0, fail = 0
-  const t = Date.now()
 
   for (const file of files) {
     try {
       const full = path.join(CMD_DIR, file)
-
       delete require.cache[require.resolve(full)]
-      const mod = require(full)
 
-      if (!isValidCmd(mod)) {
-        fail++
-        continue
-      }
+      const cmd = require(full)
+      if (!cmd?.pattern || !cmd?.run) continue
 
-      registry.map.set(toKey(mod.pattern), mod)
-      ok++
+      const key = cmd.pattern
+        .replace(/^[^a-z0-9]*/i, "")
+        .toLowerCase()
+
+      registry.set(key, cmd)
     } catch (e) {
-      fail++
+      console.log("[CMD FAIL]", file)
     }
   }
 
-  registry.list = [...registry.map.values()].map(c => c.pattern)
-
-  console.log(`[CMD] ⚡ ${ok} OK | ${fail} FAIL | ${Date.now() - t}ms`)
+  console.log(`[CMD] Loaded: ${registry.size}`)
 }
 
-function watchCommands() {
-  fs.watch(CMD_DIR, { persistent: false }, (_, f) => {
-    if (!f?.endsWith(".js")) return
+loadCommands()
 
-    setTimeout(() => {
-      loadCommands()
-    }, 200)
-  })
-}
+// reload safely (no spam loops)
+fs.watch(CMD_DIR, () => loadCommands())
 
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
 // MESSAGE HANDLER
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
 
 function extractBody(msg) {
   const m = msg.message
@@ -216,16 +148,14 @@ async function handleMessage(sock, msg) {
   const from = msg.key.remoteJid
   const sender = msg.key.participant || from
 
-  const [cmdRaw, ...args] =
-    body.slice(settings.prefix.length).trim().split(/\s+/)
+  const raw = body.slice(settings.prefix.length).trim()
+  const space = raw.indexOf(" ")
 
-  const cmd = cmdRaw?.toLowerCase()
-  const command = registry.map.get(cmd)
+  const cmd = (space === -1 ? raw : raw.slice(0, space)).toLowerCase()
+  const text = space === -1 ? "" : raw.slice(space + 1)
+
+  const command = registry.get(cmd)
   if (!command) return
-
-  const isOwner =
-    sender === settings.owner ||
-    sender.startsWith(`${settings.owner}@`)
 
   try {
     await command.run({
@@ -233,65 +163,71 @@ async function handleMessage(sock, msg) {
       from,
       msg,
       sender,
-      args,
-      text: args.join(" "),
-      full: body,
-      commands: registry.map,
-      cmdList: registry.list,
-      settings,
-      lib,
-      isOwner
+      text,
+      args: text ? text.split(/\s+/) : [],
+      settings
     })
   } catch (e) {
-    console.log("[RUN ERROR]", e.message)
+    console.log("[CMD ERROR]", e.message)
   }
 }
 
-// ─────────────────────────────────────────────────────────
-// BOT CORE
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────
+// BOT CORE (STABLE + FAST)
+// ─────────────────────────────
 
+let running = false
 let retries = 0
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
-  const { version } = await fetchLatestBaileysVersion()
+  if (running) return
+  running = true
+
+  console.log("[WA] Starting...")
+
+  const { state, saveCreds } =
+    await useMultiFileAuthState(SESSION_DIR)
+
+  const { version } =
+    await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
     version,
     auth: {
       creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, Pino({ level: "silent" }))
+      keys: makeCacheableSignalKeyStore(
+        state.keys,
+        Pino({ level: "silent" })
+      )
     },
     logger: Pino({ level: "silent" }),
-    printQRInTerminal: true,
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
+    printQRInTerminal: true
   })
 
-  await loadCommands()
-  watchCommands()
+  loadCommands()
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
     if (type !== "notify") return
-    await Promise.allSettled(messages.map(m => handleMessage(sock, m)))
+    for (const m of messages) handleMessage(sock, m)
   })
 
   sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
     if (connection === "open") {
-      retries = 0
       console.log(`⚡ ${settings.botName} ONLINE`)
+      retries = 0
     }
 
     if (connection === "close") {
+      running = false
+
       const code = lastDisconnect?.error?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
 
-      if (loggedOut) return process.exit(0)
+      if (loggedOut) return console.log("Session expired")
 
       if (retries < 10) {
         retries++
-        setTimeout(startBot, 500)
+        setTimeout(startBot, 2000)
       } else {
         process.exit(1)
       }
@@ -301,11 +237,4 @@ async function startBot() {
   sock.ev.on("creds.update", saveCreds)
 }
 
-// ─────────────────────────────────────────────────────────
-// START
-// ─────────────────────────────────────────────────────────
-
-startBot().catch(e => {
-  console.log("[BOOT]", e.message)
-  process.exit(1)
-})
+startBot()
