@@ -23,7 +23,7 @@
     "pino": "^8.17.2",
     "tesseract.js": "^7.0.0",
 
-    "yt-dlp-exec": "^3.0.0",
+    "yt-dlp-exec": "1.0.5",
 
     "ffmpeg-static": "^5.2.0"
   }
