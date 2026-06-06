@@ -1,136 +1,252 @@
-// ─────────────────────────────────────────
-//   commands/antilink.js — CYBER X Antilink Command
-// ─────────────────────────────────────────
-
-const {
-  containsLink,
-  enableAntilink,
-  disableAntilink,
-  isAntilinkEnabled,
-  getAction,
-  addWarning,
-  getWarnings,
-  resetWarnings,
-} = require("../lib/antilink")
+// ─────────────────────────────────────────────────────────
+// commands/antilink.js — CYBER X ANTILINK COMMAND
+//
+// Usage:
+//   .antilink on          → enable (warn mode)
+//   .antilink off         → disable
+//   .antilink delete      → delete links only, no warning
+//   .antilink warn        → warn 3x then kick
+//   .antilink kick        → kick at 3 warnings
+//   .antilink ocr on/off  → enable/disable image link scanning
+//   .antilink status      → show current settings
+//   .antilink reset @user → reset a user's warnings
+// ─────────────────────────────────────────────────────────
 
 module.exports = {
-  pattern: ".antilink",
+  pattern:  "antilink",
+  desc:     "Ultra antilink — detects every link + hidden/obfuscated/image links",
+  category: "group",
 
-  run: async ({ sock, from, msg, sender, args, isGroup, isAdmin, isBotAdmin }) => {
+  async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup }) {
 
-    const tag = sender.split("@")[0]
-
-    // ───────── MUST BE IN A GROUP ─────────
     if (!isGroup) {
-      return await sock.sendMessage(from, {
-        text:
-`┌─────〔 ⚠️ *ERROR* 〕─────
-│ ❌ This command only works in groups!
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
-      }, { quoted: msg })
+      return sock.sendMessage(from, {
+        text: "❌ *Antilink only works in groups.*",
+        quoted: msg
+      })
     }
 
-    // ───────── MUST BE ADMIN ─────────
-    if (!isAdmin) {
-      return await sock.sendMessage(from, {
-        text:
-`┌─────〔 🚫 *ACCESS DENIED* 〕─────
-│ 👮 Only *Group Admins* can use this!
-│ 👤 User: @${tag}
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        mentions: [sender]
-      }, { quoted: msg })
+    if (!isAdmin && !isOwner) {
+      return sock.sendMessage(from, {
+        text: "❌ *Only group admins can use this command.*",
+        quoted: msg
+      })
     }
 
-    const option = args?.[0]?.toLowerCase()
+    const sub  = (args[0] || "").toLowerCase()
+    const sub2 = (args[1] || "").toLowerCase()
 
-    // ───────── SHOW HELP IF NO ARGS ─────────
-    if (!option) {
-      const status = isAntilinkEnabled(from) ? "✅ ON" : "❌ OFF"
-      const action = getAction(from)
-      return await sock.sendMessage(from, {
+    // ── .antilink on ──
+    if (sub === "on") {
+      lib.enableAntilink(from, "warn")
+      return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
-║  🔗 *𝘾𝙔𝘽𝙀𝙍 𝙓 ANTILINK*  ║
+║  🛡️ *ANTILINK ON!*  ║
 ╚════════════════════╝
 
-┌─────〔 📋 *STATUS* 〕─────
-│ 🔗 *Antilink:* ${status}
-│ ⚙️ *Action:* ${action.toUpperCase()}
+┌─────〔 ✅ *ENABLED* 〕─────
+│ 🔗 Links are now *blocked*
+│ ⚙️ Mode: *warn* (3 warns = kick)
+│ 🔍 OCR: *${lib.isOcrEnabled(from) ? "ON" : "OFF"}* (image scanning)
+│
+│ 💡 Commands:
+│  *.antilink delete/warn/kick*
+│  *.antilink ocr on* — scan images
 └──────────────────────────
-
-┌─────〔 📖 *USAGE* 〕─────
-│ ◈ *.antilink on* — Enable & delete links
-│ ◈ *.antilink warn* — Enable & warn user
-│ ◈ *.antilink kick* — Enable & kick on 3rd warn
-│ ◈ *.antilink off* — Disable antilink
-└──────────────────────────
-
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
-      }, { quoted: msg })
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
     }
 
-    // ───────── ANTILINK OFF ─────────
-    if (option === "off") {
-      disableAntilink(from)
-      return await sock.sendMessage(from, {
+    // ── .antilink off ──
+    if (sub === "off") {
+      lib.disableAntilink(from)
+      return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
-║  🔗 *ANTILINK DISABLED*  ║
+║  🔓 *ANTILINK OFF*  ║
 ╚════════════════════╝
 
-┌─────〔 ✅ *SUCCESS* 〕─────
-│ ❌ *Antilink:* Turned OFF
-│ 👤 *By:* @${tag}
-│ ℹ️ Links are now allowed in this group
+┌─────〔 ❌ *DISABLED* 〕─────
+│ 🔗 Links are now *allowed*
+│ ℹ️ Use *.antilink on* to re-enable
 └──────────────────────────
-
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        mentions: [sender]
-      }, { quoted: msg })
+        quoted: msg
+      })
     }
 
-    // ───────── ANTILINK ON / WARN / KICK ─────────
-    if (["on", "warn", "kick"].includes(option)) {
-      const action = option === "on" ? "delete" : option
-      enableAntilink(from, action)
-
-      const actionText = {
-        delete: "🗑️ Links will be *deleted* instantly",
-        warn: "⚠️ Users will be *warned* (auto-kick at 3 warnings)",
-        kick: "👢 Users will be *kicked* on 3rd warning"
-      }[action]
-
-      return await sock.sendMessage(from, {
+    // ── .antilink delete ──
+    if (sub === "delete") {
+      lib.enableAntilink(from, "delete")
+      return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
-║  🔗 *ANTILINK ENABLED*  ║
+║  🗑️ *DELETE MODE*  ║
 ╚════════════════════╝
 
-┌─────〔 ✅ *ACTIVATED* 〕─────
-│ ✅ *Antilink:* Turned ON
-│ ⚙️ *Mode:* ${action.toUpperCase()}
-│ 👤 *By:* @${tag}
+┌─────〔 ⚙️ *MODE SET* 〕─────
+│ 🔗 Links deleted silently
+│ 👤 No warnings, no kicks
 └──────────────────────────
-
-┌─────〔 ℹ️ *ACTION* 〕─────
-│ ${actionText}
-└──────────────────────────
-
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        mentions: [sender]
-      }, { quoted: msg })
+        quoted: msg
+      })
     }
 
-    // ───────── INVALID OPTION ─────────
-    await sock.sendMessage(from, {
+    // ── .antilink warn ──
+    if (sub === "warn") {
+      lib.enableAntilink(from, "warn")
+      return sock.sendMessage(from, {
+        text:
+`╔════════════════════╗
+║  ⚠️ *WARN MODE*    ║
+╚════════════════════╝
+
+┌─────〔 ⚙️ *MODE SET* 〕─────
+│ ⚠️ User gets *3 warnings*
+│ 👢 3rd warning = *kicked*
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
+    }
+
+    // ── .antilink kick ──
+    if (sub === "kick") {
+      lib.enableAntilink(from, "kick")
+      return sock.sendMessage(from, {
+        text:
+`╔════════════════════╗
+║  👢 *KICK MODE*    ║
+╚════════════════════╝
+
+┌─────〔 ⚙️ *MODE SET* 〕─────
+│ 👢 Warned + kicked at *3 warnings*
+│ 🔗 Links are strictly *banned*
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
+    }
+
+    // ── .antilink ocr on/off ──
+    if (sub === "ocr") {
+      if (sub2 === "on") {
+        lib.enableOcr(from)
+        return sock.sendMessage(from, {
+          text:
+`╔════════════════════╗
+║  🔍 *OCR ENABLED*  ║
+╚════════════════════╝
+
+┌─────〔 ✅ *IMAGE SCAN ON* 〕─────
+│ 🔍 Bot will now *scan images* for hidden links
+│ 📩 Detects links in:
+│  • Invitation cards
+│  • Screenshots
+│  • Forwarded images
+│  • View-once photos
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          quoted: msg
+        })
+      }
+
+      if (sub2 === "off") {
+        lib.disableOcr(from)
+        return sock.sendMessage(from, {
+          text:
+`╔════════════════════╗
+║  🔍 *OCR DISABLED* ║
+╚════════════════════╝
+
+┌─────〔 ❌ *IMAGE SCAN OFF* 〕─────
+│ 🔍 Image scanning is now *off*
+│ ℹ️ Use *.antilink ocr on* to re-enable
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          quoted: msg
+        })
+      }
+
+      return sock.sendMessage(from, {
+        text: "❓ Usage: *.antilink ocr on* or *.antilink ocr off*",
+        quoted: msg
+      })
+    }
+
+    // ── .antilink reset @user ──
+    if (sub === "reset") {
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]
+      if (!mentioned) {
+        return sock.sendMessage(from, {
+          text: "❌ *Mention a user:* `.antilink reset @user`",
+          quoted: msg
+        })
+      }
+      lib.resetWarnings(from, mentioned)
+      const tag = mentioned.split("@")[0]
+      return sock.sendMessage(from, {
+        text: `✅ Warnings reset for @${tag}`,
+        mentions: [mentioned],
+        quoted: msg
+      })
+    }
+
+    // ── .antilink status / no args ──
+    if (sub === "status" || sub === "") {
+      const enabled = lib.isAntilinkEnabled(from)
+      const action  = lib.getAction(from)
+      const ocr     = lib.isOcrEnabled(from)
+      return sock.sendMessage(from, {
+        text:
+`╔════════════════════╗
+║  📊 *ANTILINK STATUS* ║
+╚════════════════════╝
+
+┌─────〔 ℹ️ *INFO* 〕─────
+│ 🛡️ *Status:* ${enabled ? "✅ ENABLED" : "❌ DISABLED"}
+│ ⚙️ *Mode:*   ${action.toUpperCase()}
+│ 🔍 *OCR:*    ${ocr ? "✅ ON (image scan)" : "❌ OFF"}
+│
+│ 📌 *What it detects:*
+│  • All http/https/ftp links
+│  • WhatsApp & Telegram invites
+│  • 40+ short URL services
+│  • Bare domains (google.com)
+│  • IP address links
+│  • Obfuscated links (g o o g l e)
+│  • Hidden unicode tricks
+│  • Base64 encoded URLs
+│  • Links in quoted messages
+│  • Image links via OCR (if on)
+│
+│ 📌 *Commands:*
+│  *.antilink on/off*
+│  *.antilink delete/warn/kick*
+│  *.antilink ocr on/off*
+│  *.antilink reset @user*
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
+    }
+
+    // ── Unknown ──
+    return sock.sendMessage(from, {
       text:
-`┌─────〔 ⚠️ *INVALID OPTION* 〕─────
-│ Use: *.antilink on/warn/kick/off*
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
-    }, { quoted: msg })
+`❓ *Unknown option.*
+
+Usage:
+• *.antilink on/off*
+• *.antilink delete/warn/kick*
+• *.antilink ocr on/off*
+• *.antilink status*
+• *.antilink reset @user*`,
+      quoted: msg
+    })
   }
 }
+

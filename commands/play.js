@@ -1,156 +1,119 @@
-// CYBER X AI — PLAY COMMAND (FAST CYBER EDITION)
-
-const fs = require("fs")
-const path = require("path")
-const axios = require("axios")
-const ytdlp = require("yt-dlp-exec")
-
-const CREDIT = "© 𝕮𝖄𝕭𝕰𝕽 𝖃"
-const TMP = path.join(process.cwd(), "tmp", "cyberx")
-
-if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true })
-
-function cleanName(str = "") {
-  return str.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)
-}
-
-function formatDuration(sec = 0) {
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${s.toString().padStart(2, "0")}`
-}
-
-async function getThumb(url) {
-  try {
-    const res = await axios.get(url, {
-      responseType: "arraybuffer",
-      timeout: 10000
-    })
-    return Buffer.from(res.data)
-  } catch {
-    return null
-  }
-}
+// ═══════════════════════════════════════════════════════════════
+// commands/play.js — CYBER X PLAY COMMAND
+// Searches YouTube (or any platform) and sends audio to WhatsApp
+//
+// Usage:
+//   .play <song name>
+//   .play <YouTube / SoundCloud / any URL>
+// ═══════════════════════════════════════════════════════════════
 
 module.exports = {
-  pattern: "play",
+  pattern:  "play",
+  desc:     "Download and send audio from YouTube or any platform",
+  category: "media",
 
-  run: async ({ sock, from, msg, args }) => {
-    const query = args.join(" ").trim()
+  async run({ sock, from, msg, text, lib }) {
 
-    if (!query) {
+    if (!text) {
       return sock.sendMessage(from, {
         text:
-`╔═══〔 🎵 𝘾𝙔𝘽𝙀𝙍 𝙓  PLAY 〕═══╗
+`🎵 *𝘾𝙔𝘽𝙀𝙍 𝙓 PLAY*
 
-.play <song name>
+Usage:
+• *.play <song name>*
+• *.play <YouTube URL>*
+• *.play <SoundCloud / any URL>*
 
 Examples:
-• .play Burna Boy Last Last
-• .play Drake One Dance
-• .play Asake Lonely At The Top
-
-╚══════════════════════╝
-> ${CREDIT}`
-      }, { quoted: msg })
+  *.play Blinding Lights*
+  *.play https://youtu.be/xxxx*`,
+        quoted: msg
+      })
     }
 
+    // ── React ⏳ to show bot is working ──
     await sock.sendMessage(from, {
-      text:
-`⚡ 𝘾𝙔𝘽𝙀𝙍 𝙓  decrypting...🖕
-🔍 Searching: ${query}
-⏳ Please wait...`
-    }, { quoted: msg })
+      react: { text: "⏳", key: msg.key }
+    })
+
+    let notif = null
 
     try {
+      const dl = lib.download || lib
 
-      // ───── FIX 1: safer search (prevents crash JSON parse issues)
-      const info = await ytdlp(`ytsearch1:${query}`, {
-        dumpSingleJson: true,
-        noPlaylist: true,
-        quiet: true,
-        defaultSearch: "ytsearch1"
+      // ── Send searching message ──
+      notif = await sock.sendMessage(from, {
+        text: `🔍 *Searching:* _${text}_...`,
+        quoted: msg
       })
 
-      if (!info || !info.title) {
-        throw new Error("No video found")
+      // ── Search & download ──
+      const { buffer, info, size } = await dl.downloadAudio(text)
+
+      const dur  = dl.formatDuration(info.duration)
+      const sz   = dl.formatSize(size)
+      const views = dl.formatViews(info.views)
+
+      const caption =
+`🎵 *${info.title}*
+
+┌─────〔 📀 *TRACK INFO* 〕─────
+│ 👤 *Artist:*   ${info.uploader}
+│ ⏱️ *Duration:* ${dur}
+│ 📦 *Size:*     ${sz}
+│ 👁️ *Views:*    ${views}
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
+
+      // ── Delete the searching message ──
+      if (notif) {
+        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
+        notif = null
       }
 
-      const title = info.title || query
-      const url = info.webpage_url || info.url
-      const duration = info.duration || 0
-
-      if (duration > 600) {
-        return sock.sendMessage(from, {
-          text:
-`❌ 𝘾𝙔𝘽𝙀𝙍 𝙓  LIMIT ERROR
-Song too long (max 10 min)
-
-🎵 ${title}`
-        }, { quoted: msg })
-      }
-
-      // ───── FIX 2: thumbnail safety + faster response
-      let thumb = null
-      if (info.thumbnail) {
-        thumb = await getThumb(info.thumbnail)
-      }
-
-      if (thumb) {
-        await sock.sendMessage(from, {
-          image: thumb,
-          caption:
-`╔═══〔 🎧 𝘾𝙔𝘽𝙀𝙍 𝙓  MUSIC 〕═══╗
-
-🎵 Title: ${title}
-⏱ Duration: ${formatDuration(duration)}
-
-⚡ Downloading audio...
-
-╚══════════════════════╝
-> ${CREDIT}`
-        }, { quoted: msg })
-      }
-
-      const file = path.join(TMP, `${Date.now()}_${cleanName(title)}.mp3`)
-
-      // ───── FIX 3: more stable download flags for Render
-      await ytdlp(url, {
-        extractAudio: true,
-        audioFormat: "mp3",
-        audioQuality: 0,
-        output: file,
-        noWarnings: true,
-        noPlaylist: true,
-        quiet: true,
-        retries: 3
-      })
-
-      if (!fs.existsSync(file)) {
-        throw new Error("Download failed")
-      }
-
-      const audio = fs.readFileSync(file)
-
+      // ── Send audio ──
       await sock.sendMessage(from, {
-        audio,
+        audio:    buffer,
         mimetype: "audio/mpeg",
-        ptt: false,
-        fileName: `${title}.mp3`
+        fileName: `${info.title.replace(/[^\w\s]/g, "")}.mp3`,
+        ptt:      false,
       }, { quoted: msg })
 
-      fs.unlinkSync(file)
+      // ── Send info caption ──
+      await sock.sendMessage(from, {
+        text: caption,
+        quoted: msg
+      })
 
-    } catch (e) {
-      console.log("𝘾𝙔𝘽𝙀𝙍 𝙓  PLAY ERROR:", e.message)
+      // ── React ✅ ──
+      await sock.sendMessage(from, {
+        react: { text: "✅", key: msg.key }
+      })
+
+    } catch (err) {
+      // Clean up notif if still there
+      if (notif) {
+        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
+      }
+
+      // React ❌
+      await sock.sendMessage(from, {
+        react: { text: "❌", key: msg.key }
+      })
 
       await sock.sendMessage(from, {
         text:
-`❌ CYBER ENGINE FAILED
+`╔════════════════════╗
+║  ❌ *PLAY FAILED*  ║
+╚════════════════════╝
 
-Try again or use another song
-Query: ${query}`
-      }, { quoted: msg })
+┌─────〔 ⚠️ *ERROR* 〕─────
+│ ${err.message}
+└──────────────────────────
+💡 Try a different song name or URL
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
     }
   }
 }

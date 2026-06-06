@@ -1,132 +1,139 @@
-// CYBER X AI — VIDEO COMMAND (RENDER STABLE + FAST)
+// ═══════════════════════════════════════════════════════════════
+// commands/video.js — CYBER X VIDEO COMMAND
+// Searches YouTube and sends video to WhatsApp
+//
+// Usage:
+//   .video <title>          → 480p (default)
+//   .video <title> 360      → 360p (smaller)
+//   .video <title> 720      → 720p (larger)
+//   .video <URL>            → direct URL download
+// ═══════════════════════════════════════════════════════════════
 
-const fs = require("fs")
-const path = require("path")
-const axios = require("axios")
-const { exec } = require("child_process")
-const util = require("util")
-
-const execAsync = util.promisify(exec)
-
-const CREDIT = "© 𝕮𝖄𝕭𝕰𝕽 𝖃"
-
-// ───── SAFE TEMP DIR ─────
-const TMP = path.join(process.cwd(), "tmp", "cyberx")
-
-if (!fs.existsSync(TMP)) {
-  fs.mkdirSync(TMP, { recursive: true })
-}
-
-// ───── HELPERS ─────
-function cleanName(str = "") {
-  return str.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)
-}
-
-function formatDuration(sec = 0) {
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${s.toString().padStart(2, "0")}`
-}
-
-async function getThumb(url) {
-  try {
-    const res = await axios.get(url, {
-      responseType: "arraybuffer",
-      timeout: 8000
-    })
-    return Buffer.from(res.data)
-  } catch {
-    return null
-  }
-}
-
-// ───── MAIN COMMAND ─────
 module.exports = {
-  pattern: "video",
+  pattern:  "video",
+  desc:     "Download and send video from YouTube or any platform",
+  category: "media",
 
-  run: async ({ sock, from, msg, args }) => {
-    const query = args.join(" ").trim()
+  async run({ sock, from, msg, text, args, lib }) {
 
-    if (!query) {
+    if (!text) {
       return sock.sendMessage(from, {
         text:
-`🎬 𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO
+`🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓 VIDEO*
 
-.video <name>
+Usage:
+• *.video <title>*             → 480p
+• *.video <title> 360*         → 360p (smaller)
+• *.video <title> 720*         → 720p (larger)
+• *.video <YouTube URL>*       → direct URL
 
-Example:
-• .video Burna Boy Last Last
-• .video Ronaldo skills
-• .video Funny cats
-
-> ${CREDIT}`
-      }, { quoted: msg })
+Examples:
+  *.video Starboy Weeknd*
+  *.video Starboy Weeknd 360*
+  *.video https://youtu.be/xxxx*`,
+        quoted: msg
+      })
     }
 
-    await sock.sendMessage(from, {
-      text:
-`⚡ 𝘾𝙔𝘽𝙀𝙍 𝙓  decrypting...🦠
-🔍 Searching: ${query}`
-    }, { quoted: msg })
+    // ── Check if last arg is a quality number ──
+    const QUALITIES = ["360", "480", "720", "1080"]
+    let quality = "480"
+    let query   = text
 
-    const file = path.join(TMP, `${Date.now()}_${cleanName(query)}.mp4`)
+    const lastArg = args[args.length - 1]
+    if (QUALITIES.includes(lastArg)) {
+      quality = lastArg
+      query   = args.slice(0, -1).join(" ")
+    }
+
+    if (!query.trim()) {
+      return sock.sendMessage(from, {
+        text: "❌ *Please provide a video title or URL.*",
+        quoted: msg
+      })
+    }
+
+    // ── React ⏳ ──
+    await sock.sendMessage(from, {
+      react: { text: "⏳", key: msg.key }
+    })
+
+    let notif = null
 
     try {
-      // ───── DIRECT DOWNLOAD (FAST + NO PRESEARCH CRASH) ─────
-      const cmd =
-        `yt-dlp "ytsearch1:${query}" ` +
-        `-f "bv*+ba/best" ` +
-        `--merge-output-format mp4 ` +
-        `--no-playlist --no-warnings ` +
-        `-o "${file}"`
+      const dl = lib.download || lib
 
-      await execAsync(cmd)
+      // ── Searching message ──
+      notif = await sock.sendMessage(from, {
+        text: `🔍 *Searching:* _${query}_ *(${quality}p)*...`,
+        quoted: msg
+      })
 
-      if (!fs.existsSync(file)) {
-        throw new Error("Video file not created")
+      // ── Download ──
+      const { buffer, info, size } = await dl.downloadVideo(query, quality)
+
+      const dur   = dl.formatDuration(info.duration)
+      const sz    = dl.formatSize(size)
+      const views = dl.formatViews(info.views)
+
+      const caption =
+`🎬 *${info.title}*
+
+┌─────〔 🎞️ *VIDEO INFO* 〕─────
+│ 👤 *Channel:*  ${info.uploader}
+│ ⏱️ *Duration:* ${dur}
+│ 📦 *Size:*     ${sz}
+│ 👁️ *Views:*    ${views}
+│ 🎯 *Quality:*  ${quality}p
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
+
+      // ── Delete searching message ──
+      if (notif) {
+        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
+        notif = null
       }
 
-      const stat = fs.statSync(file)
-
-      // safety: avoid huge files crashing Render
-      if (stat.size > 45 * 1024 * 1024) {
-        fs.unlinkSync(file)
-
-        return sock.sendMessage(from, {
-          text: "❌ Video too large (limit 45MB)"
-        }, { quoted: msg })
-      }
-
-      const buffer = fs.readFileSync(file)
-
+      // ── Send video ──
       await sock.sendMessage(from, {
-        video: buffer,
+        video:    buffer,
         mimetype: "video/mp4",
-        caption:
-`🎬 𝘾𝙔𝘽𝙀𝙍 𝙓  VIDEO
-
-${query}
-
-> ${CREDIT}`
+        caption:  caption,
+        fileName: `${info.title.replace(/[^\w\s]/g, "")}.mp4`,
       }, { quoted: msg })
 
-      fs.unlinkSync(file)
+      // ── React ✅ ──
+      await sock.sendMessage(from, {
+        react: { text: "✅", key: msg.key }
+      })
 
-    } catch (e) {
-      console.log("VIDEO ERROR:", e.message)
+    } catch (err) {
+      if (notif) {
+        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
+      }
 
-      try {
-        if (fs.existsSync(file)) fs.unlinkSync(file)
-      } catch {}
+      await sock.sendMessage(from, {
+        react: { text: "❌", key: msg.key }
+      })
+
+      // ── Suggest lower quality if too large ──
+      const isSize = err.message.includes("too large")
+      const tip = isSize
+        ? `\n│ 💡 *Try:* .video ${query} 360`
+        : `\n│ 💡 Try a different title or URL`
 
       await sock.sendMessage(from, {
         text:
-`❌ VIDEO FAILED
+`╔════════════════════╗
+║  ❌ *VIDEO FAILED* ║
+╚════════════════════╝
 
-Query: ${query}
-
-Try shorter or different video`
-      }, { quoted: msg })
+┌─────〔 ⚠️ *ERROR* 〕─────
+│ ${err.message}${tip}
+└──────────────────────────
+> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        quoted: msg
+      })
     }
   }
 }
