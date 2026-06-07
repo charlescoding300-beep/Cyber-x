@@ -1,231 +1,148 @@
-'use strict';
+"use strict"
 
-const path = require('path');
-const {
-  loadDB, saveDB, getGroup,
-  fmt, isAdmin, isBotAdmin,
-} = require(path.join(__dirname, '../lib/antistatus.js'));
+/**
+ * commands/antistatus.js
+ * Uses your bot's exact pattern + run format.
+ * No ./store, no external deps except lib/antiStatusMention.
+ */
 
-function usageCard() {
-  return `╔════════════════════════════════════╗
-║     🚫  𝘾𝙔𝘽𝙀𝙍 𝙓 — ANTI STATUS      ║
-╚════════════════════════════════════╝
-
-*Commands* — prefix .
-
-┌─ Anyone ───────────────────────────
-│ .antistatus
-│  → Show this card
-│
-│ .antistatus status
-│  → Show group config + warn counts
-│
-│ .antistatus warns
-│  → List all member warns
-└────────────────────────────────────
-
-┌─ Admin only ───────────────────────
-│ .antistatus on
-│  → Enable (warn mode default)
-│
-│ .antistatus on warn
-│  → DM offender + group alert
-│
-│ .antistatus on delete
-│  → Delete msg + DM + warn
-│
-│ .antistatus on kick
-│  → Delete + warn → kick at max
-│
-│ .antistatus off
-│  → Disable
-│
-│ .antistatus mode warn
-│ .antistatus mode delete
-│ .antistatus mode kick
-│  → Change mode while keeping on
-│
-│ .antistatus maxwarn 3
-│  → Set max warns before kick
-│
-│ .antistatus clearwarn @user
-│  → Reset one member's warns
-│
-│ .antistatus clearwarn all
-│  → Wipe all warns in group
-└────────────────────────────────────
-
-┌─ Modes ────────────────────────────
-│ warn   → DM + group alert only
-│ delete → Delete msg + DM + warn
-│ kick   → Delete + auto kick at max
-└────────────────────────────────────`;
-}
-
-function getMentioned(msg, text) {
-  const m = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (m) return m;
-  const n = text.match(/\d{7,15}/);
-  return n ? `${n[0]}@s.whatsapp.net` : null;
-}
+const { getGroup, clearWarn, countWarn } = require("../lib/antiStatusMention")
 
 module.exports = {
-  pattern: 'antistatus',
+  pattern : "antistatus",
+  desc    : "Prevent members/admins from mentioning this group in their WhatsApp status",
+  category: "group",
 
-  run: async ({ sock, from, msg, sender, args, isGroup, isAdmin: callerIsAdmin }) => {
+  run: async ({ sock, from, msg, sender, args, isAdmin, isOwner, isBotAdmin }) => {
+    const reply = t => sock.sendMessage(from, { text: t }, { quoted: msg })
 
-    if (!isGroup) {
-      return sock.sendMessage(from, {
-        text: '❌ Anti-Status only works inside groups.'
-      }, { quoted: msg });
+    // ── Permission gate ────────────────────────────────────────
+    if (!isAdmin && !isOwner) {
+      return reply(
+        `❌ *Permission Denied*\n` +
+        `Only group admins or the bot owner can use .antistatus`
+      )
     }
 
-    const db   = loadDB();
-    const g    = getGroup(db, from);
-    const sub  = (args[0] || '').toLowerCase();
-    const sub2 = (args[1] || '').toLowerCase();
+    const cfg  = getGroup(from)
+    const sub  = (args[0] || "").toLowerCase()
+    const val  = (args[1] || "").toLowerCase()
 
-    // ── PUBLIC ──────────────────────────────────────────────────
-
-    if (!sub || sub === 'help') {
-      return sock.sendMessage(from, { text: usageCard() }, { quoted: msg });
-    }
-
-    if (sub === 'status') {
-      const warnLines = Object.entries(g.warns)
-        .sort(([,a],[,b]) => b - a)
-        .map(([j, c]) => `  • ${fmt(j)} — ${c} / ${g.maxwarn}`)
-        .join('\n') || '  (none)';
-
-      return sock.sendMessage(from, {
-        text:
-`📊 *𝘾𝙔𝘽𝙀𝙍 𝙓 — Anti Status Config*
-
-• Status    : ${g.enabled ? '✅ Enabled' : '❌ Disabled'}
-• Mode      : *${g.mode}*
-• Max Warns : *${g.maxwarn}*
-
-⚠️ *Warn Counts:*
-${warnLines}`
-      }, { quoted: msg });
-    }
-
-    if (sub === 'warns') {
-      const entries = Object.entries(g.warns).sort(([,a],[,b]) => b - a);
-      if (!entries.length) {
-        return sock.sendMessage(from, {
-          text: '✅ No warns recorded in this group.'
-        }, { quoted: msg });
+    // ── .antistatus admin on/off ───────────────────────────────
+    if (sub === "admin") {
+      if (val === "on") {
+        cfg.admin.enabled = true
+        return reply(
+          `✅ *Admin Anti-Status — ON*\n\n` +
+          `Even group admins who mention this group in their status will have their message *deleted* immediately.\n\n` +
+          `_Note: Admins are never kicked — message deletion only._`
+        )
       }
-      const lines = entries.map(([j, c]) => `  • ${fmt(j)} — ${c} warn(s)`).join('\n');
-      return sock.sendMessage(from, {
-        text: `⚠️ *Warn List*\n\n${lines}`
-      }, { quoted: msg });
-    }
-
-    // ── ADMIN ONLY ───────────────────────────────────────────────
-
-    if (!callerIsAdmin) {
-      return sock.sendMessage(from, {
-        text: '🔒 Only *group admins* can use this command.'
-      }, { quoted: msg });
-    }
-
-    // .antistatus on [mode]
-    if (sub === 'on') {
-      const mode = ['warn','delete','kick'].includes(sub2) ? sub2 : 'warn';
-      g.enabled = true;
-      g.mode    = mode;
-      saveDB(db);
-
-      const botAdm = await isBotAdmin(sock, from);
-      const warn   = (mode === 'delete' || mode === 'kick') && !botAdm
-        ? '\n\n⚠️ Make me *admin* so I can delete/kick.' : '';
-
-      return sock.sendMessage(from, {
-        text:
-`✅ *Anti-Status Enabled*
-
-• Mode      : *${mode}*
-• Max Warns : *${g.maxwarn}*${warn}`
-      }, { quoted: msg });
-    }
-
-    // .antistatus off
-    if (sub === 'off') {
-      g.enabled = false;
-      saveDB(db);
-      return sock.sendMessage(from, {
-        text: '❌ *Anti-Status has been disabled.*'
-      }, { quoted: msg });
-    }
-
-    // .antistatus mode <warn|delete|kick>
-    if (sub === 'mode') {
-      if (!['warn','delete','kick'].includes(sub2)) {
-        return sock.sendMessage(from, {
-          text: '❓ Valid modes: *warn* | *delete* | *kick*'
-        }, { quoted: msg });
+      if (val === "off") {
+        cfg.admin.enabled = false
+        return reply(
+          `🔕 *Admin Anti-Status — OFF*\n` +
+          `Admins are no longer monitored.`
+        )
       }
-      g.mode = sub2;
-      saveDB(db);
-
-      const botAdm = await isBotAdmin(sock, from);
-      const warn   = (sub2 === 'delete' || sub2 === 'kick') && !botAdm
-        ? '\n⚠️ Make me admin for this mode to work.' : '';
-
-      return sock.sendMessage(from, {
-        text: `🔄 Mode changed to *${sub2}*${warn}`
-      }, { quoted: msg });
+      return reply(
+        `📖 *Admin Mode*\n\n` +
+        `.antistatus admin on  — enable\n` +
+        `.antistatus admin off — disable`
+      )
     }
 
-    // .antistatus maxwarn <n>
-    if (sub === 'maxwarn') {
-      const n = parseInt(args[1], 10);
-      if (!n || n < 1 || n > 20) {
-        return sock.sendMessage(from, {
-          text: '❓ Usage: *.antistatus maxwarn <1–20>*'
-        }, { quoted: msg });
-      }
-      g.maxwarn = n;
-      saveDB(db);
-      return sock.sendMessage(from, {
-        text: `⚙️ Max warns set to *${n}*`
-      }, { quoted: msg });
+    // ── .antistatus on ─────────────────────────────────────────
+    if (sub === "on") {
+      cfg.members.enabled = true
+      return reply(
+        `✅ *Anti-Status Mention — ON*\n\n` +
+        `Members who share or mention this group in a WhatsApp status will be actioned.\n\n` +
+        `Action   : *${cfg.members.action}*\n` +
+        `Max Warns: *${cfg.members.maxWarns}*\n\n` +
+        `_Admins are exempt. Use .antistatus admin on to also cover admins._`
+      )
     }
 
-    // .antistatus clearwarn all | @user
-    if (sub === 'clearwarn') {
-      if (sub2 === 'all') {
-        g.warns = {};
-        saveDB(db);
-        return sock.sendMessage(from, {
-          text: '🧹 All warns cleared for this group.'
-        }, { quoted: msg });
-      }
+    // ── .antistatus off ────────────────────────────────────────
+    if (sub === "off") {
+      cfg.members.enabled = false
+      return reply(`🔕 *Anti-Status Mention — OFF*`)
+    }
 
-      const target = getMentioned(msg, args.slice(1).join(' '));
+    // ── .antistatus set warn|kick|delete ───────────────────────
+    if (sub === "set") {
+      if (!["warn", "kick", "delete"].includes(val)) {
+        return reply(
+          `❓ *Usage:* .antistatus set warn|kick|delete\n\n` +
+          `• *warn*   — warn user, auto-kick after max warns\n` +
+          `• *kick*   — remove user immediately\n` +
+          `• *delete* — delete message only, no kick`
+        )
+      }
+      cfg.members.action = val
+      return reply(`⚙️ Action set to *${val}*`)
+    }
+
+    // ── .antistatus setwarn <n> ────────────────────────────────
+    if (sub === "setwarn") {
+      const n = parseInt(val, 10)
+      if (!val || isNaN(n) || n < 1) {
+        return reply(
+          `❓ *Usage:* .antistatus setwarn <number>\n` +
+          `Example: .antistatus setwarn 3`
+        )
+      }
+      cfg.members.maxWarns = n
+      return reply(`⚙️ Max warnings set to *${n}*. Users kicked on warn *${n}*.`)
+    }
+
+    // ── .antistatus resetwarn @user ────────────────────────────
+    if (sub === "resetwarn") {
+      const target =
+        msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (val ? val.replace(/\D/g, "") + "@s.whatsapp.net" : null)
       if (!target) {
-        return sock.sendMessage(from, {
-          text: '❓ Tag a user or use *all*.\nExample: .antistatus clearwarn @user'
-        }, { quoted: msg });
+        return reply(`❓ *Usage:* .antistatus resetwarn @user`)
       }
-
-      if (!g.warns[target]) {
-        return sock.sendMessage(from, {
-          text: `ℹ️ ${fmt(target)} has no warns.`
-        }, { quoted: msg });
-      }
-
-      delete g.warns[target];
-      saveDB(db);
-      return sock.sendMessage(from, {
-        text: `🧹 Warns cleared for ${fmt(target)}`,
-        mentions: [target]
-      }, { quoted: msg });
+      const before = countWarn(from, target)
+      clearWarn(from, target)
+      return reply(
+        `✅ Warnings cleared for @${target.split("@")[0]}\n` +
+        `Before: *${before}* → Now: *0*`
+      )
     }
 
-    // fallback
-    return sock.sendMessage(from, { text: usageCard() }, { quoted: msg });
+    // ── .antistatus status ─────────────────────────────────────
+    if (sub === "status") {
+      return reply(
+        `📋 *Anti-Status — Settings*\n\n` +
+        `👥 *Member Mode*\n` +
+        `  Status   : ${cfg.members.enabled ? "✅ ON" : "❌ OFF"}\n` +
+        `  Action   : *${cfg.members.action}*\n` +
+        `  Max Warns: *${cfg.members.maxWarns}*\n\n` +
+        `👑 *Admin Mode*\n` +
+        `  Status   : ${cfg.admin.enabled ? "✅ ON" : "❌ OFF"}\n` +
+        `  Action   : *delete only* (never kicks admins)`
+      )
+    }
+
+    // ── .antistatus (no args) = help ───────────────────────────
+    return reply(
+      `╔═══════════════════════════╗\n` +
+      `║   ANTI STATUS MENTION     ║\n` +
+      `╚═══════════════════════════╝\n\n` +
+      `*Member Commands*\n` +
+      `.antistatus on\n` +
+      `.antistatus off\n` +
+      `.antistatus set warn|kick|delete\n` +
+      `.antistatus setwarn <number>\n` +
+      `.antistatus resetwarn @user\n` +
+      `.antistatus status\n\n` +
+      `*Admin Commands*\n` +
+      `.antistatus admin on\n` +
+      `.antistatus admin off\n\n` +
+      `_Only group admins & bot owner._`
+    )
   }
-};
+}

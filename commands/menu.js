@@ -1,124 +1,113 @@
-const os = require("os")
-const fs = require("fs")
-const path = require("path")
-const axios = require("axios")
+// ── Rotating images ───────────────────────────────────────────────────────────
+// IMPORTANT: Must be DIRECT image URLs, not album pages.
+// Imgur album:  https://imgur.com/a/HxiNX9U        ← WRONG (page, not image)
+// Imgur direct: https://i.imgur.com/xxxxxxx.jpg    ← CORRECT
+//
+// To get your direct links:
+//   1. Open https://imgur.com/a/HxiNX9U
+//   2. Click image 1 → right-click → Copy image address → paste below
+//   3. Click image 2 → right-click → Copy image address → paste below
+
+const IMAGES = [
+  'https://i.ibb.co/mChxd40m/menu.jpg',   // e.g. https://i.imgur.com/abc1234.jpg
+  'https://i.ibb.co/8L1msCDW/file-0000000073b471f4815149d72d312c19.png',   // e.g. https://i.imgur.com/xyz5678.jpg
+]
+
+const rotator = new Map()
+
+function bar(pct, len = 10) {
+  const f = Math.round((pct / 100) * len)
+  return '█'.repeat(f) + '░'.repeat(len - f) + ` ${pct}%`
+}
 
 module.exports = {
-  pattern: ".menu",
+  pattern: 'menu',
+  desc:    '𝘾𝙔𝘽𝙀𝙍 𝙓 command menu',
+  usage:   '.menu',
 
-  run: async ({ sock, from, msg, sender, commands }) => {
+  run: async ({ sock, from, msg, sender, cmdDetails, settings, isOwner }) => {
 
-    const tag = sender.split("@")[0]
+    const prefix  = settings.prefix  || '.'
+    const botName = settings.botName || '𝕮𝖄𝕭𝕰𝕽 𝖃'
+    const user    = sender.replace(/@.+/, '')
+    const now     = new Date()
+    const time    = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+    const date    = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 
-    // ───────── SYSTEM INFO ─────────
-    const getDate = () => new Date().toDateString()
+    const upSec  = Math.floor(process.uptime())
+    const uptime = `${Math.floor(upSec/3600)}h ${Math.floor((upSec%3600)/60)}m ${upSec%60}s`
+    const upPct  = Math.min(100, Math.round((upSec / 86400) * 100))
 
-    const getTime = () =>
-      new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true
-      })
+    const mem    = process.memoryUsage()
+    const ramMB  = (mem.heapUsed  / 1024 / 1024).toFixed(1)
+    const totMB  = (mem.heapTotal / 1024 / 1024).toFixed(1)
+    const ramPct = Math.min(100, Math.round((mem.heapUsed / mem.heapTotal) * 100))
 
-    const getUptime = () => {
-      const u = process.uptime()
-      const h = Math.floor(u / 3600)
-      const m = Math.floor((u % 3600) / 60)
-      const s = Math.floor(u % 60)
-      return `${h}h ${m}m ${s}s`
-    }
+    const idx = (rotator.get(from) ?? 0) % IMAGES.length
+    rotator.set(from, idx + 1)
+    const imageUrl = IMAGES[idx]
 
-    const getRam = () => {
-      const used = process.memoryUsage().rss / 1024 / 1024
-      const total = os.totalmem() / 1024 / 1024
-      return `${used.toFixed(2)}MB / ${total.toFixed(0)}MB`
-    }
+    const cmds = (cmdDetails || [])
+      .filter(c => c.pattern)
+      .sort((a, b) => a.pattern.localeCompare(b.pattern))
 
-    const getCpu = () => {
-      const cpus = os.cpus()
-      return cpus[0].model.split(" ").slice(0, 3).join(" ")
-    }
+    const cmdLines = cmds
+      .map(c => `║ ► ${c.pattern}${c.usage && c.usage !== c.pattern ? '  ' + c.usage.replace(c.pattern, '').trim() : ''}`)
+      .join('\n')
 
-    const getPlatform = () =>
-      `${os.type()} ${os.arch()}`
+    const caption =
+`🌐 *${botName} — MENU* 🌐
 
-    // ───────── COMMAND LIST ─────────
-    const cmdPath = path.join(process.cwd(), "commands")
+╔═══════════════════════════╗
+║  👤  User    :  @${user}
+║  🕐  Time    :  ${time}
+║  📅  Date    :  ${date}
+║  🔑  Prefix  :  ${prefix}
+╠═══════════════════════════╣
+║  📶  *Uptime*
+║  ${bar(upPct)}
+║  ⏱  ${uptime}
+╠═══════════════════════════╣
+║  🧠  *RAM Usage*
+║  ${bar(ramPct)}
+║  💾  ${ramMB} MB / ${totMB} MB
+╠═══════════════════════════╣
+║
+║  🌐 *General Commands* 🌐
+║
+${cmdLines}
+║
+╚═══════════════════════════╝
 
-    let files = []
-    try {
-      files = fs.readdirSync(cmdPath)
-    } catch {}
+┌───────────────────────────┐
+│  © ${botName} · All Rights Reserved
+│  Unauthorized use prohibited
+│  Licensed under ${botName}
+└───────────────────────────┘`
 
-    const localCmds = files
-      .filter(f => f.endsWith(".js"))
-      .map(f => `.${f.replace(".js", "")}`)
+    // ── Send — fallback to text if image URL is invalid ───────────
+    const isValidUrl = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes('PASTE_')
 
-    const globalCmds = Array.from(commands.keys()).map(c =>
-      c.startsWith(".") ? c : `.${c}`
-    )
-
-    const allCmds = [...new Set([...localCmds, ...globalCmds])].sort()
-
-    // ───────── MENU TEXT ─────────
-    let text =
-`╔════════════════════╗
-║  🤖 *𝘾𝙔𝘽𝙀𝙍 𝙓 BOT*  ║
-╚════════════════════╝
-
-┌─────〔 👤 *USER INFO* 〕─────
-│ 👤 *User:* @${tag}
-│ 📅 *Date:* ${getDate()}
-│ 🕐 *Time:* ${getTime()}
-└──────────────────────────
-
-┌─────〔 🖥️ *BOT STATUS* 〕─────
-│ ⏱️ *Uptime:* ${getUptime()}
-│ 💾 *RAM:* ${getRam()}
-│ 🖥️ *CPU:* ${getCpu()}
-│ 🌐 *Platform:* ${getPlatform()}
-│ 📦 *Total Cmds:* ${allCmds.length}
-└──────────────────────────
-
-╔════〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓 COMMANDS* 〕════╗
-`
-
-    for (const c of allCmds) {
-      text += `║  ◈ *${c}*\n`
-    }
-
-    text +=
-`\n╚══════════════════════╝
-❏ *𝘾𝙔𝘽𝙀𝙍 𝙓* — Always Online 24/7
-❏ Powered by *Charles Tech*
-> © 𝕮𝖄𝖡𝙴𝚁 𝖃 ™`
-
-    // ───────── FAST IMAGE (FIXED) ─────────
-    const imgUrl = "https://files.catbox.moe/ncpwqt.jpg"
-
-    let imageBuffer
-    try {
-      const res = await axios.get(imgUrl, {
-        responseType: "arraybuffer",
-        timeout: 10000
-      })
-      imageBuffer = Buffer.from(res.data)
-    } catch (e) {
-      imageBuffer = null
-    }
-
-    // ───────── SEND MENU ─────────
-    if (imageBuffer) {
-      await sock.sendMessage(from, {
-        image: imageBuffer,
-        caption: text,
-        mentions: [sender]
-      }, { quoted: msg })
+    if (isValidUrl) {
+      try {
+        await sock.sendMessage(from, {
+          image:    { url: imageUrl },
+          caption,
+          mimetype: 'image/jpeg',
+          mentions: [sender],
+        }, { quoted: msg })
+      } catch {
+        // image failed — send text only, don't crash
+        await sock.sendMessage(from, {
+          text:     caption,
+          mentions: [sender],
+        }, { quoted: msg })
+      }
     } else {
       await sock.sendMessage(from, {
-        text: text,
-        mentions: [sender]
+        text:     caption,
+        mentions: [sender],
       }, { quoted: msg })
     }
-  }
+  },
 }

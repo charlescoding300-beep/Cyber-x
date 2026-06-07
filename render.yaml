@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: cyber-x-bot
+    env: native
+    plan: free
+    buildCommand: npm install && pip install yt-dlp --break-system-packages
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOT_NAME
+        value: CYBER X
+      - key: PREFIX
+        value: "."
+      - key: OWNER_NUMBER
+        sync: false
+      - key: PAIRING_NUMBER
+        sync: false
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: cyber-x-bot
+          property: host

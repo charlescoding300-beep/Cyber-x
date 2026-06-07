@@ -1,61 +1,51 @@
 // ═══════════════════════════════════════════════════════════════
-// commands/vv.js — CYBER X VIEW ONCE REVEALER
-// Usage: Reply to any view-once image or video with .vv
-// Handles: viewOnceMessage, viewOnceMessageV2, viewOnceMessageV2Extension
-//          + ephemeral-wrapped view-once, all media types
+// commands/vv.js — CYBER X VIEW ONCE REVEALER v4
+// Fixed: quoted message view-once detection
 // ═══════════════════════════════════════════════════════════════
 
 const {
   downloadMediaMessage,
-  extractMessageContent,
-  normalizeMessageContent,
+  getContentType,
 } = require("@whiskeysockets/baileys")
 
 // ─────────────────────────────────────────────────────────
-// HELPERS
+// GET CONTEXT INFO from any message type
 // ─────────────────────────────────────────────────────────
 
-// Pull contextInfo from ANY message type that can have a reply
 function getCtx(msg) {
-  const m = msg.message
+  const m = msg?.message
   if (!m) return null
   return (
-    m.extendedTextMessage?.contextInfo     ||
-    m.imageMessage?.contextInfo            ||
-    m.videoMessage?.contextInfo            ||
-    m.audioMessage?.contextInfo            ||
-    m.documentMessage?.contextInfo         ||
-    m.stickerMessage?.contextInfo          ||
-    m.buttonsResponseMessage?.contextInfo  ||
-    m.listResponseMessage?.contextInfo     ||
+    m.extendedTextMessage?.contextInfo        ||
+    m.imageMessage?.contextInfo               ||
+    m.videoMessage?.contextInfo               ||
+    m.audioMessage?.contextInfo               ||
+    m.documentMessage?.contextInfo            ||
+    m.stickerMessage?.contextInfo             ||
+    m.buttonsResponseMessage?.contextInfo     ||
+    m.listResponseMessage?.contextInfo        ||
     m.templateButtonReplyMessage?.contextInfo ||
     null
   )
 }
 
-// Check if a raw IMessage is a view-once (any variant)
-function isViewOnce(message) {
-  if (!message) return false
-  return !!(
-    message.viewOnceMessage               ||
-    message.viewOnceMessageV2             ||
-    message.viewOnceMessageV2Extension    ||
-    // nested inside ephemeral
-    message.ephemeralMessage?.message?.viewOnceMessage    ||
-    message.ephemeralMessage?.message?.viewOnceMessageV2  ||
-    message.ephemeralMessage?.message?.viewOnceMessageV2Extension
-  )
-}
+// ─────────────────────────────────────────────────────────
+// UNWRAP all known layers → bare inner IMessage
+// ─────────────────────────────────────────────────────────
 
-// Fully unwrap ALL view-once + ephemeral layers → returns IMessage or null
 function unwrap(message) {
   if (!message) return null
-
-  // Peel ephemeral first if present
   let m = message
-  if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message
 
-  // Now peel view-once wrapper (newest → oldest priority)
+  // Peel associatedChildMessage (Baileys bug #1872)
+  if (m.associatedChildMessage?.message)
+    m = m.associatedChildMessage.message
+
+  // Peel ephemeral
+  if (m.ephemeralMessage?.message)
+    m = m.ephemeralMessage.message
+
+  // Peel view-once wrappers newest → oldest
   if (m.viewOnceMessageV2Extension?.message)
     return m.viewOnceMessageV2Extension.message
 
@@ -65,37 +55,84 @@ function unwrap(message) {
   if (m.viewOnceMessage?.message)
     return m.viewOnceMessage.message
 
-  // Fallback: run Baileys' own extractor
-  const extracted = extractMessageContent(m)
-  if (extracted) return normalizeMessageContent(extracted) || extracted
+  return m
+}
+
+// ─────────────────────────────────────────────────────────
+// DETECT view-once — checks ALL possible locations
+// WhatsApp sometimes strips viewOnce flag from quoted msg
+// so we also accept any quoted media as valid
+// ─────────────────────────────────────────────────────────
+
+function isViewOnce(message) {
+  if (!message) return false
+
+  // Standard view-once wrappers
+  if (
+    message.viewOnceMessage            ||
+    message.viewOnceMessageV2          ||
+    message.viewOnceMessageV2Extension ||
+    message.associatedChildMessage?.message?.viewOnceMessage      ||
+    message.associatedChildMessage?.message?.viewOnceMessageV2    ||
+    message.associatedChildMessage?.message?.viewOnceMessageV2Extension ||
+    message.ephemeralMessage?.message?.viewOnceMessage            ||
+    message.ephemeralMessage?.message?.viewOnceMessageV2          ||
+    message.ephemeralMessage?.message?.viewOnceMessageV2Extension
+  ) return true
+
+  // WhatsApp strips the wrapper in quoted/contextInfo messages
+  // but the inner imageMessage/videoMessage/audioMessage still
+  // has viewOnce: true on it — check that flag directly
+  const inner = unwrap(message)
+  if (!inner) return false
+
+  const type = getContentType(inner)
+  if (!type) return false
+
+  const node = inner[type]
+  if (!node) return false
+
+  // viewOnce flag on media node = view-once message
+  if (node.viewOnce === true) return true
+
+  // If it has media AND came from contextInfo (quoted),
+  // allow it — user is intentionally replying to it
+  if (["imageMessage","videoMessage","audioMessage"].includes(type)) return true
+
+  return false
+}
+
+// ─────────────────────────────────────────────────────────
+// DOWNLOAD — stream first (fixes audio empty-buffer bug)
+// ─────────────────────────────────────────────────────────
+
+async function downloadToBuffer(fakeMsg, sock) {
+  // Try 1: stream → concat
+  try {
+    const stream = await downloadMediaMessage(
+      fakeMsg, "stream", {},
+      { reuploadRequest: sock.updateMediaMessage }
+    )
+    const chunks = []
+    await new Promise((res, rej) => {
+      stream.on("data",  c => chunks.push(c))
+      stream.on("end",   res)
+      stream.on("error", rej)
+    })
+    const buf = Buffer.concat(chunks)
+    if (buf?.length > 0) return buf
+  } catch {}
+
+  // Try 2: direct buffer
+  try {
+    const buf = await downloadMediaMessage(
+      fakeMsg, "buffer", {},
+      { reuploadRequest: sock.updateMediaMessage }
+    )
+    if (buf?.length > 0) return buf
+  } catch {}
 
   return null
-}
-
-// Get the actual media node from an unwrapped IMessage
-function getMediaNode(inner) {
-  if (!inner) return null
-  return (
-    inner.imageMessage ||
-    inner.videoMessage ||
-    null
-  )
-}
-
-// Determine media type string
-function getMediaType(inner) {
-  if (inner?.imageMessage) return "image"
-  if (inner?.videoMessage) return "video"
-  return null
-}
-
-// Determine mimetype
-function getMime(inner) {
-  return (
-    inner?.imageMessage?.mimetype ||
-    inner?.videoMessage?.mimetype ||
-    null
-  )
 }
 
 // ─────────────────────────────────────────────────────────
@@ -104,12 +141,12 @@ function getMime(inner) {
 
 module.exports = {
   pattern:  "vv",
-  desc:     "Reveal a view-once image or video sent to you",
+  desc:     "Reveal a view-once image, video, or voice note",
   category: "utility",
 
   async run({ sock, from, msg, sender }) {
 
-    // ── React ⏳ immediately so user knows bot received the command ──
+    // React ⏳ immediately
     await sock.sendMessage(from, {
       react: { text: "⏳", key: msg.key }
     }).catch(() => {})
@@ -128,11 +165,12 @@ module.exports = {
 
 ┌─────〔 ℹ️ *HOW TO USE* 〕─────
 │ Reply to a view-once message
-│ and type *.vv*
+│ then type *.vv*
 │
 │ Works for:
-│  • 📷 View-once images
-│  • 🎥 View-once videos
+│  📷 View-once image
+│  🎥 View-once video
+│  🎤 View-once voice note
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
@@ -141,97 +179,89 @@ module.exports = {
 
     const quotedMsg = ctx.quotedMessage
 
-    // ── Must be a view-once message ──
-    if (!isViewOnce(quotedMsg)) {
-      await sock.sendMessage(from, {
-        react: { text: "❌", key: msg.key }
-      }).catch(() => {})
-      return sock.sendMessage(from, {
-        text: "❌ *That's not a view-once message!*\nReply to a 👁 view-once image or video.",
-        quoted: msg
-      })
-    }
-
     try {
-      // ── Unwrap all layers to get the real inner message ──
+      // ── Unwrap all layers ──
       const inner = unwrap(quotedMsg)
-      if (!inner) throw new Error("Could not unwrap view-once content")
+      if (!inner) throw new Error("Could not read quoted message content")
 
-      const mediaType = getMediaType(inner)
-      if (!mediaType) throw new Error("View-once contains no image or video")
+      // ── Detect media type ──
+      const contentType = getContentType(inner)
 
-      // ── Build a fake WAMessage that downloadMediaMessage can use ──
-      // We try the original quotedMsg first; if that fails we try the unwrapped inner
-      const fakeMsg = {
-        key: {
-          remoteJid:   from,
-          fromMe:      false,
-          id:          ctx.stanzaId,
-          participant: ctx.participant || from,
-        },
-        message: quotedMsg   // keep original wrapper — Baileys handles unwrapping internally
+      if (!contentType || !["imageMessage","videoMessage","audioMessage"].includes(contentType)) {
+        // Not a media message at all
+        await sock.sendMessage(from, {
+          react: { text: "❌", key: msg.key }
+        }).catch(() => {})
+        return sock.sendMessage(from, {
+          text: "❌ *Reply to a view-once* 📷 *image,* 🎥 *video or* 🎤 *voice note.*",
+          quoted: msg
+        })
       }
 
-      // ── Download the encrypted media & decrypt it ──
-      let buffer
-      try {
-        buffer = await downloadMediaMessage(
-          fakeMsg,
-          "buffer",
-          {},
-          {
-            reuploadRequest: sock.updateMediaMessage  // re-fetches expired media from WA servers
-          }
-        )
-      } catch (dlErr) {
-        // Fallback: try with the already-unwrapped inner message
-        const fakeMsgInner = {
-          key: fakeMsg.key,
-          message: inner
-        }
-        buffer = await downloadMediaMessage(
-          fakeMsgInner,
-          "buffer",
-          {},
-          { reuploadRequest: sock.updateMediaMessage }
-        )
+      const mediaNode = inner[contentType]
+      const mime = mediaNode?.mimetype || (
+        contentType === "imageMessage" ? "image/jpeg"           :
+        contentType === "videoMessage" ? "video/mp4"            :
+                                         "audio/ogg; codecs=opus"
+      )
+      const isPtt = contentType === "audioMessage" && mediaNode?.ptt === true
+
+      // ── Build fake WAMessage key ──
+      const key = {
+        remoteJid:   from,
+        fromMe:      false,
+        id:          ctx.stanzaId,
+        participant: ctx.participant || from,
       }
+
+      // ── Download — try original wrapper first, then unwrapped ──
+      let buffer = await downloadToBuffer({ key, message: quotedMsg }, sock)
+      if (!buffer) buffer = await downloadToBuffer({ key, message: inner }, sock)
 
       if (!buffer || buffer.length === 0)
-        throw new Error("Downloaded buffer is empty")
+        throw new Error("Media has expired on WhatsApp servers — sender needs to resend it")
 
-      const mime    = getMime(inner) || (mediaType === "image" ? "image/jpeg" : "video/mp4")
-      const tag     = (ctx.participant || sender || "").split("@")[0]
+      // ── Caption ──
+      const tag      = (ctx.participant || sender || "").split("@")[0]
+      const typeIcon = contentType === "imageMessage" ? "📷 Image"
+                     : contentType === "videoMessage" ? "🎥 Video"
+                     : isPtt                          ? "🎤 Voice Note"
+                     :                                  "🔊 Audio"
+
       const caption =
-`👁️ *View Once decrypted*
+`👁️ *View Once Revealed*
 
-┌─────〔 📤 *𝘾𝙔𝘽𝙀𝙍 𝙓* 〕─────
+┌─────〔 📤 *CYBER X* 〕─────
 │ 👤 *From:* @${tag}
-│ 🔓 *Type:* ${mediaType === "image" ? "📷 Image" : "🎥 Video"}
+│ 🔓 *Type:* ${typeIcon}
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
 
       const mentions = ctx.participant ? [ctx.participant] : []
 
-      // ── Send as normal (non-view-once) message ──
-      if (mediaType === "image") {
+      // ── Send as permanent message ──
+      if (contentType === "imageMessage") {
         await sock.sendMessage(from, {
-          image:    buffer,
-          mimetype: mime,
-          caption,
-          mentions,
+          image: buffer, mimetype: mime,
+          caption, mentions,
         }, { quoted: msg })
 
-      } else if (mediaType === "video") {
+      } else if (contentType === "videoMessage") {
         await sock.sendMessage(from, {
-          video:    buffer,
-          mimetype: mime,
-          caption,
-          mentions,
+          video: buffer, mimetype: mime,
+          caption, mentions,
         }, { quoted: msg })
+
+      } else if (contentType === "audioMessage") {
+        await sock.sendMessage(from, {
+          text: caption, mentions,
+        }, { quoted: msg })
+        await sock.sendMessage(from, {
+          audio: buffer, mimetype: mime, ptt: isPtt,
+        })
       }
 
-      // ── React ✅ ──
+      // React ✅
       await sock.sendMessage(from, {
         react: { text: "✅", key: msg.key }
       }).catch(() => {})
@@ -243,16 +273,11 @@ module.exports = {
         react: { text: "❌", key: msg.key }
       }).catch(() => {})
 
-      // ── Friendly error messages based on what went wrong ──
       let errText = err.message
-
-      if (/expired|not found|media/i.test(errText)) {
-        errText = "Media has expired on WhatsApp servers. The sender needs to resend it."
-      } else if (/empty/i.test(errText)) {
-        errText = "Media downloaded but was empty. Try again."
-      } else if (/unwrap|content/i.test(errText)) {
-        errText = "Could not read view-once content. Make sure you're replying to a view-once message."
-      }
+      if (/expired|empty|server/i.test(errText))
+        errText = "Media has expired — the sender needs to resend it."
+      else if (/unsupported|unknown|read/i.test(errText))
+        errText = "Could not read this message. Make sure you are replying to a view-once."
 
       await sock.sendMessage(from, {
         text:
