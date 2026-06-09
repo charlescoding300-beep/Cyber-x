@@ -15,7 +15,7 @@
     "axios": "^1.17.0",
     "dotenv": "^16.4.5",
     "edge-tts": "^1.0.1",
-    "express": "^4.19.2",
+    "express": "^4.22.2",
     "ffmpeg-static": "^5.2.0",
     "mongoose": "^8.6.0",
     "node-fetch": "^3.3.2",

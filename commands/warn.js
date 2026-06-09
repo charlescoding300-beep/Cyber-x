@@ -24,6 +24,12 @@ function getGroup(db, gid) {
   return db[gid];
 }
 
+// ── Normalize JID — strips :device suffix ───────────────────────
+function normalizeJid(jid) {
+  if (!jid) return jid
+  return jid.replace(/:[0-9]+@/, '@').trim()
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 function fmt(jid) {
   return '@' + jid.replace(/@.+/, '');
@@ -53,7 +59,29 @@ function getQuoted(msg) {
     null;
 
   if (!ctx?.quotedMessage) return null;
-  return ctx.participant || ctx.remoteJid || null;
+  const raw = ctx.participant || ctx.remoteJid || null;
+  return raw ? normalizeJid(raw) : null;
+}
+
+// ── Get bot JID properly ─────────────────────────────────────────
+function getBotId(sock) {
+  return normalizeJid(sock.user?.id || '')
+}
+
+// ── Check if participant is admin ────────────────────────────────
+async function getGroupInfo(sock, groupJid) {
+  const meta = await sock.groupMetadata(groupJid)
+  const botId = getBotId(sock)
+
+  const admins = meta.participants
+    .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
+    .map(p => normalizeJid(p.id || p.jid || ''))
+
+  const botIsAdmin = admins.some(id =>
+    id === botId || id.includes(botId.split('@')[0])
+  )
+
+  return { meta, admins, botIsAdmin }
 }
 
 // ── Usage card ───────────────────────────────────────────────────
@@ -97,14 +125,12 @@ module.exports = {
 
   run: async ({ sock, from, msg, sender, args, isGroup, isAdmin, isBotAdmin }) => {
 
-    // Groups only
     if (!isGroup) {
       return sock.sendMessage(from, {
         text: '❌ Warn command only works in groups.'
       }, { quoted: msg });
     }
 
-    // Admin/bot only
     if (!isAdmin) {
       return sock.sendMessage(from, {
         text: '🔒 Only *admins* can use the warn command.'
@@ -175,9 +201,11 @@ Members will now be kicked after *${n}* warns.`
 
     // ── .warn reset @user ───────────────────────────────────────
     if (sub === 'reset') {
-      const target =
+      const raw =
         msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
         (() => { const m = (args[1] || '').match(/\d{7,15}/); return m ? `${m[0]}@s.whatsapp.net` : null; })();
+
+      const target = raw ? normalizeJid(raw) : null;
 
       if (!target) {
         return sock.sendMessage(from, {
@@ -201,9 +229,11 @@ Members will now be kicked after *${n}* warns.`
 
     // ── .warn check @user ───────────────────────────────────────
     if (sub === 'check') {
-      const target =
+      const raw =
         msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
         (() => { const m = (args[1] || '').match(/\d{7,15}/); return m ? `${m[0]}@s.whatsapp.net` : null; })();
+
+      const target = raw ? normalizeJid(raw) : null;
 
       if (!target) {
         return sock.sendMessage(from, {
@@ -221,8 +251,8 @@ Members will now be kicked after *${n}* warns.`
 ║         🔍  WARN CHECK               ║
 ╚══════════════════════════════════════╝
 
-👤 Member  : ${fmt(target)}
-⚠️  Warns   : *${count} / ${g.maxwarn}*
+👤 Member   : ${fmt(target)}
+⚠️  Warns    : *${count} / ${g.maxwarn}*
 📊 Progress : [${bar}]
 🔔 Status   : ${danger(count, g.maxwarn)}
 📌 Remaining: *${left} warn(s) before kick*`,
@@ -242,12 +272,9 @@ Members will now be kicked after *${n}* warns.`
 
       // Don't warn admins
       try {
-        const meta   = await sock.groupMetadata(from);
-        const isAdm  = meta.participants.some(
-          p => (p.id || p.jid) === target &&
-               (p.admin === 'admin' || p.admin === 'superadmin')
-        );
-        if (isAdm) {
+        const { admins } = await getGroupInfo(sock, from)
+        const targetNorm = normalizeJid(target)
+        if (admins.some(id => id === targetNorm || id.includes(targetNorm.split('@')[0]))) {
           return sock.sendMessage(from, {
             text: `⚠️ ${fmt(target)} is an admin — cannot warn admins.`,
             mentions: [target]
@@ -263,7 +290,7 @@ Members will now be kicked after *${n}* warns.`
       const bar   = progressBar(count, g.maxwarn);
       saveDB(db);
 
-      // ── DM the warned member ────────────────────────────────
+      // DM the warned member
       try {
         await sock.sendMessage(target, {
           text:
@@ -285,7 +312,7 @@ Please follow the group rules.`
         });
       } catch {}
 
-      // ── Group warn message ──────────────────────────────────
+      // Group warn message
       await sock.sendMessage(from, {
         text:
 `╔══════════════════════════════════════╗
@@ -304,25 +331,43 @@ ${count >= g.maxwarn
         mentions: [target]
       }, { quoted: msg });
 
-      // ── Auto-kick on max ────────────────────────────────────
+      // ── Auto-kick on max ──────────────────────────────────────
       if (count >= g.maxwarn) {
-        // Check bot is admin
-        let botAdm = false;
-        try {
-          const meta  = await sock.groupMetadata(from);
-          const botId = (sock.user?.id || '').replace(/:.*@/, '@');
-          botAdm = meta.participants.some(
-            p => (p.id || p.jid) === botId &&
-                 (p.admin === 'admin' || p.admin === 'superadmin')
-          );
-        } catch {}
+        let botIsAdmin = false
+        let kickTarget = target
 
-        if (botAdm) {
+        try {
+          const info = await getGroupInfo(sock, from)
+          botIsAdmin = info.botIsAdmin
+
+          // ── LID fix: find the actual participant entry that matches ──
+          // WhatsApp now uses LID internally; we match by phone number
+          const phoneNumber = target.split('@')[0]
+          const matchedParticipant = info.meta.participants.find(p => {
+            const pid = normalizeJid(p.id || p.jid || '')
+            return pid === target ||
+                   pid.includes(phoneNumber) ||
+                   (p.lid && p.lid.includes(phoneNumber))
+          })
+
+          if (matchedParticipant) {
+            kickTarget = normalizeJid(matchedParticipant.id || matchedParticipant.jid)
+          }
+
+          console.log(`[WARN] Kicking ${kickTarget} | botAdmin: ${botIsAdmin}`)
+        } catch (e) {
+          console.error('[WARN] getGroupInfo error:', e.message)
+        }
+
+        if (botIsAdmin) {
           try {
-            await new Promise(r => setTimeout(r, 1500)); // small delay for impact
-            await sock.groupParticipantsUpdate(from, [target], 'remove');
-            delete g.members[target]; // reset after kick
-            saveDB(db);
+            await new Promise(r => setTimeout(r, 1500))
+            await sock.groupParticipantsUpdate(from, [kickTarget], 'remove')
+            delete g.members[target]
+            saveDB(db)
+
+            console.log(`[WARN] ✅ Kicked ${kickTarget}`)
+
             await sock.sendMessage(from, {
               text:
 `╔══════════════════════════════════════╗
@@ -336,15 +381,16 @@ ${count >= g.maxwarn
 Their warns have been reset.`,
               mentions: [target]
             });
-          } catch {
+          } catch (e) {
+            console.error('[WARN] Kick failed:', e.message)
             await sock.sendMessage(from, {
-              text: `❌ Couldn't kick ${fmt(target)} — make me *admin* with kick rights.`,
+              text: `❌ Couldn't kick ${fmt(target)} — Error: ${e.message}\n\nMake sure I'm *admin* with kick rights.`,
               mentions: [target]
             });
           }
         } else {
           await sock.sendMessage(from, {
-            text: `🚨 ${fmt(target)} hit max warns but I need *admin rights* to kick.`,
+            text: `🚨 ${fmt(target)} hit max warns but I need *admin rights* to kick.\n\nPlease promote the bot to admin.`,
             mentions: [target]
           });
         }
@@ -353,7 +399,6 @@ Their warns have been reset.`,
       return;
     }
 
-    // fallback
     return sock.sendMessage(from, { text: usageCard() }, { quoted: msg });
   }
 };
