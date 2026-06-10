@@ -22,11 +22,16 @@ process.on("uncaughtException",  err => console.error("[CRASH]",   err.message))
 process.on("unhandledRejection", err => console.error("[PROMISE]", err?.message || err))
 
 // ─────────────────────────────────────────────────────────
-// MANUAL IN-MEMORY STORE (group metadata lives here in RAM)
-// Replaces makeInMemoryStore which was removed in newer Baileys
+// BOT START TIME — messages older than this are ignored
 // ─────────────────────────────────────────────────────────
 
-const store = { groupMetadata: {} }
+const BOT_START = Math.floor(Date.now() / 1000)
+
+// ─────────────────────────────────────────────────────────
+// GROUP METADATA CACHE (survives crashes — lives in RAM)
+// ─────────────────────────────────────────────────────────
+
+const groupCache = {}   // jid → metadata
 
 // ─────────────────────────────────────────────────────────
 // LIB LOADER
@@ -87,10 +92,11 @@ const server = http.createServer((req, res) => {
   if (req.url === "/status") {
     res.writeHead(200)
     return res.end(JSON.stringify({
-      bot:      settings.botName,
-      uptime:   process.uptime(),
-      pings:    pingCount,
-      lastPing
+      bot:        settings.botName,
+      uptime:     process.uptime(),
+      pings:      pingCount,
+      lastPing,
+      groupsCached: Object.keys(groupCache).length
     }))
   }
   res.end("CYBER X ONLINE")
@@ -280,6 +286,7 @@ async function handleMessage(sock, msg) {
       isOwner,
       isGroup,
       extractBody,
+      groupCache,
     })
   } catch (e) {
     console.error(`[RUN ERROR] ${cmd}:`, e.message)
@@ -318,21 +325,28 @@ async function startBot() {
       connectTimeoutMs:    60000,
       retryRequestDelayMs: 2000,
       maxMsgRetryCount:    5,
+      // ── Production: use in-RAM group cache for fast admin checks ──
+      cachedGroupMetadata: async (jid) => groupCache[jid],
     })
 
     botSocket = sock
 
-    // ── Manual store: keep group metadata in RAM ──────────────
-    sock.ev.on('groups.upsert', groups => {
-      for (const g of groups) store.groupMetadata[g.id] = g
-    })
-    sock.ev.on('groups.update', updates => {
-      for (const u of updates) {
-        if (store.groupMetadata[u.id]) Object.assign(store.groupMetadata[u.id], u)
+    // ── Keep group cache hot at all times ─────────────────────
+    sock.ev.on("groups.upsert", groups => {
+      for (const g of groups) {
+        groupCache[g.id] = g
       }
     })
-    sock.ev.on('group-participants.update', async ({ id }) => {
-      try { store.groupMetadata[id] = await sock.groupMetadata(id) } catch {}
+    sock.ev.on("groups.update", updates => {
+      for (const u of updates) {
+        if (groupCache[u.id]) Object.assign(groupCache[u.id], u)
+        else groupCache[u.id] = u
+      }
+    })
+    sock.ev.on("group-participants.update", async ({ id }) => {
+      try {
+        groupCache[id] = await sock.groupMetadata(id)
+      } catch {}
     })
 
     // ── Pairing code — only fires on first run ────────────────
@@ -367,24 +381,36 @@ async function startBot() {
 
     // ── Wire isAdmin + welcome with store ─────────────────────
     try {
-      const isAdminLib = require('./lib/isAdmin')
-      isAdminLib.setStore(store)
+      const isAdminLib = require("./lib/isAdmin")
+      // Pass the same groupCache object so isAdmin reads from it
+      isAdminLib.setStore({ groupMetadata: groupCache })
       isAdminLib.setSocket(sock)
       isAdminLib.invalidateAll()
-      require('./lib/welcome').setStore(store)
+      require("./lib/welcome").setStore({ groupMetadata: groupCache })
       console.log("[LIB] ✔ isAdmin + welcome wired")
     } catch (e) {
       console.warn("[LIB] ✗ wire failed:", e.message)
     }
 
     // ─────────────────────────────────────────────────────────
-    // MESSAGE LISTENER
+    // MESSAGE LISTENER — LIVE MESSAGES ONLY
+    // type "append" = history replay on reconnect → IGNORED
+    // Messages timestamped before BOT_START → IGNORED
+    // fromMe messages → IGNORED
     // ─────────────────────────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify" && type !== "append") return
+      if (type !== "notify") return
 
       for (const m of messages) {
-        if (m.key.fromMe && type === "append") continue
+        // Skip bot's own messages
+        if (m.key.fromMe) continue
+
+        // Skip old messages delivered after reconnect
+        const ts = Number(m.messageTimestamp) || 0
+        if (ts < BOT_START - 15) {
+          console.log(`[MSG] ⏭ Skipped old msg (ts:${ts} < boot:${BOT_START})`)
+          continue
+        }
 
         if (typeof lib.handleMemory === "function") {
           lib.handleMemory(sock, m, extractBody).catch(() => {})
@@ -405,11 +431,24 @@ async function startBot() {
       }
     })
 
-    sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+    sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
       if (connection === "open") {
         retries = 0
         console.log(`⚡ ${settings.botName} ONLINE`)
         console.log(`[INFO] Prefix: "${settings.prefix}" | Owner: ${settings.owner || "NOT SET"}`)
+
+        // ── Warm the group cache immediately on connect ────────
+        try {
+          const all = await sock.groupFetchAllParticipating()
+          let count = 0
+          for (const [jid, meta] of Object.entries(all)) {
+            groupCache[jid] = meta
+            count++
+          }
+          console.log(`[CACHE] ✔ Warmed ${count} groups`)
+        } catch (e) {
+          console.warn("[CACHE] ✗ Warm failed:", e.message)
+        }
       }
 
       if (connection === "close") {
