@@ -12,6 +12,7 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  makeInMemoryStore,
 } = require("@whiskeysockets/baileys")
 
 // ─────────────────────────────────────────────────────────
@@ -20,6 +21,14 @@ const {
 
 process.on("uncaughtException",  err => console.error("[CRASH]",   err.message))
 process.on("unhandledRejection", err => console.error("[PROMISE]", err?.message || err))
+
+// ─────────────────────────────────────────────────────────
+// IN-MEMORY STORE (group metadata lives here in RAM)
+// ─────────────────────────────────────────────────────────
+
+const store = makeInMemoryStore({
+  logger: Pino({ level: "silent" })
+})
 
 // ─────────────────────────────────────────────────────────
 // LIB LOADER
@@ -153,9 +162,10 @@ function rebuildLists() {
     .sort()
 
   registry.details = mods.map(c => ({
-    pattern: c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`,
-    desc:    c.desc  || "",
-    usage:   c.usage || ""
+    pattern:  c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`,
+    desc:     c.desc     || "",
+    usage:    c.usage    || "",
+    category: c.category || "general",
   })).sort((a, b) => a.pattern.localeCompare(b.pattern))
 }
 
@@ -174,7 +184,6 @@ async function loadCommands() {
   console.log(`[CMD] Keys: ${[...registry.map.keys()].join(", ")}`)
 }
 
-// ── Guard: only one watcher ever ──
 let watchStarted = false
 function watchCommands() {
   if (watchStarted) return
@@ -192,11 +201,8 @@ function watchCommands() {
 }
 
 // ─────────────────────────────────────────────────────────
-// MESSAGE HANDLER — ULTRA FAST ⚡
+// BODY EXTRACTOR
 // ─────────────────────────────────────────────────────────
-
-const PREFIX_LEN  = settings.prefix.length
-const PREFIX_CHAR = settings.prefix[0]
 
 function extractBody(msg) {
   const m = msg.message
@@ -210,6 +216,13 @@ function extractBody(msg) {
     ""
   )
 }
+
+// ─────────────────────────────────────────────────────────
+// MESSAGE HANDLER
+// ─────────────────────────────────────────────────────────
+
+const PREFIX_LEN  = settings.prefix.length
+const PREFIX_CHAR = settings.prefix[0]
 
 async function handleMessage(sock, msg) {
   if (!msg?.message) return
@@ -248,20 +261,9 @@ async function handleMessage(sock, msg) {
       sender.indexOf(ownerBase) !== -1
     : false
 
-  let isAdmin    = false
-  let isBotAdmin = false
-  const isGroup  = from.endsWith("@g.us")
+  const isGroup = from.endsWith("@g.us")
 
-  if (isGroup) {
-    try {
-      const meta   = await sock.groupMetadata(from)
-      const admins = meta.participants.filter(p => p.admin).map(p => p.id)
-      isAdmin    = isOwner || admins.includes(sender)
-      isBotAdmin = admins.includes(sock.user?.id?.replace(/:.*@/, "@"))
-    } catch {}
-  }
-
-  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
+  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} group:${isGroup}`)
 
   try {
     await command.run({
@@ -279,9 +281,7 @@ async function handleMessage(sock, msg) {
       lib,
       isOwner,
       isGroup,
-      isAdmin,
-      isBotAdmin,
-      extractBody
+      extractBody,
     })
   } catch (e) {
     console.error(`[RUN ERROR] ${cmd}:`, e.message)
@@ -292,7 +292,7 @@ async function handleMessage(sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────
-// BOT CORE — STABLE RECONNECT ⚡
+// BOT CORE
 // ─────────────────────────────────────────────────────────
 
 let retries   = 0
@@ -324,6 +324,9 @@ async function startBot() {
 
     botSocket = sock
 
+    // ── Bind store to socket events (keeps group metadata in RAM) ──
+    store.bind(sock.ev)
+
     // ── Pairing code — only fires on first run ──
     if (!state.creds.registered) {
       const raw    = process.env.PAIRING_NUMBER || process.env.PHONE_NUMBER || settings.owner
@@ -350,35 +353,43 @@ async function startBot() {
     await loadCommands()
     watchCommands()
 
-    if (typeof lib.setSocket === "function") lib.setSocket(sock)
+    // ── Boot libs that need the socket ──
+    if (typeof lib.setSocket      === "function") lib.setSocket(sock)
+    if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
+
+    // ── Wire isAdmin with BOTH store + socket (guaranteed, bypasses lib collision) ──
+    try {
+      const isAdminLib = require('./lib/isAdmin')
+      isAdminLib.setStore(store)    // RAM-first lookups
+      isAdminLib.setSocket(sock)    // auto-invalidate on promote/demote/add/remove
+      isAdminLib.invalidateAll()    // wipe stale cache from previous session
+      console.log("[LIB] ✔ isAdmin store + socket wired")
+    } catch (e) {
+      console.warn("[LIB] ✗ isAdmin wire failed:", e.message)
+    }
 
     // ─────────────────────────────────────────────────────
     // MESSAGE LISTENER
-    // accepts "notify" (others) + "append" (owner's own phone)
     // ─────────────────────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify" && type !== "append") return
 
       for (const m of messages) {
-        // Skip bot's own outgoing echoes
         if (m.key.fromMe && type === "append") continue
 
-        // ── Memory hook (from first file) ──
         if (typeof lib.handleMemory === "function") {
           lib.handleMemory(sock, m, extractBody).catch(() => {})
         }
 
-        // ── Main command handler ──
         handleMessage(sock, m).catch(e => console.error("[MSG ERR]", e.message))
 
-        // ── Antilink ──
         if (typeof lib.handleAntilink === "function") {
           lib.handleAntilink(sock, m, extractBody).catch(() => {})
         }
       }
     })
 
-    // ── Group join / leave → welcome & goodbye ──
+    // ── Group participant changes ──────────────────────────
     sock.ev.on("group-participants.update", async (update) => {
       if (typeof lib.handleGroupUpdate === "function") {
         lib.handleGroupUpdate(sock, update).catch(() => {})

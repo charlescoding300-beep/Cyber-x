@@ -1,308 +1,146 @@
-// ══════════════════════════════════════════════════════════════════════
-//  commands/battle.js  —  CYBER X  |  ⚔️  Hero Card Battle
+// ════════════════════════════════════════════════════════════════════
+//  commands/battle.js  —  CYBER X  |  ⚔️ Pokémon Battle
 //
-//  .battle @user   → challenge someone to a card battle
-//                    auto-picks each player's strongest card
-//                    50/50 winner — shows REASON why winner won
-//                    winner earns 50 coins from loser
-// ══════════════════════════════════════════════════════════════════════
+//  .battle @user          → challenge a mentioned user
+//  .battle (reply to msg) → challenge the person you replied to
+//
+//  • Challenger must own a Pokémon (.buy one first)
+//  • Opponent has 2 minutes to .accept
+//  • Battle auto-simulates, editing ONE message per round
+//  • Winner gets coins = 50% of loser's active Pokémon price
+// ════════════════════════════════════════════════════════════════════
 
-// ── Wait for buy.js to set up global.heroSystem ────────────────────────
-if (!global.heroSystem) {
-  global.heroSystem = {
-    apiCache:   new Map(),
-    collection: new Map(),
-    battles:    new Map(),
-  }
-}
-const HS = global.heroSystem
+const {
+  DB, saveData, POKEMON, gifUrl,
+  typeEmoji, tierEmoji, hpBar,
+  getUser, getActiveCard, sleep,
+} = require('../lib/pokemonEngine')
 
-// ── Coin helpers ───────────────────────────────────────────────────────
-function getCoins(uid) {
-  if (!global.slotData) return 0
-  return global.slotData.coins.get(uid) ?? 200
-}
-function transferCoins(fromUid, toUid, amount) {
-  if (!global.slotData) return
-  const from = Math.max(0, getCoins(fromUid) - amount)
-  const to   = getCoins(toUid) + amount
-  global.slotData.coins.set(fromUid, from)
-  global.slotData.coins.set(toUid,   to)
-}
+const BATTLE_TIMEOUT_MS = 120_000  // 2 min to accept
 
-// ── User ID helper ─────────────────────────────────────────────────────
-function uid(sender, from) {
-  return sender.replace(/@.*/, "") + "|" + from
-}
-
-// ── Resolve helpers from buy.js (loaded lazily in case buy.js is first) ──
-function getHelper(name, fallback) {
-  return (HS[name] instanceof Function) ? HS[name] : fallback
-}
-
-function overall(ps) {
-  if (HS.overall) return HS.overall(ps)
-  if (!ps) return 0
-  return Math.round([ps.intelligence,ps.strength,ps.speed,ps.durability,ps.power,ps.combat]
-    .map(n=>n||0).reduce((a,b)=>a+b,0)/6)
-}
-
-// ── Get best card from a player's collection ──────────────────────────
-async function getBestCard(userKey) {
-  const catalog    = HS.CATALOG || []
-  const collection = HS.collection.get(userKey)
-  if (!collection || collection.size === 0) return null
-
-  let best = null, bestScore = -1
-
-  for (const heroName of collection) {
-    const entry = catalog.find(h => h.name === heroName)
-    if (!entry) continue
-    try {
-      const heroData = await HS.getHeroData(entry)
-      const score    = overall(heroData.powerstats)
-      if (score > bestScore) {
-        bestScore = score
-        best = { entry, heroData, score }
-      }
-    } catch { /* skip failed fetches */ }
-  }
-  return best
-}
-
-// ── Battle reason engine ───────────────────────────────────────────────
-// Finds the stat where winner has biggest advantage over loser
-// Returns a dramatic 2-line reason string
-function getBattleReason(wEntry, wStats, lEntry, lStats) {
-  const keys  = ["strength", "speed", "intelligence", "durability", "power", "combat"]
-  const emoji = { strength:"💪", speed:"⚡", intelligence:"🧠", durability:"🛡️", power:"✨", combat:"⚔️" }
-  const label = { strength:"Strength", speed:"Speed", intelligence:"Intelligence", durability:"Durability", power:"Power", combat:"Combat" }
-
-  const narratives = {
-    strength:     [
-      `${wEntry.name}'s overwhelming physical strength crushed ${lEntry.name}'s defenses!`,
-      `Raw muscle power — ${wEntry.name} hit harder than anything ${lEntry.name} could handle!`,
-    ],
-    speed:        [
-      `${wEntry.name}'s blazing speed left ${lEntry.name} unable to even land a hit!`,
-      `Too fast to touch — ${lEntry.name} was outmanoeuvred at every turn!`,
-    ],
-    intelligence: [
-      `${wEntry.name}'s tactical genius found every weakness in ${lEntry.name}'s strategy!`,
-      `Outsmarted at every step — brains beat brawn today!`,
-    ],
-    durability:   [
-      `${wEntry.name} just would not go down — every blow ${lEntry.name} landed was absorbed!`,
-      `Unbreakable — ${lEntry.name} exhausted every attack and ${wEntry.name} kept standing.`,
-    ],
-    power:        [
-      `${wEntry.name} unleashed abilities far beyond anything ${lEntry.name} could counter!`,
-      `Pure power overload — ${lEntry.name} had no answer for ${wEntry.name}'s raw force!`,
-    ],
-    combat:       [
-      `${wEntry.name}'s superior combat skill dismantled ${lEntry.name}'s fighting style!`,
-      `Precise, disciplined, and relentless — ${wEntry.name} made every strike count!`,
-    ],
-  }
-
-  let bestKey  = null
-  let bestDiff = -Infinity
-
-  for (const key of keys) {
-    const diff = (wStats[key] || 0) - (lStats[key] || 0)
-    if (diff > bestDiff) { bestDiff = diff; bestKey = key }
-  }
-
-  const key      = bestKey || "power"
-  const wVal     = wStats[key] || 0
-  const lVal     = lStats[key] || 0
-  const story    = narratives[key][Math.floor(Math.random() * 2)]
-  const diffStr  = bestDiff > 0 ? ` (+${bestDiff} advantage)` : ""
-
-  return (
-    `💥 *${emoji[key]} ${label[key].toUpperCase()} ADVANTAGE${diffStr}*\n` +
-    `${story}\n\n` +
-    `${emoji[key]} ${wEntry.name}: *${wVal}*  vs  ${lEntry.name}: *${lVal}*`
-  )
-}
-
-// ── Stat comparison table ──────────────────────────────────────────────
-function statTable(wEntry, wStats, lEntry, lStats) {
-  const keys   = ["intelligence", "strength", "speed", "durability", "power", "combat"]
-  const emojis = ["🧠","💪","⚡","🛡️","✨","⚔️"]
-  const short  = ["INT","STR","SPD","DUR","PWR","CMB"]
-
-  return keys.map((k, i) => {
-    const wv = wStats[k] || 0
-    const lv = lStats[k] || 0
-    const arrow = wv > lv ? "▲" : wv < lv ? "▼" : "="
-    return `${emojis[i]} ${short[i]}  ${String(wv).padStart(3)}  ${arrow}  ${String(lv).padStart(3)}`
-  }).join("\n")
-}
-
-const BATTLE_WAGER = 50  // coins transferred on win
-
-// ══════════════════════════════════════════════════════════════════════
-//  COMMAND EXPORT
-// ══════════════════════════════════════════════════════════════════════
 module.exports = {
-  pattern: "battle",
-  desc:    "⚔️ Challenge another player to a superhero card battle!",
-  usage:   ".battle @user",
+  pattern:  "battle",
+  desc:     "⚔️ Challenge another user to a Pokémon battle",
+  usage:    ".battle @user  |  reply to a message + .battle",
+  category: "game",
 
-  run: async ({ sock, from, msg, sender, args, text, isGroup }) => {
+  run: async ({ sock, from, msg, sender, args }) => {
+    const uid1     = sender.replace(/@.+/, "")
+    const name1    = msg.pushName || uid1
+    const card1    = getActiveCard(uid1)
 
-    const userKey = uid(sender, from)
-
-    // ── Extract @mentioned user ────────────────────────────────────────
-    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid
-      || msg.message?.imageMessage?.contextInfo?.mentionedJid
-      || []
-
-    const opponentJid = mentioned[0] || null
-
-    if (!opponentJid) {
+    // ── Check challenger has a Pokémon ──
+    if (!card1) {
       return sock.sendMessage(from, {
-        text: `╔══════════════════════════════╗\n` +
-              `║   ⚔️   HERO CARD BATTLE       ║\n` +
-              `╚══════════════════════════════╝\n\n` +
-              `*Usage:* .battle @username\n\n` +
-              `You must tag someone to battle.\n` +
-              `Both players need at least 1 card.\n` +
-              `Buy cards with *.buy* 🛒`,
+        text:
+          `😔 You don't have a Pokémon to battle with!\n\n` +
+          `📖 *.pokedex* — browse Pokémon\n` +
+          `🛒 *.buy <name>* — buy one\n` +
+          `🎰 *.slot* — earn coins`,
       }, { quoted: msg })
     }
 
-    const opponentKey = uid(opponentJid, from)
+    // ── Find opponent UID from mention or quoted message ──
+    let uid2 = null
+    let name2 = null
 
-    // ── Can't battle yourself ──────────────────────────────────────────
-    if (opponentKey === userKey) {
+    // Mentioned user?
+    const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ||
+                      msg.message?.groupMentionedMessage?.mentionedJids || []
+    if (mentioned.length) {
+      uid2  = (Array.isArray(mentioned) ? mentioned[0] : mentioned).replace(/@.+/, "")
+      name2 = uid2
+    }
+
+    // Quoted message?
+    if (!uid2) {
+      const quoted = msg.message?.extendedTextMessage?.contextInfo?.participant ||
+                     msg.message?.extendedTextMessage?.contextInfo?.remoteJid
+      if (quoted) uid2 = quoted.replace(/@.+/, "")
+      name2 = uid2
+    }
+
+    if (!uid2 || uid2 === uid1) {
       return sock.sendMessage(from, {
-        text: `❌ You can't battle yourself! Challenge someone else.`,
+        text:
+          `⚔️ *How to battle:*\n\n` +
+          `1. Tag someone: *.battle @user*\n` +
+          `2. Reply to their message: *.battle*\n\n` +
+          `Make sure BOTH players own a Pokémon!`,
       }, { quoted: msg })
     }
 
-    // ── Both need collections ──────────────────────────────────────────
-    if (!HS.collection) {
+    // ── Check opponent has a Pokémon ──
+    const card2 = getActiveCard(uid2)
+    if (!card2) {
       return sock.sendMessage(from, {
-        text: `❌ Card system not ready yet. Use *.buy* first to initialise the shop!`,
+        text:
+          `😅 *${uid2}* doesn't have a Pokémon yet!\n` +
+          `They need to *.buy* one first.`,
       }, { quoted: msg })
     }
 
-    const myCollection  = HS.collection.get(userKey)
-    const oppCollection = HS.collection.get(opponentKey)
-
-    if (!myCollection || myCollection.size === 0) {
+    // ── No active battle already? ──
+    const battleKey = [uid1, uid2].sort().join("|")
+    if (DB.activeBattles[battleKey] || DB.pendingBattles[battleKey]) {
       return sock.sendMessage(from, {
-        text: `╔══════════════════════════════╗\n` +
-              `║   📭  NO CARDS               ║\n` +
-              `╚══════════════════════════════╝\n\n` +
-              `You don't have any hero cards!\n` +
-              `Use *.buy* to get your first card. 🛒`,
+        text: `⚔️ A battle between you two is already in progress!`,
       }, { quoted: msg })
     }
 
-    if (!oppCollection || oppCollection.size === 0) {
-      return sock.sendMessage(from, {
-        text: `╔══════════════════════════════╗\n` +
-              `║   📭  OPPONENT HAS NO CARDS  ║\n` +
-              `╚══════════════════════════════╝\n\n` +
-              `@${opponentJid.split("@")[0]} has no cards yet!\n` +
-              `They need to use *.buy* first. 🛒`,
-        mentions: [opponentJid],
-      }, { quoted: msg })
+    // ── Prize = 50% of opponent's active Pokémon price ──
+    const pkm1  = POKEMON[card1.pokemonId]
+    const pkm2  = POKEMON[card2.pokemonId]
+    const prize = Math.max(50, Math.floor(POKEMON[card2.pokemonId].price * 0.5))
+
+    // Store pending battle
+    DB.pendingBattles[battleKey] = {
+      uid1, uid2, name1, name2, card1, card2, prize,
+      from, initiatedAt: Date.now(),
     }
+    saveData()
 
-    // ── Announce battle starting ───────────────────────────────────────
-    const challengerTag = `@${sender.split("@")[0]}`
-    const opponentTag   = `@${opponentJid.split("@")[0]}`
+    // ── Auto-expire after 2 minutes ──
+    setTimeout(() => {
+      if (DB.pendingBattles[battleKey]) {
+        delete DB.pendingBattles[battleKey]
+        saveData()
+        sock.sendMessage(from, {
+          text: `⏰ Battle challenge from *${name1}* to *@${uid2}* expired!`,
+          mentions: [`${uid2}@s.whatsapp.net`],
+        }).catch(() => {})
+      }
+    }, BATTLE_TIMEOUT_MS)
 
-    await sock.sendMessage(from, {
-      text: `╔══════════════════════════════╗\n` +
-            `║   ⚔️   HERO CARD BATTLE  ⚔️   ║\n` +
-            `╚══════════════════════════════╝\n\n` +
-            `🔵 ${challengerTag}  🆚  🔴 ${opponentTag}\n\n` +
-            `⚡ *Selecting best cards...*\n` +
-            `🎲 *Battle commencing...*`,
-      mentions: [sender, opponentJid],
-    }, { quoted: msg })
+    // ── Challenge message ──
+    const pkm1Name = pkm1.name
+    const pkm2Name = pkm2.name
 
-    // ── Get best cards ─────────────────────────────────────────────────
-    let challengerCard, opponentCard
-    try {
-      [challengerCard, opponentCard] = await Promise.all([
-        getBestCard(userKey),
-        getBestCard(opponentKey),
-      ])
-    } catch (e) {
-      return sock.sendMessage(from, {
-        text: `❌ Battle failed loading card data: ${e.message}`,
-      }, { quoted: msg })
-    }
-
-    if (!challengerCard) {
-      return sock.sendMessage(from, { text: `❌ Could not load ${challengerTag}'s card.`, mentions: [sender] }, { quoted: msg })
-    }
-    if (!opponentCard) {
-      return sock.sendMessage(from, { text: `❌ Could not load ${opponentTag}'s card.`, mentions: [opponentJid] }, { quoted: msg })
-    }
-
-    // ── 50/50 winner ───────────────────────────────────────────────────
-    const challengerWins = Math.random() < 0.5
-    const winner = challengerWins ? challengerCard : opponentCard
-    const loser  = challengerWins ? opponentCard   : challengerCard
-    const winnerJid   = challengerWins ? sender      : opponentJid
-    const loserJid    = challengerWins ? opponentJid : sender
-    const winnerKey   = challengerWins ? userKey     : opponentKey
-    const loserKey    = challengerWins ? opponentKey : userKey
-    const winnerTag   = `@${winnerJid.split("@")[0]}`
-    const loserTag    = `@${loserJid.split("@")[0]}`
-
-    const wStats = winner.heroData.powerstats || {}
-    const lStats = loser.heroData.powerstats  || {}
-
-    // ── Transfer coins ─────────────────────────────────────────────────
-    const wager = Math.min(BATTLE_WAGER, getCoins(loserKey))
-    if (wager > 0) transferCoins(loserKey, winnerKey, wager)
-
-    // ── Build result message ───────────────────────────────────────────
-    const reason = getBattleReason(winner.entry, wStats, loser.entry, lStats)
-    const table  = statTable(winner.entry, wStats, loser.entry, lStats)
-
-    await new Promise(r => setTimeout(r, 2000))  // dramatic pause
-
-    const resultText =
+    const challengeText =
       `╔══════════════════════════════╗\n` +
-      `║   🏆  BATTLE RESULT  🏆      ║\n` +
+      `║   ⚔️  *BATTLE CHALLENGE!*  ⚔️  ║\n` +
       `╚══════════════════════════════╝\n\n` +
-      `🔵 ${challengerTag}'s *${challengerCard.entry.name}* (${challengerCard.score}/100)\n` +
-      `        🆚\n` +
-      `🔴 ${opponentTag}'s *${opponentCard.entry.name}* (${opponentCard.score}/100)\n\n` +
-      `━━━━━  WINNER  ━━━━━\n` +
-      `🏆 *${winner.entry.name}* — ${winnerTag}\n\n` +
-      `━━━━━  WHY THEY WON  ━━━━━\n` +
-      reason + `\n\n` +
-      `━━━━━  FULL STATS  ━━━━━\n` +
-      `         ${winner.entry.name.slice(0,10).padEnd(10)}  ${loser.entry.name.slice(0,10).padEnd(10)}\n` +
-      table + `\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🎉 ${winnerTag} wins *+${wager} coins*!\n` +
-      `💸 ${loserTag} loses *${wager} coins*\n\n` +
-      `💼 ${winnerTag}: *${getCoins(winnerKey)} coins*\n` +
-      `💼 ${loserTag}: *${getCoins(loserKey)} coins*`
-
-    const winnerImage = winner.heroData.images?.md || winner.entry.localImage
+      `🔴 *${name1}* challenges @${uid2}!\n\n` +
+      `🔴 ${name1}'s Pokémon:\n` +
+      `   ${tierEmoji(pkm1.tier)} *${pkm1Name}* ${typeEmoji(pkm1.type)}\n` +
+      `   ❤️${pkm1.hp}  ⚔️${pkm1.atk}  🛡️${pkm1.def}  💨${pkm1.spd}\n\n` +
+      `🔵 ${uid2}'s Pokémon:\n` +
+      `   ${tierEmoji(pkm2.tier)} *${pkm2Name}* ${typeEmoji(pkm2.type)}\n` +
+      `   ❤️${pkm2.hp}  ⚔️${pkm2.atk}  🛡️${pkm2.def}  💨${pkm2.spd}\n\n` +
+      `💰 Winner gets: *${prize} coins*\n\n` +
+      `⏳ @${uid2}, type *.accept* within 2 minutes!`
 
     try {
       await sock.sendMessage(from, {
-        image:    { url: winnerImage },
-        caption:  resultText,
-        mentions: [sender, opponentJid],
+        video:    { url: gifUrl(card1.pokemonId) },
+        gifPlayback: true,
+        caption:  challengeText,
+        mentions: [`${uid2}@s.whatsapp.net`],
       }, { quoted: msg })
     } catch {
       await sock.sendMessage(from, {
-        text:     resultText,
-        mentions: [sender, opponentJid],
+        text:     challengeText,
+        mentions: [`${uid2}@s.whatsapp.net`],
       }, { quoted: msg })
     }
   },

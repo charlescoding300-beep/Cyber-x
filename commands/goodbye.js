@@ -1,44 +1,31 @@
 // ═══════════════════════════════════════════════════════════════
-// commands/goodbye.js — CYBER X GOODBYE COMMAND
-//
-// Usage:
-//   .goodbye          → show current goodbye status
-//   .goodbye on       → enable goodbye message
-//   .goodbye off      → disable goodbye message
-//   .goodbye set      → reply to a message to set as custom goodbye
-//   .goodbye reset    → reset to default goodbye message
-//   .goodbye test     → test goodbye message on yourself
+//  commands/goodbye.js — CYBER X
 // ═══════════════════════════════════════════════════════════════
 
 module.exports = {
   pattern:  "goodbye",
-  desc:     "Set goodbye messages for members who leave",
+  desc:     "Manage goodbye messages for members who leave",
   usage:    ".goodbye on | off | set | reset | test",
+  category: "group",
 
-  async run({ sock, from, msg, args, sender, lib, isAdmin, isOwner, isGroup }) {
+  async run({ sock, from, msg, args, sender, lib, isOwner, isGroup }) {
 
-    if (!isGroup) {
-      return sock.sendMessage(from, {
-        text: "❌ *This command only works in groups.*",
-        quoted: msg
-      })
-    }
+    if (!isGroup) return sock.sendMessage(from, {
+      text: "❌ *This command only works in groups.*", quoted: msg
+    })
 
-    if (!isAdmin && !isOwner) {
-      return sock.sendMessage(from, {
-        text: "❌ *Only admins can use this command.*",
-        quoted: msg
-      })
-    }
+    const { isAdmin } = require('../lib/isAdmin')
+    const admin = await isAdmin(sock, from, sender)
+
+    if (!admin && !isOwner) return sock.sendMessage(from, {
+      text: "❌ *Only admins can use this command.*", quoted: msg
+    })
 
     const sub = (args[0] || "").toLowerCase()
 
-    // ── .goodbye (no args) ──
+    // ── no args: status ───────────────────────────────────────
     if (!sub) {
-      const config  = lib.getWelcomeConfig(from)
-      const gStatus = config.goodbyeEnabled ? "✅ ON" : "❌ OFF"
-      const gMsg    = config.goodbyeMsg     ? "📝 Custom" : "🔘 Default"
-
+      const cfg = lib.getWelcomeConfig(from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════════╗
@@ -46,8 +33,8 @@ module.exports = {
 ╚════════════════════════╝
 
 ┌─────〔 ℹ️ *STATUS* 〕─────
-│ 🔴 *Goodbye:* ${gStatus}
-│ 📝 *Message:* ${gMsg}
+│ 🔴 *Goodbye:* ${cfg.goodbyeEnabled ? "✅ ON" : "❌ OFF"}
+│ 📝 *Msg:* ${cfg.goodbyeMsg ? "📝 Custom" : "🔘 Default"}
 │
 │ 📌 *Commands:*
 │  *.goodbye on/off*
@@ -60,7 +47,7 @@ module.exports = {
       })
     }
 
-    // ── .goodbye on ──
+    // ── on ────────────────────────────────────────────────────
     if (sub === "on") {
       lib.enableGoodbye(from)
       return sock.sendMessage(from, {
@@ -69,19 +56,15 @@ module.exports = {
 ║  ✅ *GOODBYE ENABLED*  ║
 ╚════════════════════════╝
 
-│ Members who leave will now
-│ get a goodbye message with
-│ their photo and tag. 👋
-│
-│ 💡 Use *.goodbye set* to
-│    customize the message.
+│ Members who leave will get a goodbye.
+│ 💡 Use *.goodbye set* to customize.
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
       })
     }
 
-    // ── .goodbye off ──
+    // ── off ───────────────────────────────────────────────────
     if (sub === "off") {
       lib.disableGoodbye(from)
       return sock.sendMessage(from, {
@@ -90,7 +73,6 @@ module.exports = {
 ║  ❌ *GOODBYE DISABLED* ║
 ╚════════════════════════╝
 
-│ Goodbye messages are now off.
 │ Use *.goodbye on* to re-enable.
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
@@ -98,94 +80,76 @@ module.exports = {
       })
     }
 
-    // ── .goodbye set ──
+    // ── set ───────────────────────────────────────────────────
     if (sub === "set") {
-      const ctx        = msg.message?.extendedTextMessage?.contextInfo
-      const quotedText =
-        ctx?.quotedMessage?.conversation ||
-        ctx?.quotedMessage?.extendedTextMessage?.text ||
-        null
+      const ctx  = msg.message?.extendedTextMessage?.contextInfo
+      const text = ctx?.quotedMessage?.conversation
+                || ctx?.quotedMessage?.extendedTextMessage?.text
+                || null
 
-      if (!quotedText) {
-        return sock.sendMessage(from, {
-          text:
+      if (!text) return sock.sendMessage(from, {
+        text:
 `╔════════════════════════╗
 ║  ℹ️ *HOW TO SET*       ║
 ╚════════════════════════╝
 
-Type your custom goodbye message,
-then *reply to it* with:
+Type your message, then *reply to it* with:
   *.goodbye set*
 
-📌 *Placeholders you can use:*
+📌 *Placeholders:*
   *{tag}*   → tags the member
-  *{name}*  → member's number
+  *{name}*  → member number
   *{group}* → group name
-  *{count}* → remaining members
+  *{count}* → remaining members`,
+        quoted: msg
+      })
 
-Example:
-_Goodbye {tag}! 👋
-We hope to see you again in {group}._`,
-          quoted: msg
-        })
-      }
-
-      lib.setGoodbyeMsg(from, quotedText)
+      lib.setGoodbyeMsg(from, text)
       return sock.sendMessage(from, {
-        text: "✅ *Custom goodbye message saved!*\nUse *.goodbye test* to preview it.",
+        text: "✅ *Custom goodbye message saved!*\nUse *.goodbye test* to preview.",
         quoted: msg
       })
     }
 
-    // ── .goodbye reset ──
+    // ── reset ─────────────────────────────────────────────────
     if (sub === "reset") {
       lib.resetGoodbyeMsg(from)
       return sock.sendMessage(from, {
-        text: "✅ *Goodbye message reset to default.*",
-        quoted: msg
+        text: "✅ *Goodbye message reset to default.*", quoted: msg
       })
     }
 
-    // ── .goodbye test ──
+    // ── test ──────────────────────────────────────────────────
     if (sub === "test") {
-      const config   = lib.getWelcomeConfig(from)
-      const template = config.goodbyeMsg || lib.DEFAULT_GOODBYE
+      const cfg      = lib.getWelcomeConfig(from)
+      const template = cfg.goodbyeMsg || lib.DEFAULT_GOODBYE
 
-      let groupName   = "this group"
-      let memberCount = 0
-      try {
-        const meta  = await sock.groupMetadata(from)
-        groupName   = meta.subject || "this group"
-        memberCount = meta.participants?.length || 0
-      } catch {}
-
-      const tag  = `@${sender.split("@")[0]}`
-      const text = template
+      const meta      = lib.welcome?._store?.groupMetadata?.[from]
+                     ?? await sock.groupMetadata(from).catch(() => ({}))
+      const groupName = meta?.subject || 'this group'
+      const count     = meta?.participants?.length || 0
+      const tag       = `@${sender.split('@')[0]}`
+      const text      = template
         .replace(/{tag}/g,   tag)
         .replace(/{name}/g,  tag)
         .replace(/{group}/g, groupName)
-        .replace(/{count}/g, memberCount)
+        .replace(/{count}/g, count)
 
       let ppUrl = null
-      try { ppUrl = await sock.profilePictureUrl(sender, "image") } catch {}
+      try { ppUrl = await sock.profilePictureUrl(sender, 'image') } catch {}
 
       if (ppUrl) {
         return sock.sendMessage(from, {
-          image:    { url: ppUrl },
-          caption:  `🧪 *TEST PREVIEW:*\n\n${text}`,
-          mentions: [sender],
+          image: { url: ppUrl }, caption: `🧪 *TEST PREVIEW:*\n\n${text}`, mentions: [sender]
         }, { quoted: msg })
       }
       return sock.sendMessage(from, {
-        text:     `🧪 *TEST PREVIEW:*\n\n${text}`,
-        mentions: [sender],
-        quoted:   msg
+        text: `🧪 *TEST PREVIEW:*\n\n${text}`, mentions: [sender], quoted: msg
       })
     }
 
     return sock.sendMessage(from, {
-      text: "❓ Unknown option. Use: *.goodbye on | off | set | reset | test*",
-      quoted: msg
+      text: "❓ Use: *.goodbye on | off | set | reset | test*", quoted: msg
     })
   }
 }
