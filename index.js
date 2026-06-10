@@ -12,7 +12,6 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-  makeInMemoryStore,
 } = require("@whiskeysockets/baileys")
 
 // ─────────────────────────────────────────────────────────
@@ -23,12 +22,11 @@ process.on("uncaughtException",  err => console.error("[CRASH]",   err.message))
 process.on("unhandledRejection", err => console.error("[PROMISE]", err?.message || err))
 
 // ─────────────────────────────────────────────────────────
-// IN-MEMORY STORE (group metadata lives here in RAM)
+// MANUAL IN-MEMORY STORE (group metadata lives here in RAM)
+// Replaces makeInMemoryStore which was removed in newer Baileys
 // ─────────────────────────────────────────────────────────
 
-const store = makeInMemoryStore({
-  logger: Pino({ level: "silent" })
-})
+const store = { groupMetadata: {} }
 
 // ─────────────────────────────────────────────────────────
 // LIB LOADER
@@ -324,10 +322,20 @@ async function startBot() {
 
     botSocket = sock
 
-    // ── Bind store to socket events (keeps group metadata in RAM) ──
-    store.bind(sock.ev)
+    // ── Manual store: keep group metadata in RAM ──────────────
+    sock.ev.on('groups.upsert', groups => {
+      for (const g of groups) store.groupMetadata[g.id] = g
+    })
+    sock.ev.on('groups.update', updates => {
+      for (const u of updates) {
+        if (store.groupMetadata[u.id]) Object.assign(store.groupMetadata[u.id], u)
+      }
+    })
+    sock.ev.on('group-participants.update', async ({ id }) => {
+      try { store.groupMetadata[id] = await sock.groupMetadata(id) } catch {}
+    })
 
-    // ── Pairing code — only fires on first run ──
+    // ── Pairing code — only fires on first run ────────────────
     if (!state.creds.registered) {
       const raw    = process.env.PAIRING_NUMBER || process.env.PHONE_NUMBER || settings.owner
       const number = (raw || "").replace(/\D/g, "")
@@ -353,24 +361,25 @@ async function startBot() {
     await loadCommands()
     watchCommands()
 
-    // ── Boot libs that need the socket ──
+    // ── Boot libs that need the socket ────────────────────────
     if (typeof lib.setSocket      === "function") lib.setSocket(sock)
     if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
 
-    // ── Wire isAdmin with BOTH store + socket (guaranteed, bypasses lib collision) ──
+    // ── Wire isAdmin + welcome with store ─────────────────────
     try {
       const isAdminLib = require('./lib/isAdmin')
-      isAdminLib.setStore(store)    // RAM-first lookups
-      isAdminLib.setSocket(sock)    // auto-invalidate on promote/demote/add/remove
-      isAdminLib.invalidateAll()    // wipe stale cache from previous session
-      console.log("[LIB] ✔ isAdmin store + socket wired")
+      isAdminLib.setStore(store)
+      isAdminLib.setSocket(sock)
+      isAdminLib.invalidateAll()
+      require('./lib/welcome').setStore(store)
+      console.log("[LIB] ✔ isAdmin + welcome wired")
     } catch (e) {
-      console.warn("[LIB] ✗ isAdmin wire failed:", e.message)
+      console.warn("[LIB] ✗ wire failed:", e.message)
     }
 
-    // ─────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
     // MESSAGE LISTENER
-    // ─────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify" && type !== "append") return
 
@@ -389,7 +398,7 @@ async function startBot() {
       }
     })
 
-    // ── Group participant changes ──────────────────────────
+    // ── Group participant changes ──────────────────────────────
     sock.ev.on("group-participants.update", async (update) => {
       if (typeof lib.handleGroupUpdate === "function") {
         lib.handleGroupUpdate(sock, update).catch(() => {})
