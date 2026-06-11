@@ -1,155 +1,136 @@
-// ═══════════════════════════════════════════════════════════════
-//  commands/goodbye.js — CYBER X
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+//  commands/goodbye.js — CYBER X | Goodbye Config Command
+// ════════════════════════════════════════════════════════════════════
+
+const { isAdmin }                              = require("../lib/isAdmin")
+const { readConfig, writeConfig, DEFAULT_MSG } = require("../lib/goodbye")
+
+const VARS = [
+  "╔══「 📋 *GOODBYE VARIABLES* 」══╗",
+  "",
+  "  `{tag}`    — mentions the member",
+  "  `{name}`   — their display name",
+  "  `{number}` — their phone number",
+  "  `{group}`  — group name",
+  "  `{count}`  — remaining members",
+  "  `{date}`   — date they left",
+  "  `{time}`   — time they left",
+  "",
+  "  *Formatting:* `*bold*`  _italic_  ~strike~",
+  "",
+  "  *Example:*",
+  "  `.goodbye set 💔 {name} just left {group}. {count} members remain.`",
+  "",
+  "╚══「 ⚡ *CYBER X* 」══╝",
+].join("\n")
 
 module.exports = {
   pattern:  "goodbye",
-  desc:     "Manage goodbye messages for members who leave",
-  usage:    ".goodbye on | off | set | reset | test",
-  category: "group",
+  desc:     "Configure auto-goodbye when members leave",
+  usage:    ".goodbye on/off/set/reset/test/status/vars",
+  category: "admin",
 
-  async run({ sock, from, msg, args, sender, lib, isOwner, isGroup }) {
+  async run({ sock, from, sender, args, text, isOwner, isGroup }) {
+    if (!isGroup) return sock.sendMessage(from, { text: "❌ Groups only." })
 
-    if (!isGroup) return sock.sendMessage(from, {
-      text: "❌ *This command only works in groups.*", quoted: msg
-    })
-
-    const { isAdmin } = require('../lib/isAdmin')
-    const admin = await isAdmin(sock, from, sender)
-
-    if (!admin && !isOwner) return sock.sendMessage(from, {
-      text: "❌ *Only admins can use this command.*", quoted: msg
-    })
+    const admin = isOwner || await isAdmin(sock, from, sender)
+    if (!admin) return sock.sendMessage(from, { text: "❌ Admins only." })
 
     const sub = (args[0] || "").toLowerCase()
+    const cfg = readConfig()
+    if (!cfg[from]) cfg[from] = { enabled: false, message: DEFAULT_MSG }
 
-    // ── no args: status ───────────────────────────────────────
-    if (!sub) {
-      const cfg = lib.getWelcomeConfig(from)
-      return sock.sendMessage(from, {
-        text:
-`╔════════════════════════╗
-║  👋 *GOODBYE SETTINGS* ║
-╚════════════════════════╝
-
-┌─────〔 ℹ️ *STATUS* 〕─────
-│ 🔴 *Goodbye:* ${cfg.goodbyeEnabled ? "✅ ON" : "❌ OFF"}
-│ 📝 *Msg:* ${cfg.goodbyeMsg ? "📝 Custom" : "🔘 Default"}
-│
-│ 📌 *Commands:*
-│  *.goodbye on/off*
-│  *.goodbye set* (reply to msg)
-│  *.goodbye reset*
-│  *.goodbye test*
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
-      })
-    }
-
-    // ── on ────────────────────────────────────────────────────
     if (sub === "on") {
-      lib.enableGoodbye(from)
+      cfg[from].enabled = true
+      writeConfig(cfg)
       return sock.sendMessage(from, {
-        text:
-`╔════════════════════════╗
-║  ✅ *GOODBYE ENABLED*  ║
-╚════════════════════════╝
-
-│ Members who leave will get a goodbye.
-│ 💡 Use *.goodbye set* to customize.
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
+        text: [
+          "╔══「 ✅ *GOODBYE ON* 」══╗",
+          "",
+          "  Auto-goodbye is *enabled* for this group.",
+          "  Use `.goodbye set <msg>` to customise.",
+          "  Use `.goodbye vars` for template variables.",
+          "",
+          "╚══「 ⚡ *CYBER X* 」══╝",
+        ].join("\n")
       })
     }
 
-    // ── off ───────────────────────────────────────────────────
     if (sub === "off") {
-      lib.disableGoodbye(from)
+      cfg[from].enabled = false
+      writeConfig(cfg)
       return sock.sendMessage(from, {
-        text:
-`╔════════════════════════╗
-║  ❌ *GOODBYE DISABLED* ║
-╚════════════════════════╝
-
-│ Use *.goodbye on* to re-enable.
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
+        text: [
+          "╔══「 🔕 *GOODBYE OFF* 」══╗",
+          "",
+          "  Auto-goodbye is *disabled* for this group.",
+          "",
+          "╚══「 ⚡ *CYBER X* 」══╝",
+        ].join("\n")
       })
     }
 
-    // ── set ───────────────────────────────────────────────────
     if (sub === "set") {
-      const ctx  = msg.message?.extendedTextMessage?.contextInfo
-      const text = ctx?.quotedMessage?.conversation
-                || ctx?.quotedMessage?.extendedTextMessage?.text
-                || null
-
-      if (!text) return sock.sendMessage(from, {
-        text:
-`╔════════════════════════╗
-║  ℹ️ *HOW TO SET*       ║
-╚════════════════════════╝
-
-Type your message, then *reply to it* with:
-  *.goodbye set*
-
-📌 *Placeholders:*
-  *{tag}*   → tags the member
-  *{name}*  → member number
-  *{group}* → group name
-  *{count}* → remaining members`,
-        quoted: msg
-      })
-
-      lib.setGoodbyeMsg(from, text)
+      const msg = text.slice(4).trim()
+      if (!msg) return sock.sendMessage(from, { text: "❌ Usage: `.goodbye set <your message>`" })
+      cfg[from].message = msg
+      writeConfig(cfg)
       return sock.sendMessage(from, {
-        text: "✅ *Custom goodbye message saved!*\nUse *.goodbye test* to preview.",
-        quoted: msg
+        text: [
+          "╔══「 ✏️ *GOODBYE MESSAGE SET* 」══╗",
+          "",
+          `  _${msg}_`,
+          "",
+          "  Use `.goodbye test` to preview.",
+          "",
+          "╚══「 ⚡ *CYBER X* 」══╝",
+        ].join("\n")
       })
     }
 
-    // ── reset ─────────────────────────────────────────────────
     if (sub === "reset") {
-      lib.resetGoodbyeMsg(from)
-      return sock.sendMessage(from, {
-        text: "✅ *Goodbye message reset to default.*", quoted: msg
-      })
+      cfg[from].message = DEFAULT_MSG
+      writeConfig(cfg)
+      return sock.sendMessage(from, { text: "✅ Goodbye message reset to default." })
     }
 
-    // ── test ──────────────────────────────────────────────────
     if (sub === "test") {
-      const cfg      = lib.getWelcomeConfig(from)
-      const template = cfg.goodbyeMsg || lib.DEFAULT_GOODBYE
+      const { handleGoodbye } = require("../lib/goodbye")
+      return handleGoodbye(sock, { id: from, participants: [sender], action: "remove" })
+    }
 
-      const meta      = lib.welcome?._store?.groupMetadata?.[from]
-                     ?? await sock.groupMetadata(from).catch(() => ({}))
-      const groupName = meta?.subject || 'this group'
-      const count     = meta?.participants?.length || 0
-      const tag       = `@${sender.split('@')[0]}`
-      const text      = template
-        .replace(/{tag}/g,   tag)
-        .replace(/{name}/g,  tag)
-        .replace(/{group}/g, groupName)
-        .replace(/{count}/g, count)
-
-      let ppUrl = null
-      try { ppUrl = await sock.profilePictureUrl(sender, 'image') } catch {}
-
-      if (ppUrl) {
-        return sock.sendMessage(from, {
-          image: { url: ppUrl }, caption: `🧪 *TEST PREVIEW:*\n\n${text}`, mentions: [sender]
-        }, { quoted: msg })
-      }
+    if (sub === "status") {
+      const g = cfg[from]
       return sock.sendMessage(from, {
-        text: `🧪 *TEST PREVIEW:*\n\n${text}`, mentions: [sender], quoted: msg
+        text: [
+          "╔══「 📊 *GOODBYE STATUS* 」══╗",
+          "",
+          `  *Status :*  ${g?.enabled ? "✅ ON" : "🔕 OFF"}`,
+          "",
+          "  *Message :*",
+          `  _${(g?.message || DEFAULT_MSG).slice(0, 150)}..._`,
+          "",
+          "╚══「 ⚡ *CYBER X* 」══╝",
+        ].join("\n")
       })
     }
+
+    if (sub === "vars") return sock.sendMessage(from, { text: VARS })
 
     return sock.sendMessage(from, {
-      text: "❓ Use: *.goodbye on | off | set | reset | test*", quoted: msg
+      text: [
+        "╔══「 👋 *GOODBYE HELP* 」══╗",
+        "",
+        "  `.goodbye on`        — enable",
+        "  `.goodbye off`       — disable",
+        "  `.goodbye set <msg>` — custom message",
+        "  `.goodbye reset`     — restore default",
+        "  `.goodbye test`      — preview",
+        "  `.goodbye status`    — current config",
+        "  `.goodbye vars`      — template variables",
+        "",
+        "╚══「 ⚡ *CYBER X* 」══╝",
+      ].join("\n")
     })
   }
 }
