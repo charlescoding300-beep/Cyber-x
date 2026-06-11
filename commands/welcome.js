@@ -1,26 +1,25 @@
 // ════════════════════════════════════════════════════════════════════
 //  commands/welcome.js  —  CYBER X  |  Welcome & Goodbye Config
 //
-//  .welcome           → show current settings
-//  .welcome on        → enable welcome messages
-//  .welcome off       → disable welcome messages
-//  .welcome set [msg] → set custom welcome message
+//  .welcome               → show current settings
+//  .welcome on            → enable welcome messages
+//  .welcome off           → disable welcome messages
+//  .welcome set [msg]     → set custom welcome message
 //
-//  .goodbye on        → enable goodbye messages
-//  .goodbye off       → disable goodbye messages
-//  .goodbye set [msg] → set custom goodbye message
+//  .welcome goodbye on    → enable goodbye
+//  .welcome goodbye off   → disable goodbye
+//  .welcome goodbye set [msg] → set custom goodbye message
 //
-//  Placeholders:  {tag}  {user}
-//  Groups only — admin required
+//  Placeholders: {tag} {user}
 // ════════════════════════════════════════════════════════════════════
 
 module.exports = {
   pattern:  "welcome",
   desc:     "Configure welcome & goodbye messages for the group",
-  usage:    ".welcome on/off/set  |  .goodbye on/off/set",
-  category: "admin",
+  usage:    ".welcome on/off/set | .welcome goodbye on/off/set",
+  category: "group",
 
-  run: async ({ sock, from, msg, sender, args, isGroup, isOwner, checkAdmin, lib }) => {
+  run: async ({ sock, from, msg, sender, args, isGroup, isOwner, lib }) => {
 
     // ── Groups only ───────────────────────────────────────────────
     if (!isGroup) {
@@ -29,19 +28,24 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    // ── Admin only ────────────────────────────────────────────────
-    const { isAdmin } = await checkAdmin(sock, from, sender, isOwner)
-    if (!isAdmin) {
+    // ── Admin check — uses lib/isAdmin.js (already in your lib) ──
+    const adminCheck = isOwner || (
+      typeof lib?.isAdmin === "function"
+        ? await lib.isAdmin(sock, from, sender).catch(() => false)
+        : false
+    )
+
+    if (!adminCheck) {
       return sock.sendMessage(from, {
         text: "❌ *Admins only.*",
       }, { quoted: msg })
     }
 
     // ── Resolve welcome lib ───────────────────────────────────────
-    const wLib = lib?.welcome || lib
-    if (typeof wLib?.setCfg !== "function") {
+    const wLib = lib?.welcome
+    if (!wLib || typeof wLib.setCfg !== "function") {
       return sock.sendMessage(from, {
-        text: "❌ Welcome lib not loaded. Make sure lib/welcome.js exists.",
+        text: "❌ Welcome lib not loaded. Make sure *lib/welcome.js* exists.",
       }, { quoted: msg })
     }
 
@@ -57,8 +61,8 @@ module.exports = {
       return sock.sendMessage(from, {
         text:
           "✅ *Welcome messages ON*\n\n" +
-          "Bot will greet new members with their profile picture.\n\n" +
-          "Use *.welcome set [message]* to customise.\n" +
+          "New members will be greeted with their profile picture.\n\n" +
+          "Customise: *.welcome set [message]*\n" +
           "Placeholders: *{tag}* *{user}*",
       }, { quoted: msg })
     }
@@ -81,8 +85,8 @@ module.exports = {
       if (!newMsg) {
         return sock.sendMessage(from, {
           text:
-            "❌ *Provide a message.*\n\n" +
-            "Example:\n*.welcome set Welcome {tag} to the group! 🎉*\n\n" +
+            "❌ *Provide a message after .welcome set*\n\n" +
+            "Example:\n*.welcome set Welcome {tag}! 🎉*\n\n" +
             "Placeholders:\n*{tag}* → @mention\n*{user}* → phone number",
         }, { quoted: msg })
       }
@@ -93,7 +97,7 @@ module.exports = {
     }
 
     // ══════════════════════════════════════════
-    //  .goodbye on
+    //  .welcome goodbye [on/off/set]
     // ══════════════════════════════════════════
     if (sub === "goodbye" || sub === "bye") {
       const action = (args[1] || "").toLowerCase()
@@ -103,8 +107,8 @@ module.exports = {
         return sock.sendMessage(from, {
           text:
             "✅ *Goodbye messages ON*\n\n" +
-            "Bot will farewell members who leave or are removed.\n\n" +
-            "Use *.welcome goodbye set [message]* to customise.",
+            "Bot will farewell members who leave or get removed.\n\n" +
+            "Customise: *.welcome goodbye set [message]*",
         }, { quoted: msg })
       }
 
@@ -120,9 +124,9 @@ module.exports = {
         if (!newMsg) {
           return sock.sendMessage(from, {
             text:
-              "❌ *Provide a message.*\n\n" +
-              "Example:\n*.welcome goodbye set Bye {tag}, we'll miss you! 👋*\n\n" +
-              "Placeholders:\n*{tag}* → @mention\n*{user}* → phone number",
+              "❌ *Provide a message after .welcome goodbye set*\n\n" +
+              "Example:\n*.welcome goodbye set Bye {tag} 👋*\n\n" +
+              "Placeholders: *{tag}* *{user}*",
           }, { quoted: msg })
         }
         setCfg(from, { goodbyeMsg: newMsg })
@@ -139,7 +143,6 @@ module.exports = {
           `╚═══════════════════════════╝\n\n` +
           `Status: ${c.goodbyeOn ? "🟢 ON" : "🔴 OFF"}\n\n` +
           `Message:\n${c.goodbyeMsg || "(default)"}\n\n` +
-          `*Commands:*\n` +
           `*.welcome goodbye on*\n` +
           `*.welcome goodbye off*\n` +
           `*.welcome goodbye set [text]*`,
@@ -147,7 +150,7 @@ module.exports = {
     }
 
     // ══════════════════════════════════════════
-    //  .welcome  — show full status
+    //  .welcome — show full status
     // ══════════════════════════════════════════
     return sock.sendMessage(from, {
       text:
@@ -156,9 +159,9 @@ module.exports = {
         `╚═══════════════════════════╝\n\n` +
         `👋 *Welcome:* ${c.welcomeOn ? "🟢 ON" : "🔴 OFF"}\n` +
         `🚪 *Goodbye:* ${c.goodbyeOn ? "🟢 ON" : "🔴 OFF"}\n\n` +
-        `📝 *Welcome message:*\n${c.welcomeMsg || "(default)"}\n\n` +
-        `📝 *Goodbye message:*\n${c.goodbyeMsg || "(default)"}\n\n` +
-        `─────────────────────────────\n` +
+        `📝 *Welcome msg:*\n${c.welcomeMsg || "(default)"}\n\n` +
+        `📝 *Goodbye msg:*\n${c.goodbyeMsg || "(default)"}\n\n` +
+        `─────────────────────────\n` +
         `*.welcome on / off*\n` +
         `*.welcome set [message]*\n` +
         `*.welcome goodbye on / off*\n` +
