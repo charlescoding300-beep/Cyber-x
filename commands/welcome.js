@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  commands/welcome.js — CYBER X | Welcome Config Command
+//  commands/welcome.js — CYBER X | Welcome Config
 // ════════════════════════════════════════════════════════════════════
 
-const { isAdmin }                         = require("../lib/isAdmin")
+const { isAdmin }                              = require("../lib/isAdmin")
 const { readConfig, writeConfig, DEFAULT_MSG } = require("../lib/welcome")
 
 const VARS = [
@@ -16,10 +16,8 @@ const VARS = [
   "  `{date}`   — date they joined",
   "  `{time}`   — time they joined",
   "",
-  "  *Formatting:* `*bold*`  _italic_  ~strike~",
-  "",
   "  *Example:*",
-  "  `.welcome set 🎉 Hey {tag}! Welcome to {group}. You are member #{count}!`",
+  "  `.welcome set 🎉 Hey {tag}! Welcome to *{group}*. You are member #{count}!`",
   "",
   "╚══「 ⚡ *CYBER X* 」══╝",
 ].join("\n")
@@ -49,7 +47,7 @@ module.exports = {
           "",
           "  Auto-welcome is *enabled* for this group.",
           "  Use `.welcome set <msg>` to customise.",
-          "  Use `.welcome vars` for template variables.",
+          "  Use `.welcome vars` to see variables.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -63,7 +61,7 @@ module.exports = {
         text: [
           "╔══「 🔕 *WELCOME OFF* 」══╗",
           "",
-          "  Auto-welcome is *disabled* for this group.",
+          "  Auto-welcome is *disabled*.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -77,11 +75,11 @@ module.exports = {
       writeConfig(cfg)
       return sock.sendMessage(from, {
         text: [
-          "╔══「 ✏️ *WELCOME MESSAGE SET* 」══╗",
+          "╔══「 ✏️ *MESSAGE SAVED* 」══╗",
           "",
           `  _${msg}_`,
           "",
-          "  Use `.welcome test` to preview.",
+          "  Run `.welcome test` to preview.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -105,10 +103,8 @@ module.exports = {
         text: [
           "╔══「 📊 *WELCOME STATUS* 」══╗",
           "",
-          `  *Status :*  ${g?.enabled ? "✅ ON" : "🔕 OFF"}`,
-          "",
-          "  *Message :*",
-          `  _${(g?.message || DEFAULT_MSG).slice(0, 150)}..._`,
+          `  *Status  :* ${g?.enabled ? "✅ ON" : "🔕 OFF"}`,
+          `  *Message :* _${(g?.message || DEFAULT_MSG).slice(0, 100)}..._`,
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")

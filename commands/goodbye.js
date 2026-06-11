@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════
-//  commands/goodbye.js — CYBER X | Goodbye Config Command
+//  commands/goodbye.js — CYBER X | Goodbye Config
 // ════════════════════════════════════════════════════════════════════
 
 const { isAdmin }                              = require("../lib/isAdmin")
@@ -16,10 +16,8 @@ const VARS = [
   "  `{date}`   — date they left",
   "  `{time}`   — time they left",
   "",
-  "  *Formatting:* `*bold*`  _italic_  ~strike~",
-  "",
   "  *Example:*",
-  "  `.goodbye set 💔 {name} just left {group}. {count} members remain.`",
+  "  `.goodbye set 💔 {name} left *{group}*. {count} members remain.`",
   "",
   "╚══「 ⚡ *CYBER X* 」══╝",
 ].join("\n")
@@ -49,7 +47,7 @@ module.exports = {
           "",
           "  Auto-goodbye is *enabled* for this group.",
           "  Use `.goodbye set <msg>` to customise.",
-          "  Use `.goodbye vars` for template variables.",
+          "  Use `.goodbye vars` to see variables.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -63,7 +61,7 @@ module.exports = {
         text: [
           "╔══「 🔕 *GOODBYE OFF* 」══╗",
           "",
-          "  Auto-goodbye is *disabled* for this group.",
+          "  Auto-goodbye is *disabled*.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -77,11 +75,11 @@ module.exports = {
       writeConfig(cfg)
       return sock.sendMessage(from, {
         text: [
-          "╔══「 ✏️ *GOODBYE MESSAGE SET* 」══╗",
+          "╔══「 ✏️ *MESSAGE SAVED* 」══╗",
           "",
           `  _${msg}_`,
           "",
-          "  Use `.goodbye test` to preview.",
+          "  Run `.goodbye test` to preview.",
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
@@ -105,10 +103,8 @@ module.exports = {
         text: [
           "╔══「 📊 *GOODBYE STATUS* 」══╗",
           "",
-          `  *Status :*  ${g?.enabled ? "✅ ON" : "🔕 OFF"}`,
-          "",
-          "  *Message :*",
-          `  _${(g?.message || DEFAULT_MSG).slice(0, 150)}..._`,
+          `  *Status  :* ${g?.enabled ? "✅ ON" : "🔕 OFF"}`,
+          `  *Message :* _${(g?.message || DEFAULT_MSG).slice(0, 100)}..._`,
           "",
           "╚══「 ⚡ *CYBER X* 」══╝",
         ].join("\n")
