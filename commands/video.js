@@ -1,139 +1,108 @@
-// ═══════════════════════════════════════════════════════════════
-// commands/video.js — CYBER X VIDEO COMMAND
-// Searches YouTube and sends video to WhatsApp
-//
-// Usage:
-//   .video <title>          → 480p (default)
-//   .video <title> 360      → 360p (smaller)
-//   .video <title> 720      → 720p (larger)
-//   .video <URL>            → direct URL download
-// ═══════════════════════════════════════════════════════════════
+'use strict'
+
+const { searchVideo, downloadVideo } = require('../lib/video')
+
+const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+
+function fmtDuration(sec) {
+  if (!sec) return 'N/A'
+  const s = Math.floor(sec)
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}:${String(r).padStart(2, '0')}`
+}
+
+function fmtViews(raw) {
+  if (!raw) return 'N/A'
+  const n = parseInt(raw.toString().replace(/[^0-9]/g, ''))
+  if (isNaN(n)) return raw
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B 🔥`
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1)}M 🔥`
+  if (n >= 1_000)         return `${(n / 1_000).toFixed(1)}K`
+  return n.toLocaleString()
+}
 
 module.exports = {
-  pattern:  "video",
-  desc:     "Download and send video from YouTube or any platform",
-  category: "media",
+  pattern: 'video',
 
-  async run({ sock, from, msg, text, args, lib }) {
+  run: async ({ sock, from, msg, args }) => {
+    const query = args.join(' ').trim()
 
-    if (!text) {
+    if (!query) {
       return sock.sendMessage(from, {
-        text:
-`🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓 VIDEO*
-
-Usage:
-• *.video <title>*             → 480p
-• *.video <title> 360*         → 360p (smaller)
-• *.video <title> 720*         → 720p (larger)
-• *.video <YouTube URL>*       → direct URL
-
-Examples:
-  *.video Starboy Weeknd*
-  *.video Starboy Weeknd 360*
-  *.video https://youtu.be/xxxx*`,
-        quoted: msg
-      })
+        text: `❌ Usage: *.video <title>*\nExample: .video Starboy Weeknd\n\n${CREDIT}`,
+      }, { quoted: msg })
     }
 
-    // ── Check if last arg is a quality number ──
-    const QUALITIES = ["360", "480", "720", "1080"]
-    let quality = "480"
-    let query   = text
-
-    const lastArg = args[args.length - 1]
-    if (QUALITIES.includes(lastArg)) {
-      quality = lastArg
-      query   = args.slice(0, -1).join(" ")
-    }
-
-    if (!query.trim()) {
-      return sock.sendMessage(from, {
-        text: "❌ *Please provide a video title or URL.*",
-        quoted: msg
-      })
-    }
-
-    // ── React ⏳ ──
-    await sock.sendMessage(from, {
-      react: { text: "⏳", key: msg.key }
-    })
-
-    let notif = null
+    // ── 1. Send searching message ────────────────────────────────
+    const searchMsg = await sock.sendMessage(from, {
+      text: `🔎 *Searching:* ${query}...`,
+    }, { quoted: msg })
 
     try {
-      const dl = lib.download || lib
+      // ── 2. Search YouTube ──────────────────────────────────────
+      const results = await searchVideo(query, 1)
 
-      // ── Searching message ──
-      notif = await sock.sendMessage(from, {
-        text: `🔍 *Searching:* _${query}_ *(${quality}p)*...`,
-        quoted: msg
-      })
+      // ── 3. Delete searching message ────────────────────────────
+      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
 
-      // ── Download ──
-      const { buffer, info, size } = await dl.downloadVideo(query, quality)
-
-      const dur   = dl.formatDuration(info.duration)
-      const sz    = dl.formatSize(size)
-      const views = dl.formatViews(info.views)
-
-      const caption =
-`🎬 *${info.title}*
-
-┌─────〔 🎞️ *VIDEO INFO* 〕─────
-│ 👤 *Channel:*  ${info.uploader}
-│ ⏱️ *Duration:* ${dur}
-│ 📦 *Size:*     ${sz}
-│ 👁️ *Views:*    ${views}
-│ 🎯 *Quality:*  ${quality}p
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
-
-      // ── Delete searching message ──
-      if (notif) {
-        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
-        notif = null
+      if (!results.length) {
+        return sock.sendMessage(from, {
+          text: `❌ No results found for *${query}*\n\n${CREDIT}`,
+        }, { quoted: msg })
       }
 
-      // ── Send video ──
+      const v     = results[0]
+      const ytUrl = `https://youtu.be/${v.id}`
+
+      const card =
+`┏━━━━━━━━━━━━━━━━━━━━━━━┓
+   🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓  𝙑𝙄𝘿𝙀𝙊* 🎬
+┗━━━━━━━━━━━━━━━━━━━━━━━┛
+
+🎞️ *Title*    » ${v.title.text || v.title}
+📺 *Channel*  » ${v.author?.name || 'N/A'}
+⏱️ *Duration* » ${fmtDuration(v.duration?.seconds)}
+👁️ *Views*    » ${fmtViews(v.view_count?.text)}
+📅 *Uploaded* » ${v.published?.text || 'N/A'}
+🔗 *Link*     » ${ytUrl}
+
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+⬇️ *Downloading video...*
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+${CREDIT}`
+
+      // ── 4. Send thumbnail + card ───────────────────────────────
+      const thumb = v.thumbnails?.[v.thumbnails.length - 1]?.url
+
+      const infoMsg = await (async () => {
+        try {
+          if (thumb) {
+            return await sock.sendMessage(from, {
+              image:   { url: thumb },
+              caption: card,
+            }, { quoted: msg })
+          }
+        } catch {}
+        return sock.sendMessage(from, { text: card }, { quoted: msg })
+      })()
+
+      // ── 5. Download video buffer ───────────────────────────────
+      const buffer = await downloadVideo(v.id)
+
+      // ── 6. Send video ──────────────────────────────────────────
       await sock.sendMessage(from, {
         video:    buffer,
-        mimetype: "video/mp4",
-        caption:  caption,
-        fileName: `${info.title.replace(/[^\w\s]/g, "")}.mp4`,
+        mimetype: 'video/mp4',
+        caption:  CREDIT,
+      }, { quoted: infoMsg })
+
+    } catch (e) {
+      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+      console.error('[VIDEO]', e.message)
+      await sock.sendMessage(from, {
+        text: `❌ *Error:* ${e.message}\n\n${CREDIT}`,
       }, { quoted: msg })
-
-      // ── React ✅ ──
-      await sock.sendMessage(from, {
-        react: { text: "✅", key: msg.key }
-      })
-
-    } catch (err) {
-      if (notif) {
-        await sock.sendMessage(from, { delete: notif.key }).catch(() => {})
-      }
-
-      await sock.sendMessage(from, {
-        react: { text: "❌", key: msg.key }
-      })
-
-      // ── Suggest lower quality if too large ──
-      const isSize = err.message.includes("too large")
-      const tip = isSize
-        ? `\n│ 💡 *Try:* .video ${query} 360`
-        : `\n│ 💡 Try a different title or URL`
-
-      await sock.sendMessage(from, {
-        text:
-`╔════════════════════╗
-║  ❌ *VIDEO FAILED* ║
-╚════════════════════╝
-
-┌─────〔 ⚠️ *ERROR* 〕─────
-│ ${err.message}${tip}
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
-      })
     }
-  }
+  },
 }
