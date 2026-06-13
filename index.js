@@ -75,7 +75,7 @@ if (!fs.existsSync(CMD_DIR))     fs.mkdirSync(CMD_DIR,     { recursive: true })
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true })
 
 // ─────────────────────────────────────────────────────────
-// PORT + SERVER
+// PORT + SERVER — Render-stable with health endpoint
 // ─────────────────────────────────────────────────────────
 
 const PORT     = process.env.PORT || 3000
@@ -85,30 +85,40 @@ let pingCount = 0
 let lastPing  = null
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/ping") {
-    res.writeHead(200)
+  // Render health check — must return 200 fast
+  if (req.url === "/health" || req.url === "/ping") {
+    res.writeHead(200, {
+      "Content-Type":  "text/plain",
+      "Cache-Control": "no-cache",
+      "Connection":    "keep-alive"
+    })
     return res.end("pong")
   }
   if (req.url === "/status") {
-    res.writeHead(200)
+    res.writeHead(200, { "Content-Type": "application/json" })
     return res.end(JSON.stringify({
-      bot:        settings.botName,
-      uptime:     process.uptime(),
-      pings:      pingCount,
+      bot:          settings.botName,
+      uptime:       process.uptime(),
+      pings:        pingCount,
       lastPing,
-      groupsCached: Object.keys(groupCache).length
+      groupsCached: Object.keys(groupCache).length,
+      memory:       process.memoryUsage().heapUsed
     }))
   }
+  res.writeHead(200, { "Content-Type": "text/plain" })
   res.end("CYBER X ONLINE")
 })
 
-server.listen(PORT, () => {
+server.keepAliveTimeout = 120000   // Render needs > 75s
+server.headersTimeout   = 125000
+
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`[WEB] LIVE → ${PORT}`)
   startPinger()
 })
 
 // ─────────────────────────────────────────────────────────
-// AUTO PING (EVERY 4 MINUTES)
+// AUTO PING — every 4 minutes to prevent Render spin-down
 // ─────────────────────────────────────────────────────────
 
 function ping() {
@@ -125,7 +135,7 @@ function ping() {
 
 function startPinger() {
   setTimeout(() => { ping(); setInterval(ping, 4 * 60 * 1000) }, 10000)
-  console.log("[PING] AUTO PING ENABLED (4 min)")
+  console.log("[PING] AUTO PING ENABLED (every 4 min)")
 }
 
 // ─────────────────────────────────────────────────────────
@@ -223,6 +233,8 @@ function extractBody(msg) {
 
 // ─────────────────────────────────────────────────────────
 // MESSAGE HANDLER
+// isAdmin is computed here ONCE and passed to every command
+// Commands just destructure it — no setup needed per command
 // ─────────────────────────────────────────────────────────
 
 const PREFIX_LEN  = settings.prefix.length
@@ -267,7 +279,16 @@ async function handleMessage(sock, msg) {
 
   const isGroup = from.endsWith("@g.us")
 
-  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} group:${isGroup}`)
+  // ── Auto admin check — works in every command automatically ──
+  const isAdmin = isGroup
+    ? lib.isAdmin(sock, from, sender)
+    : false
+
+  const isBotAdmin = isGroup
+    ? lib.isBotAdmin(sock, from)
+    : false
+
+  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} admin:${isAdmin} group:${isGroup}`)
 
   try {
     await command.run({
@@ -276,15 +297,17 @@ async function handleMessage(sock, msg) {
       msg,
       sender,
       args,
-      text:       rest,
-      full:       body,
-      commands:   registry.map,
-      cmdList:    registry.list,
-      cmdDetails: registry.details,
+      text:        rest,
+      full:        body,
+      commands:    registry.map,
+      cmdList:     registry.list,
+      cmdDetails:  registry.details,
       settings,
       lib,
       isOwner,
       isGroup,
+      isAdmin,       // ✅ auto — just destructure in any command
+      isBotAdmin,    // ✅ auto — bot's own admin status
       extractBody,
       groupCache,
     })
@@ -325,7 +348,6 @@ async function startBot() {
       connectTimeoutMs:    60000,
       retryRequestDelayMs: 2000,
       maxMsgRetryCount:    5,
-      // ── Production: use in-RAM group cache for fast admin checks ──
       cachedGroupMetadata: async (jid) => groupCache[jid],
     })
 
@@ -333,9 +355,7 @@ async function startBot() {
 
     // ── Keep group cache hot at all times ─────────────────────
     sock.ev.on("groups.upsert", groups => {
-      for (const g of groups) {
-        groupCache[g.id] = g
-      }
+      for (const g of groups) groupCache[g.id] = g
     })
     sock.ev.on("groups.update", updates => {
       for (const u of updates) {
@@ -344,9 +364,7 @@ async function startBot() {
       }
     })
     sock.ev.on("group-participants.update", async ({ id }) => {
-      try {
-        groupCache[id] = await sock.groupMetadata(id)
-      } catch {}
+      try { groupCache[id] = await sock.groupMetadata(id) } catch {}
     })
 
     // ── Pairing code — only fires on first run ────────────────
@@ -379,33 +397,25 @@ async function startBot() {
     if (typeof lib.setSocket      === "function") lib.setSocket(sock)
     if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
 
-    // ── Wire isAdmin + welcome with store ─────────────────────
-    try {
-      const isAdminLib = require("./lib/isAdmin")
-      // Pass the same groupCache object so isAdmin reads from it
-      isAdminLib.setStore({ groupMetadata: groupCache })
-      isAdminLib.setSocket(sock)
-      isAdminLib.invalidateAll()
-      require("./lib/welcome").setStore({ groupMetadata: groupCache })
-      console.log("[LIB] ✔ isAdmin + welcome wired")
-    } catch (e) {
-      console.warn("[LIB] ✗ wire failed:", e.message)
+    // ── Wire isAdmin to groupCache — ONE TIME, auto forever ───
+    if (typeof lib.initAdminCache === "function") {
+      lib.initAdminCache(groupCache)
     }
+
+    // ── Wire welcome lib if present ───────────────────────────
+    try {
+      require("./lib/welcome").setStore({ groupMetadata: groupCache })
+    } catch {}
 
     // ─────────────────────────────────────────────────────────
     // MESSAGE LISTENER — LIVE MESSAGES ONLY
-    // type "append" = history replay on reconnect → IGNORED
-    // Messages timestamped before BOT_START → IGNORED
-    // fromMe messages → IGNORED
     // ─────────────────────────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return
 
       for (const m of messages) {
-        // Skip bot's own messages
         if (m.key.fromMe) continue
 
-        // Skip old messages delivered after reconnect
         const ts = Number(m.messageTimestamp) || 0
         if (ts < BOT_START - 15) {
           console.log(`[MSG] ⏭ Skipped old msg (ts:${ts} < boot:${BOT_START})`)

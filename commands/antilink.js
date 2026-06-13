@@ -17,7 +17,7 @@ module.exports = {
   desc:     "Ultra antilink — detects every link + hidden/obfuscated/image links",
   category: "group",
 
-  async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup }) {
+  async run({ sock, from, msg, sender, args, lib, isOwner, isGroup }) {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
@@ -25,6 +25,9 @@ module.exports = {
         quoted: msg
       })
     }
+
+    // ── Integrate isAdmin from lib/isAdmin.js ──
+    const isAdmin = await lib.isAdmin(sock, from, sender)
 
     if (!isAdmin && !isOwner) {
       return sock.sendMessage(from, {
@@ -249,4 +252,3 @@ Usage:
     })
   }
 }
-
