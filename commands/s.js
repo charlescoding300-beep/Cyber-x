@@ -1,13 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // commands/s.js  —  CYBER X  |  Sticker Maker
 //
-// Works on BOTH:
-//   • Render / Linux x64  → uses wa-sticker-formatter (sharp works fine)
-//   • Termux / Android    → uses ffmpeg directly (no sharp needed)
+// Pure ffmpeg implementation — works identically on Render and Termux.
+// (Previously tried wa-sticker-formatter, but its installed API didn't match
+//  the documented Sticker class — toBuffer()/StickerTypes were missing.
+//  ffmpeg + EXIF embedding is simpler and dependency-free.)
 //
-// Auto-detects which method to use — zero config needed
-//
-// RENDER:  npm install   (wa-sticker-formatter installs fine on Linux x64)
+// RENDER:  ffmpeg pre-available
 // TERMUX:  pkg install ffmpeg libwebp
 //
 // USAGE: Reply to any image / GIF / video → type .s
@@ -18,20 +17,6 @@ const { spawnSync }            = require("child_process")
 const fs                       = require("fs")
 const path                     = require("path")
 const os                       = require("os")
-
-// ── Auto-detect: try wa-sticker-formatter (Render/Linux), fall back to ffmpeg (Termux) ──
-let Sticker      = null
-let USE_WSF      = false
-
-try {
-  const wsf    = require("wa-sticker-formatter")
-  Sticker      = wsf.Sticker
-  USE_WSF      = true
-  console.log("[STICKER] ✔ Using wa-sticker-formatter (Render/Linux mode)")
-} catch {
-  USE_WSF = false
-  console.log("[STICKER] ✔ Using ffmpeg fallback (Termux/Android mode)")
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STICKER METADATA
@@ -268,27 +253,12 @@ module.exports = {
     let finalBuf
 
     try {
-      if (USE_WSF && Sticker) {
-        // ── RENDER / LINUX x64 — wa-sticker-formatter ─────────────────────
-        const sticker = new Sticker(mediaBuf, {
-          pack:       PACK_NAME,
-          author:     PACK_AUTHOR,
-          type:       "full",   // same value as StickerTypes.FULL — avoids relying on that export existing
-          categories: [PACK_EMOJI],
-          quality:    100,
-          background: "transparent",
-        })
-        finalBuf = await sticker.toBuffer()
-
-      } else {
-        // ── TERMUX / ANDROID — pure ffmpeg ────────────────────────────────
-        const webpBuf = await toWebPviaFFmpeg(mediaBuf, animated)
-        try {
-          const exif = buildExif(PACK_NAME, PACK_AUTHOR, PACK_EMOJI)
-          finalBuf   = embedExif(webpBuf, exif)
-        } catch {
-          finalBuf = webpBuf
-        }
+      const webpBuf = await toWebPviaFFmpeg(mediaBuf, animated)
+      try {
+        const exif = buildExif(PACK_NAME, PACK_AUTHOR, PACK_EMOJI)
+        finalBuf   = embedExif(webpBuf, exif)
+      } catch {
+        finalBuf = webpBuf
       }
     } catch (e) {
       return sock.sendMessage(from, {
