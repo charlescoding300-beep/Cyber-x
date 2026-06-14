@@ -78,16 +78,34 @@ async function animatedWebpToMp4(inputBuf) {
     // ── Read animation metadata ──────────────────────────────────────────────
     const meta  = await sharp(inputBuf, { animated: true }).metadata()
     const pages = meta.pages && meta.pages > 1 ? meta.pages : 1
+    const { width, pageHeight } = meta
+    const frameHeight = pageHeight || meta.height
 
     // delay[] is in milliseconds per frame; fall back to 100ms (10fps) if missing
     const delays = (Array.isArray(meta.delay) && meta.delay.length === pages)
       ? meta.delay
       : new Array(pages).fill(100)
 
-    // ── Export each frame as PNG ─────────────────────────────────────────────
+    // ── Decode the WHOLE animation ONCE into raw RGBA pixels ─────────────────
+    // sharp stacks all frames vertically when animated:true, so we get one
+    // big buffer of size width x (pageHeight * pages) x 4 channels, then slice
+    // each frame out of memory instead of re-decoding the webp per frame.
+    const { data: raw, info } = await sharp(inputBuf, { animated: true })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+
+    const channels  = info.channels
+    const frameBytes = width * frameHeight * channels
+
+    // ── Export each frame as PNG from the sliced raw buffer ──────────────────
     const frameFiles = []
     for (let i = 0; i < pages; i++) {
-      const frameBuf = await sharp(inputBuf, { page: i }).png().toBuffer()
+      const slice = raw.subarray(i * frameBytes, (i + 1) * frameBytes)
+      const frameBuf = await sharp(slice, {
+        raw: { width, height: frameHeight, channels },
+      }).png().toBuffer()
+
       const framePath = path.join(workDir, `frame_${String(i).padStart(4, "0")}.png`)
       fs.writeFileSync(framePath, frameBuf)
       frameFiles.push({ file: framePath, duration: Math.max(delays[i], 20) / 1000 })
@@ -113,7 +131,7 @@ async function animatedWebpToMp4(inputBuf) {
       "-vf",       "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p",
       "-c:v",      "libx264",
       "-crf",      "20",
-      "-preset",   "fast",
+      "-preset",   "ultrafast",
       "-movflags", "faststart",
       "-an",
       outPath,
