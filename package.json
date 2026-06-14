@@ -23,6 +23,7 @@
     "pino": "^8.17.2",
     "play-dl": "^1.9.7",
     "tesseract.js": "^7.0.0",
+    "wa-sticker-formatter": "^3.3.3",
     "youtubei.js": "^17.0.1",
     "yt-dlp-exec": "1.0.2",
     "yt-search": "^2.13.1"

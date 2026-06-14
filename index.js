@@ -28,10 +28,10 @@ process.on("unhandledRejection", err => console.error("[PROMISE]", err?.message 
 const BOT_START = Math.floor(Date.now() / 1000)
 
 // ─────────────────────────────────────────────────────────
-// GROUP METADATA CACHE (survives crashes — lives in RAM)
+// GROUP METADATA CACHE
 // ─────────────────────────────────────────────────────────
 
-const groupCache = {}   // jid → metadata
+const groupCache = {}
 
 // ─────────────────────────────────────────────────────────
 // LIB LOADER
@@ -57,7 +57,10 @@ if (fs.existsSync(LIB_DIR)) {
 const settings = lib.settings || {
   botName: process.env.BOT_NAME     || "CYBER X",
   prefix:  process.env.PREFIX       || ".",
-  owner:   process.env.OWNER_NUMBER || ""
+  owner:   process.env.OWNER_NUMBER || "",
+  mode:    "public",
+  get(k) { return this[k] },
+  set(k, v) { this[k] = v },
 }
 
 if (!settings.owner) {
@@ -85,7 +88,6 @@ let pingCount = 0
 let lastPing  = null
 
 const server = http.createServer((req, res) => {
-  // Render health check — must return 200 fast
   if (req.url === "/health" || req.url === "/ping") {
     res.writeHead(200, {
       "Content-Type":  "text/plain",
@@ -109,7 +111,7 @@ const server = http.createServer((req, res) => {
   res.end("CYBER X ONLINE")
 })
 
-server.keepAliveTimeout = 120000   // Render needs > 75s
+server.keepAliveTimeout = 120000
 server.headersTimeout   = 125000
 
 server.listen(PORT, "0.0.0.0", () => {
@@ -232,37 +234,58 @@ function extractBody(msg) {
 }
 
 // ─────────────────────────────────────────────────────────
-// MESSAGE HANDLER
-// isAdmin is computed here ONCE and passed to every command
-// Commands just destructure it — no setup needed per command
+// OWNER CHECK HELPER
 // ─────────────────────────────────────────────────────────
 
-const PREFIX_LEN  = settings.prefix.length
-const PREFIX_CHAR = settings.prefix[0]
+function checkIsOwner(sender) {
+  const ownerBase = (settings.owner || "").replace(/\D/g, "")
+  if (!ownerBase) return false
+  const senderClean = (sender || "").replace(/\D/g, "").replace(/@.*/, "")
+  return (
+    senderClean === ownerBase ||
+    sender.startsWith(`${ownerBase}@`) ||
+    sender.indexOf(ownerBase) !== -1
+  )
+}
 
-async function handleMessage(sock, msg) {
+// ─────────────────────────────────────────────────────────
+// MESSAGE HANDLER
+// ─────────────────────────────────────────────────────────
+
+async function handleMessage(sock, msg, fromMe) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
 
   const body = extractBody(msg)
   if (!body) return
 
-  if (body[0] === PREFIX_CHAR) {
+  // ── Live prefix — always reads current value from settings ──
+  const prefix     = settings.prefix || "."
+  const prefixChar = prefix[0]
+
+  if (body[0] === prefixChar) {
     const chat = msg.key.remoteJid?.endsWith("@g.us") ? "GRP" : "DM"
     const who  = (msg.key.participant || msg.key.remoteJid || "?").split("@")[0]
     console.log(`[MSG] ${chat} | from: ${who} | ${body.slice(0, 80)}`)
   }
 
-  if (!body.startsWith(settings.prefix)) return
+  if (!body.startsWith(prefix)) return
 
   const from   = msg.key.remoteJid
   const sender = msg.key.participant || from
 
-  const slice    = body.slice(PREFIX_LEN).trimStart()
-  const spaceIdx = slice.indexOf(" ")
-  const cmd      = (spaceIdx === -1 ? slice : slice.slice(0, spaceIdx)).toLowerCase()
-  const rest     = spaceIdx === -1 ? "" : slice.slice(spaceIdx + 1).trim()
-  const args     = rest ? rest.split(/\s+/) : []
+  const isOwner = checkIsOwner(sender)
+
+  // ── PRIVATE MODE — block everyone except owner ──────────────
+  const mode = (typeof settings.get === "function" ? settings.get("mode") : settings.mode) || "public"
+  if (mode === "private" && !isOwner) return
+
+  const prefixLen = prefix.length
+  const slice     = body.slice(prefixLen).trimStart()
+  const spaceIdx  = slice.indexOf(" ")
+  const cmd       = (spaceIdx === -1 ? slice : slice.slice(0, spaceIdx)).toLowerCase()
+  const rest      = spaceIdx === -1 ? "" : slice.slice(spaceIdx + 1).trim()
+  const args      = rest ? rest.split(/\s+/) : []
 
   const command = registry.map.get(cmd)
   if (!command) {
@@ -270,25 +293,11 @@ async function handleMessage(sock, msg) {
     return
   }
 
-  const ownerBase = (settings.owner || "").replace(/\D/g, "")
-  const isOwner   = ownerBase
-    ? sender === ownerBase ||
-      sender.startsWith(`${ownerBase}@`) ||
-      sender.indexOf(ownerBase) !== -1
-    : false
+  const isGroup    = from.endsWith("@g.us")
+  const isAdmin    = isGroup ? lib.isAdmin(sock, from, sender)    : false
+  const isBotAdmin = isGroup ? lib.isBotAdmin(sock, from)         : false
 
-  const isGroup = from.endsWith("@g.us")
-
-  // ── Auto admin check — works in every command automatically ──
-  const isAdmin = isGroup
-    ? lib.isAdmin(sock, from, sender)
-    : false
-
-  const isBotAdmin = isGroup
-    ? lib.isBotAdmin(sock, from)
-    : false
-
-  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} admin:${isAdmin} group:${isGroup}`)
+  console.log(`[CMD] ▶ ${cmd} | owner:${isOwner} admin:${isAdmin} group:${isGroup} fromMe:${fromMe}`)
 
   try {
     await command.run({
@@ -306,8 +315,8 @@ async function handleMessage(sock, msg) {
       lib,
       isOwner,
       isGroup,
-      isAdmin,       // ✅ auto — just destructure in any command
-      isBotAdmin,    // ✅ auto — bot's own admin status
+      isAdmin,
+      isBotAdmin,
       extractBody,
       groupCache,
     })
@@ -353,7 +362,7 @@ async function startBot() {
 
     botSocket = sock
 
-    // ── Keep group cache hot at all times ─────────────────────
+    // ── Keep group cache hot ───────────────────────────────────
     sock.ev.on("groups.upsert", groups => {
       for (const g of groups) groupCache[g.id] = g
     })
@@ -367,7 +376,7 @@ async function startBot() {
       try { groupCache[id] = await sock.groupMetadata(id) } catch {}
     })
 
-    // ── Pairing code — only fires on first run ────────────────
+    // ── Pairing code — only fires on first run ─────────────────
     if (!state.creds.registered) {
       const raw    = process.env.PAIRING_NUMBER || process.env.PHONE_NUMBER || settings.owner
       const number = (raw || "").replace(/\D/g, "")
@@ -393,28 +402,27 @@ async function startBot() {
     await loadCommands()
     watchCommands()
 
-    // ── Boot libs that need the socket ────────────────────────
+    // ── Boot libs that need the socket ─────────────────────────
     if (typeof lib.setSocket      === "function") lib.setSocket(sock)
     if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
+    if (typeof lib.initAdminCache === "function") lib.initAdminCache(groupCache)
 
-    // ── Wire isAdmin to groupCache — ONE TIME, auto forever ───
-    if (typeof lib.initAdminCache === "function") {
-      lib.initAdminCache(groupCache)
-    }
-
-    // ── Wire welcome lib if present ───────────────────────────
     try {
       require("./lib/welcome").setStore({ groupMetadata: groupCache })
     } catch {}
 
     // ─────────────────────────────────────────────────────────
-    // MESSAGE LISTENER — LIVE MESSAGES ONLY
+    // MESSAGE LISTENER
     // ─────────────────────────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return
 
       for (const m of messages) {
-        if (m.key.fromMe) continue
+        const fromMe = m.key.fromMe === true
+
+        // ── Owner messages (fromMe = true) — ALWAYS allowed ───
+        // Regular users — allowed in public mode, blocked in private
+        // We do NOT skip fromMe here — that was the bug
 
         const ts = Number(m.messageTimestamp) || 0
         if (ts < BOT_START - 15) {
@@ -422,14 +430,22 @@ async function startBot() {
           continue
         }
 
-        if (typeof lib.handleMemory === "function") {
-          lib.handleMemory(sock, m, extractBody).catch(() => {})
+        // Auto-features only fire for NON-owner messages
+        if (!fromMe) {
+          if (typeof lib.handleMemory === "function") {
+            lib.handleMemory(sock, m, extractBody).catch(() => {})
+          }
         }
 
-        handleMessage(sock, m).catch(e => console.error("[MSG ERR]", e.message))
+        // Command handler fires for EVERYONE (owner + users)
+        // Private mode check is inside handleMessage
+        handleMessage(sock, m, fromMe).catch(e => console.error("[MSG ERR]", e.message))
 
-        if (typeof lib.handleAntilink === "function") {
-          lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        // Anti-link only for non-owner messages
+        if (!fromMe) {
+          if (typeof lib.handleAntilink === "function") {
+            lib.handleAntilink(sock, m, extractBody).catch(() => {})
+          }
         }
       }
     })
