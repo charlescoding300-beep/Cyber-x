@@ -10,8 +10,19 @@
 //
 // Reacts with 📽️ instantly when command fires
 //
-// Works on BOTH Render (Linux x64) and Termux (Android ARM64)
-// Only needs ffmpeg — already installed on both
+// NOTE ON ANIMATED STICKERS:
+//   The system ffmpeg on Render (and many Debian builds) is compiled WITHOUT
+//   libwebp support, so it cannot decode animated WebP (ANIM/ANMF chunks) —
+//   neither the native "webp" decoder nor "libwebp_anim" work.
+//   To work around this, we decode each animated frame using `sharp`
+//   (bundles its own libvips/libwebp, no system deps), write the frames as
+//   PNGs, then use ffmpeg ONLY to encode the PNG sequence into an MP4 using
+//   the concat demuxer with per-frame durations.
+//
+// Static stickers are still handled directly by ffmpeg (single-frame WebP
+// decode works fine even without libwebp).
+//
+// Requires: npm install sharp
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
@@ -19,6 +30,7 @@ const { spawnSync }            = require("child_process")
 const fs                       = require("fs")
 const path                     = require("path")
 const os                       = require("os")
+const sharp                    = require("sharp")
 
 // ── Temp dir ──────────────────────────────────────────────────────────────────
 const TMP = path.join(os.tmpdir(), "cyberx_convert")
@@ -26,11 +38,10 @@ if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Check if a WebP buffer is animated
-// Animated WebP contains the chunk marker "ANIM" in its bytes
+// Animated WebP contains the chunk marker "ANIM" / "ANMF" in its bytes
 // ─────────────────────────────────────────────────────────────────────────────
 function isAnimatedWebP(buf) {
   if (!buf || buf.length < 12) return false
-  // Search for ANIM chunk marker in the buffer
   const str = buf.toString("ascii", 0, Math.min(buf.length, 200))
   return str.includes("ANIM") || str.includes("ANMF")
 }
@@ -43,53 +54,84 @@ function isAnimatedWebP(buf) {
 function ffmpegError(r) {
   const out = (r.stderr?.toString() || r.error?.message || "").trim()
   if (!out) return "unknown ffmpeg error (no stderr captured)"
-  // Log the full output to the console for debugging on Render
   console.error("[CONVERT] ffmpeg failed:\n" + out)
-  // Return just the last ~400 chars — that's where the real error lives
   return out.slice(-400)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Convert animated WebP → MP4 via ffmpeg
-// Sent back as gifPlayback: true so it loops like a gif in WhatsApp
+// Animated WebP → MP4 (sent as looping GIF)
+//
+// 1. Use sharp to read animation metadata (page count + per-frame delays)
+// 2. Export each page/frame as a PNG via sharp (handles ANIM/ANMF natively)
+// 3. Build an ffmpeg concat list with each frame's real duration
+// 4. ffmpeg encodes the PNG sequence to MP4 (h264)
 // ─────────────────────────────────────────────────────────────────────────────
-function webpToMp4(inputBuf) {
-  const id  = `${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const inp = path.join(TMP, `inp_${id}.webp`)
-  const out = path.join(TMP, `out_${id}.mp4`)
+async function animatedWebpToMp4(inputBuf) {
+  const id       = `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const workDir  = path.join(TMP, id)
+  const listPath = path.join(workDir, "list.txt")
+  const outPath  = path.join(workDir, "out.mp4")
 
-  fs.writeFileSync(inp, inputBuf)
+  fs.mkdirSync(workDir, { recursive: true })
 
   try {
+    // ── Read animation metadata ──────────────────────────────────────────────
+    const meta  = await sharp(inputBuf, { animated: true }).metadata()
+    const pages = meta.pages && meta.pages > 1 ? meta.pages : 1
+
+    // delay[] is in milliseconds per frame; fall back to 100ms (10fps) if missing
+    const delays = (Array.isArray(meta.delay) && meta.delay.length === pages)
+      ? meta.delay
+      : new Array(pages).fill(100)
+
+    // ── Export each frame as PNG ─────────────────────────────────────────────
+    const frameFiles = []
+    for (let i = 0; i < pages; i++) {
+      const frameBuf = await sharp(inputBuf, { page: i }).png().toBuffer()
+      const framePath = path.join(workDir, `frame_${String(i).padStart(4, "0")}.png`)
+      fs.writeFileSync(framePath, frameBuf)
+      frameFiles.push({ file: framePath, duration: Math.max(delays[i], 20) / 1000 })
+    }
+
+    // ── Build ffmpeg concat list (last frame repeated, per ffmpeg quirk) ─────
+    let list = ""
+    for (const f of frameFiles) {
+      list += `file '${f.file}'\n`
+      list += `duration ${f.duration}\n`
+    }
+    list += `file '${frameFiles[frameFiles.length - 1].file}'\n`
+    fs.writeFileSync(listPath, list)
+
+    // ── Encode PNG sequence → MP4 ────────────────────────────────────────────
     const r = spawnSync("ffmpeg", [
       "-y",
-      "-c:v",      "libwebp_anim",   // force the animated WebP decoder (default 'webp' decoder can't read ANIM/ANMF frames)
-      "-i",        inp,
-      "-movflags", "faststart",
+      "-f",        "concat",
+      "-safe",     "0",
+      "-i",        listPath,
+      "-vsync",    "vfr",
       "-pix_fmt",  "yuv420p",
       "-vf",       "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p",
-      "-r",        "15",
       "-c:v",      "libx264",
       "-crf",      "20",
       "-preset",   "fast",
+      "-movflags", "faststart",
       "-an",
-      out,
+      outPath,
     ], { timeout: 60000 })
 
-    if (r.status !== 0 || !fs.existsSync(out)) {
+    if (r.status !== 0 || !fs.existsSync(outPath)) {
       throw new Error(ffmpegError(r))
     }
 
-    return fs.readFileSync(out)
+    return fs.readFileSync(outPath)
 
   } finally {
-    try { fs.unlinkSync(inp) } catch {}
-    try { fs.unlinkSync(out) } catch {}
+    try { fs.rmSync(workDir, { recursive: true, force: true }) } catch {}
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Convert static WebP → PNG via ffmpeg
+// Static WebP → PNG via ffmpeg
 // ─────────────────────────────────────────────────────────────────────────────
 function webpToPng(inputBuf) {
   const id  = `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -194,7 +236,7 @@ module.exports = {
     try {
       if (animated) {
         // ── Animated sticker → MP4 (sent as looping GIF) ──────────────────
-        const mp4Buf = webpToMp4(webpBuf)
+        const mp4Buf = await animatedWebpToMp4(webpBuf)
 
         await sock.sendMessage(from, {
           video:       mp4Buf,
