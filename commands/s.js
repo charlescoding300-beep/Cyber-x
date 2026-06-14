@@ -21,13 +21,11 @@ const os                       = require("os")
 
 // ── Auto-detect: try wa-sticker-formatter (Render/Linux), fall back to ffmpeg (Termux) ──
 let Sticker      = null
-let StickerTypes = null
 let USE_WSF      = false
 
 try {
   const wsf    = require("wa-sticker-formatter")
   Sticker      = wsf.Sticker
-  StickerTypes = wsf.StickerTypes
   USE_WSF      = true
   console.log("[STICKER] ✔ Using wa-sticker-formatter (Render/Linux mode)")
 } catch {
@@ -275,7 +273,7 @@ module.exports = {
         const sticker = new Sticker(mediaBuf, {
           pack:       PACK_NAME,
           author:     PACK_AUTHOR,
-          type:       StickerTypes.FULL,
+          type:       "full",   // same value as StickerTypes.FULL — avoids relying on that export existing
           categories: [PACK_EMOJI],
           quality:    100,
           background: "transparent",
