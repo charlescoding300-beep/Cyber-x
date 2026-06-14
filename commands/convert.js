@@ -63,6 +63,7 @@ function webpToMp4(inputBuf) {
   try {
     const r = spawnSync("ffmpeg", [
       "-y",
+      "-c:v",      "libwebp_anim",   // force the animated WebP decoder (default 'webp' decoder can't read ANIM/ANMF frames)
       "-i",        inp,
       "-movflags", "faststart",
       "-pix_fmt",  "yuv420p",
