@@ -36,6 +36,20 @@ function isAnimatedWebP(buf) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Extract the real error line from ffmpeg's stderr.
+// ffmpeg always prints a big version/build banner FIRST, then the actual
+// error at the END — so we grab the tail, not the head.
+// ─────────────────────────────────────────────────────────────────────────────
+function ffmpegError(r) {
+  const out = (r.stderr?.toString() || r.error?.message || "").trim()
+  if (!out) return "unknown ffmpeg error (no stderr captured)"
+  // Log the full output to the console for debugging on Render
+  console.error("[CONVERT] ffmpeg failed:\n" + out)
+  // Return just the last ~400 chars — that's where the real error lives
+  return out.slice(-400)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Convert animated WebP → MP4 via ffmpeg
 // Sent back as gifPlayback: true so it loops like a gif in WhatsApp
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,8 +75,8 @@ function webpToMp4(inputBuf) {
       out,
     ], { timeout: 60000 })
 
-    if (r.status !== 0) {
-      throw new Error(r.stderr?.toString()?.slice(0, 300) || "ffmpeg mp4 conversion failed")
+    if (r.status !== 0 || !fs.existsSync(out)) {
+      throw new Error(ffmpegError(r))
     }
 
     return fs.readFileSync(out)
@@ -92,8 +106,8 @@ function webpToPng(inputBuf) {
       out,
     ], { timeout: 30000 })
 
-    if (r.status !== 0) {
-      throw new Error(r.stderr?.toString()?.slice(0, 300) || "ffmpeg png conversion failed")
+    if (r.status !== 0 || !fs.existsSync(out)) {
+      throw new Error(ffmpegError(r))
     }
 
     return fs.readFileSync(out)
@@ -200,7 +214,7 @@ module.exports = {
 
     } catch (e) {
       return sock.sendMessage(from, {
-        text: `❌ Conversion failed: ${e.message}\n\nMake sure ffmpeg is installed:\n*Termux:* pkg install ffmpeg\n*Render:* ffmpeg is pre-available`,
+        text: `❌ Conversion failed:\n${e.message}`,
       }, { quoted: msg })
     }
   }
