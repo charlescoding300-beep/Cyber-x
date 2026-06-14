@@ -79,19 +79,38 @@ function buildExif(packName, author, emoji) {
 }
 
 function embedExif(webpBuf, exifBuf) {
+  // RIFF chunks must be even-length; pad EXIF data with a zero byte if odd
+  const needsPad = exifBuf.length % 2 !== 0
   const exifChunk = Buffer.concat([
     Buffer.from("EXIF", "ascii"),
     (() => { const b = Buffer.alloc(4); b.writeUInt32LE(exifBuf.length, 0); return b })(),
     exifBuf,
+    needsPad ? Buffer.from([0]) : Buffer.alloc(0),
   ])
-  const newPayload = Buffer.concat([webpBuf.slice(8), exifChunk])
-  const newSize    = Buffer.alloc(4)
-  newSize.writeUInt32LE(newPayload.length + 4, 0)
+
+  // body = everything after "RIFF" + size field, i.e. "WEBP" + existing chunks
+  const body = Buffer.from(webpBuf.slice(8))
+
+  // If this is extended format (VP8X chunk present), set its EXIF flag bit (0x08)
+  // so WhatsApp/viewers know to look for pack-name/emoji metadata.
+  if (body.slice(0, 4).toString("ascii") === "WEBP" && body.slice(4, 8).toString("ascii") === "VP8X") {
+    body[12] |= 0x08   // flags byte: "WEBP"(4) + "VP8X"(4) + size(4) = offset 12
+  } else {
+    // Simple format (no VP8X) — appending extra chunks isn't valid here,
+    // so skip metadata embedding rather than risk a corrupt sticker.
+    return webpBuf
+  }
+
+  const newPayload = Buffer.concat([body, exifChunk])
+
+  // RIFF size = total file size - 8 (excludes "RIFF" + this size field itself)
+  const newSize = Buffer.alloc(4)
+  newSize.writeUInt32LE(newPayload.length, 0)
+
   return Buffer.concat([
     Buffer.from("RIFF", "ascii"),
     newSize,
-    Buffer.from("WEBP", "ascii"),
-    newPayload.slice(4),
+    newPayload,
   ])
 }
 
