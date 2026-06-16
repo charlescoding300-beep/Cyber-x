@@ -1,0 +1,31 @@
+{
+  "name": "cyberx",
+  "version": "1.0.0",
+  "description": "CYBER X WhatsApp Bot & Gateway",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "bot":   "node --expose-gc index.js",
+    "dev":   "node --expose-gc index.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "*",
+    "@whiskeysockets/baileys": "*",
+    "axios": "^1.18.0",
+    "cors": "*",
+    "dotenv": "*",
+    "express": "*",
+    "fluent-ffmpeg": "*",
+    "fs-extra": "*",
+    "jimp": "*",
+    "node-cache": "*",
+    "pino": "*",
+    "qrcode": "^1.5.4",
+    "sharp": "*",
+    "tesseract.js": "*",
+    "yt-dlp-exec": "*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
