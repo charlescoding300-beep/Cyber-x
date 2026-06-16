@@ -4,3 +4,7 @@ cyberx-gateway/
 cyberx-gateway/
 cyberx-gateway/
 cyberx-gateway/
+session/
+sessions/
+node_modules/
+.env
