@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "bot":   "node --expose-gc index.js",
-    "dev":   "node --expose-gc index.js"
+    "bot": "node --expose-gc index.js",
+    "dev": "node --expose-gc index.js"
   },
   "dependencies": {
     "@hapi/boom": "*",
@@ -18,12 +18,14 @@
     "fluent-ffmpeg": "*",
     "fs-extra": "*",
     "jimp": "*",
+    "mongoose": "^9.7.0",
     "node-cache": "*",
     "pino": "*",
     "qrcode": "^1.5.4",
     "sharp": "*",
     "tesseract.js": "*",
-    "yt-dlp-exec": "*"
+    "yt-dlp-exec": "*",
+    "yt-search": "^2.13.1"
   },
   "engines": {
     "node": ">=18.0.0"
