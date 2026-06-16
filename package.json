@@ -1,32 +1,31 @@
 {
-  "name": "mybot",
+  "name": "cyberx",
   "version": "1.0.0",
-  "description": "CYBER X WhatsApp Bot",
+  "description": "CYBER X WhatsApp Bot & Gateway",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js",
+    "bot":   "node --expose-gc index.js",
+    "dev":   "node --expose-gc index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
-    "axios": "^1.17.0",
-    "dotenv": "^16.4.5",
-    "edge-tts": "^1.0.1",
-    "express": "^4.22.2",
-    "ffmpeg-static": "^5.2.0",
-    "jimp": "^1.6.1",
-    "mongoose": "^8.6.0",
-    "node-fetch": "^3.3.2",
-    "pino": "^8.17.2",
-    "play-dl": "^1.9.7",
-    "sharp": "^0.35.1",
-    "tesseract.js": "^7.0.0",
-    "wa-sticker-formatter": "^3.3.3",
-    "youtubei.js": "^17.0.1",
-    "yt-dlp-exec": "1.0.2",
-    "yt-search": "^2.13.1"
+    "@hapi/boom": "*",
+    "@whiskeysockets/baileys": "*",
+    "axios": "^1.18.0",
+    "cors": "*",
+    "dotenv": "*",
+    "express": "*",
+    "fluent-ffmpeg": "*",
+    "fs-extra": "*",
+    "jimp": "*",
+    "node-cache": "*",
+    "pino": "*",
+    "qrcode": "^1.5.4",
+    "sharp": "*",
+    "tesseract.js": "*",
+    "yt-dlp-exec": "*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
