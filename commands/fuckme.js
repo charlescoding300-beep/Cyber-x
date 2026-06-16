@@ -1,3 +1,5 @@
+"use strict"
+
 const Pino  = require("pino")
 const path  = require("path")
 const fs    = require("fs")
@@ -10,232 +12,407 @@ const {
   DisconnectReason,
 } = require("@whiskeysockets/baileys")
 
-// Sessions stored separately per user
+// ─── Paths ───────────────────────────────────────────────────────────────────
 const SESSIONS_ROOT = path.join(__dirname, "../sessions")
+const CMD_DIR       = path.join(__dirname)              // same commands/ folder
 if (!fs.existsSync(SESSIONS_ROOT)) fs.mkdirSync(SESSIONS_ROOT, { recursive: true })
 
-// Track active user sessions
+// ─── Active sessions map  { phone → SessionEntry } ───────────────────────────
+// SessionEntry: { sock, status, cmdMap, groupCache, retries, phone }
 const userSessions = new Map()
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-// Load commands for a user session
-function loadUserCommands(sock, sessionEntry) {
-  const CMD_DIR = path.join(__dirname, "../commands")
+// ═══════════════════════════════════════════════════════════════════════════════
+//  COMMAND REGISTRY  (mirrors index.js registry pattern)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function buildCmdMap() {
   const map     = new Map()
+  const aliases = new Map()
 
-  if (!fs.existsSync(CMD_DIR)) return map
+  if (!fs.existsSync(CMD_DIR)) return { map, aliases }
 
-  for (const file of fs.readdirSync(CMD_DIR).filter(f => f.endsWith(".js"))) {
-    if (file === "fuckme.js") continue // skip self
+  const files = fs.readdirSync(CMD_DIR)
+    .filter(f => f.endsWith(".js") && f !== "fuckme.js")
+    .sort()
+
+  for (const file of files) {
     try {
-      const mod = require(path.join(CMD_DIR, file))
-      if (mod && typeof mod.pattern === "string" && typeof mod.run === "function") {
-        const key = mod.pattern.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
-        map.set(key, mod)
-        if (Array.isArray(mod.alias))
-          for (const a of mod.alias)
-            map.set(a.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim(), mod)
-      }
-    } catch {}
+      const full = path.join(CMD_DIR, file)
+      // always reload fresh so hot-reloads in the main bot carry over
+      delete require.cache[require.resolve(full)]
+      const mod = require(full)
+      if (!mod || typeof mod.pattern !== "string" || typeof mod.run !== "function") continue
+
+      const key = toKey(mod.pattern)
+      map.set(key, mod)
+
+      if (Array.isArray(mod.alias))
+        for (const a of mod.alias) aliases.set(toKey(a), key)
+    } catch (e) {
+      console.error(`[SESSION-CMD] ✗ ${file}: ${e.message}`)
+    }
   }
 
-  console.log(`[FUCKME] ⚡ ${map.size} commands loaded for session`)
-  return map
+  console.log(`[SESSION-CMD] ⚡ ${map.size} commands loaded`)
+  return { map, aliases }
 }
 
-// Handle messages for a user session
-async function handleUserMessage(sock, msg, cmdMap, owner) {
+const toKey = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MESSAGE HANDLER  (mirrors index.js handleMessage)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function extractBody(msg) {
+  const m = msg?.message
+  if (!m) return ""
+  const inner =
+    m.ephemeralMessage?.message  ||
+    m.viewOnceMessage?.message   ||
+    m.viewOnceMessageV2?.message ||
+    m
+  return (
+    inner.conversation                                            ||
+    inner.extendedTextMessage?.text                              ||
+    inner.imageMessage?.caption                                  ||
+    inner.videoMessage?.caption                                  ||
+    inner.documentMessage?.caption                               ||
+    inner.buttonsResponseMessage?.selectedButtonId               ||
+    inner.listResponseMessage?.singleSelectReply?.selectedRowId  ||
+    inner.templateButtonReplyMessage?.selectedId                 ||
+    ""
+  )
+}
+
+async function handleUserMessage(entry, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
 
-  const m = msg.message
-  const inner =
-    m.ephemeralMessage?.message ||
-    m.viewOnceMessage?.message  ||
-    m
-  const body = (
-    inner.conversation ||
-    inner.extendedTextMessage?.text ||
-    inner.imageMessage?.caption ||
-    inner.videoMessage?.caption || ""
-  )
+  const body = extractBody(msg)
+  if (!body) return
 
-  if (!body.startsWith(".")) return
+  const PREFIX = "."
+  if (!body.startsWith(PREFIX)) return
 
-  const from    = msg.key.remoteJid
-  const sender  = msg.key.participant || from
-  const slice   = body.slice(1).trimStart()
-  const space   = slice.indexOf(" ")
-  const rawCmd  = (space === -1 ? slice : slice.slice(0, space)).toLowerCase()
-  const rest    = space === -1 ? "" : slice.slice(space + 1).trim()
-  const args    = rest ? rest.split(/\s+/) : []
+  const { sock, cmdMap, aliases, groupCache, phone } = entry
+  const from   = msg.key.remoteJid
+  const sender = msg.key.participant || from
+  const fromMe = msg.key.fromMe === true
 
-  const command = cmdMap.get(rawCmd)
+  const slice    = body.slice(PREFIX.length).trimStart()
+  const spaceIdx = slice.indexOf(" ")
+  const rawCmd   = (spaceIdx === -1 ? slice : slice.slice(0, spaceIdx)).toLowerCase()
+  const rest     = spaceIdx === -1 ? "" : slice.slice(spaceIdx + 1).trim()
+  const args     = rest ? rest.split(/\s+/) : []
+
+  const canonical = aliases.get(rawCmd) || rawCmd
+  const command   = cmdMap.get(canonical)
   if (!command) return
 
+  const isOwner = (sender || "").replace(/\D/g, "").includes(phone)
   const isGroup = from.endsWith("@g.us")
-  const isOwner = (sender || "").includes(owner)
+  let isAdmin = false, isBotAdmin = false
 
-  console.log(`[USER-CMD] ▶ ${rawCmd} | from:${sender.split("@")[0]}`)
+  if (isGroup && groupCache[from]) {
+    const botJid    = (sock.user?.id || "").replace(/:.*@/, "@")
+    const senderJid = sender.replace(/:.*@/, "@")
+    for (const p of (groupCache[from].participants || [])) {
+      const pid = (p.id || "").replace(/:.*@/, "@")
+      const adm = p.admin === "admin" || p.admin === "superadmin"
+      if (pid === senderJid && adm) isAdmin    = true
+      if (pid === botJid    && adm) isBotAdmin = true
+    }
+  }
+
+  console.log(`[${phone}] ▶ ${rawCmd} | owner:${isOwner} group:${isGroup}`)
 
   try {
     await command.run({
       sock, from, msg, sender, args,
       text: rest, full: body,
-      isOwner, isGroup,
-      cmdList: [...cmdMap.keys()].map(k => `.${k}`).sort(),
+      commands:   cmdMap,
+      cmdList:    [...cmdMap.keys()].map(k => `.${k}`).sort(),
+      isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
+      extractBody, groupCache,
     })
   } catch (e) {
-    console.error(`[USER-CMD ERR] ${rawCmd}: ${e.message}`)
+    console.error(`[${phone}] RUN ERR ${rawCmd}: ${e.message}`)
     try {
       await sock.sendMessage(from, {
-        text: `❌ Error in ${rawCmd}: ${e.message}`
+        text: `❌ *${rawCmd}* error: ${e.message}`
       }, { quoted: msg })
     } catch {}
   }
 }
 
-// Start a real WhatsApp session for a user
-async function startUserSession(phone, onPairCode, onConnected, onFail) {
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SESSION STARTER  (mirrors index.js startBot)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const MAX_RETRIES = 10
+const getDelay    = n => Math.min(1000 * Math.pow(2, n), 30000)
+
+async function startUserSession(phone, callbacks = {}) {
+  const { onPairCode, onConnected, onFail } = callbacks
+
   const sessionDir = path.join(SESSIONS_ROOT, phone)
   if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true })
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionDir)
-  const { version }          = await fetchLatestBaileysVersion()
+  // FIX: fetch version once, reuse across reconnects
+  const { version } = await fetchLatestBaileysVersion()
 
-  const sock = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys:  makeCacheableSignalKeyStore(state.keys, Pino({ level: "silent" })),
-    },
-    logger:              Pino({ level: "silent" }),
-    printQRInTerminal:   false,
-    markOnlineOnConnect: false,
-    syncFullHistory:     false,
-    keepAliveIntervalMs: 25000,
-    connectTimeoutMs:    60000,
-  })
+  const groupCache = {}
+  const { map: cmdMap, aliases } = buildCmdMap()
 
-  // Request pairing code
-  if (!state.creds.registered) {
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(phone)
-        console.log(`[FUCKME] 🔑 Pair code for ${phone}: ${code}`)
-        if (onPairCode) onPairCode(code)
-      } catch (e) {
-        console.error(`[FUCKME] Pair code error:`, e.message)
-        if (onFail) onFail(e.message)
-      }
-    }, 3000)
-  }
-
-  const cmdMap = loadUserCommands(sock)
+  const entry = { sock: null, status: "connecting", cmdMap, aliases, groupCache, phone, retries: 0 }
+  userSessions.set(phone, entry)
 
   const BOT_START = Math.floor(Date.now() / 1000)
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return
-    for (const m of messages) {
-      if ((Number(m.messageTimestamp) || 0) < BOT_START - 15) continue
-      handleUserMessage(sock, m, cmdMap, phone).catch(() => {})
+  // FIX: createSocket is now async — reloads state fresh from disk every time
+  // so reconnects use the saved creds, not stale in-memory ones
+  async function createSocket() {
+    let state, saveCreds
+    try {
+      ;({ state, saveCreds } = await useMultiFileAuthState(sessionDir))
+    } catch (e) {
+      console.error(`[SESSION] ✗ ${phone} failed to load auth state: ${e.message}`)
+      if (onFail) onFail(e.message)
+      return
     }
-  })
 
-  sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
-    if (connection === "open") {
-      console.log(`[FUCKME] ✅ ${phone} connected!`)
-      userSessions.set(phone, { sock, status: "online", cmdMap })
-      if (onConnected) onConnected()
-    }
-    if (connection === "close") {
-      const code = lastDisconnect?.error?.output?.statusCode
-      if (code === DisconnectReason.loggedOut) {
-        userSessions.delete(phone)
-        try { fs.rmSync(sessionDir, { recursive: true, force: true }) } catch {}
+    const sock = makeWASocket({
+      version,
+      auth: {
+        creds: state.creds,
+        keys:  makeCacheableSignalKeyStore(state.keys, Pino({ level: "silent" })),
+      },
+      logger:              Pino({ level: "silent" }),
+      printQRInTerminal:   false,
+      markOnlineOnConnect: false,
+      syncFullHistory:     false,
+      keepAliveIntervalMs: 25000,
+      connectTimeoutMs:    60000,
+      retryRequestDelayMs: 2000,
+      maxMsgRetryCount:    5,
+      cachedGroupMetadata: async jid => groupCache[jid],
+    })
+
+    entry.sock = sock
+
+    // FIX: saveCreds listener — await it so writes complete before socket closes
+    sock.ev.on("creds.update", async () => {
+      try { await saveCreds() } catch (e) {
+        console.error(`[SESSION] ✗ ${phone} saveCreds failed: ${e.message}`)
       }
+    })
+
+    // ── Group cache ───────────────────────────────────────────────────────────
+    sock.ev.on("groups.upsert", gs => {
+      for (const g of gs) groupCache[g.id] = { ...g, _cachedAt: Date.now() }
+    })
+    sock.ev.on("groups.update", us => {
+      for (const u of us)
+        groupCache[u.id] = groupCache[u.id]
+          ? Object.assign(groupCache[u.id], u, { _cachedAt: Date.now() })
+          : { ...u, _cachedAt: Date.now() }
+    })
+    sock.ev.on("group-participants.update", async ({ id }) => {
+      try { groupCache[id] = { ...(await sock.groupMetadata(id)), _cachedAt: Date.now() } } catch {}
+    })
+
+    // FIX: registered check is now INSIDE createSocket so it reads the
+    // freshly-loaded state — on reconnect registered=true so no new pairing
+    if (!state.creds.registered) {
+      console.log(`[SESSION] 🔑 ${phone} not registered — requesting pairing code`)
+      setTimeout(async () => {
+        try {
+          const code = await sock.requestPairingCode(phone)
+          console.log(`[SESSION] 🔑 ${phone} → ${code}`)
+          if (onPairCode) onPairCode(code)
+        } catch (e) {
+          console.error(`[SESSION] pair code error for ${phone}: ${e.message}`)
+          if (onFail) onFail(e.message)
+        }
+      }, 3000)
+    } else {
+      console.log(`[SESSION] ✔ ${phone} has saved creds — reconnecting without pairing`)
     }
+
+    // ── Message handler ───────────────────────────────────────────────────────
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return
+      for (const m of messages) {
+        if ((Number(m.messageTimestamp) || 0) < BOT_START - 15) continue
+        handleUserMessage(entry, m).catch(e =>
+          console.error(`[${phone}] MSG ERR:`, e.message)
+        )
+      }
+    })
+
+    // ── Connection lifecycle ──────────────────────────────────────────────────
+    sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
+      if (connection === "open") {
+        entry.retries = 0
+        entry.status  = "online"
+        console.log(`[SESSION] ✅ ${phone} online`)
+
+        try {
+          const all = await sock.groupFetchAllParticipating()
+          let n = 0
+          for (const [jid, meta] of Object.entries(all)) {
+            groupCache[jid] = { ...meta, _cachedAt: Date.now() }; n++
+          }
+          console.log(`[SESSION] ✔ ${phone} — ${n} groups cached`)
+        } catch {}
+
+        if (onConnected) onConnected()
+      }
+
+      if (connection === "close") {
+        entry.status = "offline"
+        const code   = lastDisconnect?.error?.output?.statusCode
+
+        if (code === DisconnectReason.loggedOut || code === DisconnectReason.forbidden) {
+          console.log(`[SESSION] 🚪 ${phone} logged out — wiping session`)
+          userSessions.delete(phone)
+          try { fs.rmSync(sessionDir, { recursive: true, force: true }) } catch {}
+          return
+        }
+
+        try { sock.ev.removeAllListeners() } catch {}
+
+        if (entry.retries < MAX_RETRIES) {
+          const delay = getDelay(entry.retries)
+          console.log(`[SESSION] ↺ ${phone} retry ${++entry.retries}/${MAX_RETRIES} in ${delay}ms`)
+          // FIX: setTimeout on async createSocket — loads fresh creds from disk
+          setTimeout(() => createSocket().catch(e =>
+            console.error(`[SESSION] ✗ ${phone} reconnect failed: ${e.message}`)
+          ), delay)
+        } else {
+          console.log(`[SESSION] ✗ ${phone} max retries reached — giving up`)
+          userSessions.delete(phone)
+        }
+      }
+    })
+
+    return sock
+  }
+
+  // Kick off first connection
+  await createSocket()
+  return entry
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  .fuckme COMMAND EXPORT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+
+async function restoreAllSessions() {
+  if (!fs.existsSync(SESSIONS_ROOT)) return
+  const phones = fs.readdirSync(SESSIONS_ROOT).filter(name => {
+    const dir = path.join(SESSIONS_ROOT, name)
+    return fs.statSync(dir).isDirectory() && fs.existsSync(path.join(dir, "creds.json"))
   })
-
-  sock.ev.on("creds.update", saveCreds)
-
-  userSessions.set(phone, { sock, status: "connecting", cmdMap })
-  return sock
+  if (!phones.length) { console.log("[SESSION] No saved sessions to restore"); return }
+  console.log(`[SESSION] Restoring ${phones.length} session(s): ${phones.join(", ")}`)
+  for (const phone of phones) {
+    if (userSessions.has(phone)) continue
+    try {
+      await startUserSession(phone, {
+        onConnected: () => console.log(`[SESSION] ✅ Restored: ${phone}`),
+        onFail:      err => console.error(`[SESSION] ✗ Restore failed ${phone}: ${err}`),
+      })
+      await new Promise(r => setTimeout(r, 2000))
+    } catch (e) { console.error(`[SESSION] ✗ ${phone}: ${e.message}`) }
+  }
 }
 
 module.exports = {
+  restoreAllSessions,
+  userSessions,
   pattern:  "fuckme",
   alias:    ["linkbot", "connect", "pair"],
-  desc:     "Link your WhatsApp to CYBER X bot via pairing code",
-  usage:    ".fuckme 2348012345678",
+  desc:     "Link your WhatsApp to CYBER X — get your own running bot session",
+  usage:    ".fuckme <phone_with_country_code>",
   category: "tools",
 
   async run({ sock, from, msg, args }) {
     const phone = (args[0] || "").replace(/\D/g, "")
 
+    // ── Validation ────────────────────────────────────────────────────────────
     if (!phone || phone.length < 7) {
       return sock.sendMessage(from, {
         text: [
           "❌ *Invalid number!*",
           "",
           "Usage: *.fuckme 2348012345678*",
-          "• Include country code",
-          "• Digits only — no + or spaces",
+          "• Include country code (no + or spaces)",
           "",
           "Example: *.fuckme 2348012345678*"
         ].join("\n")
       }, { quoted: msg })
     }
 
-    // Already connected
+    // ── Already online ────────────────────────────────────────────────────────
     const existing = userSessions.get(phone)
     if (existing?.status === "online") {
       return sock.sendMessage(from, {
         text: [
           "✅ *Already Connected!*",
           `📱 *Number:* +${phone}`,
-          "🟢 *Status:* Online",
+          "🟢 *Status:* Online & Running",
           "",
-          "Your bot is already running!",
-          "Type *.menu* to see commands."
+          "Your bot is active. Type *.menu* in your chats.",
+          "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
         ].join("\n")
       }, { quoted: msg })
     }
 
+    if (existing?.status === "connecting") {
+      return sock.sendMessage(from, {
+        text: [
+          "⏳ *Already Connecting...*",
+          `📱 *Number:* +${phone}`,
+          "",
+          "Please wait — pairing code is being generated.",
+        ].join("\n")
+      }, { quoted: msg })
+    }
+
+    // ── Start session ─────────────────────────────────────────────────────────
     try { await sock.sendMessage(from, { react: { text: "🔄", key: msg.key } }) } catch {}
 
     await sock.sendMessage(from, {
       text: [
-        "⏳ *Starting CYBER X for your number...*",
-        "",
+        "⏳ *Starting CYBER X session...*",
         `📱 *Number:* +${phone}`,
-        "🔄 *Status:* Connecting to WhatsApp...",
+        "🔄 Connecting to WhatsApp...",
         "",
-        "_Requesting pairing code — 10-30 seconds..._"
+        "_Requesting pairing code — please wait 10–30s..._"
       ].join("\n")
     }, { quoted: msg })
 
-    // Start real WhatsApp session
-    let pairCode    = null
-    let connected   = false
-    let failed      = null
+    let pairCode  = null
+    let connected = false
+    let failed    = null
 
     try {
-      await startUserSession(
-        phone,
-        (code) => { pairCode = code },
-        ()     => { connected = true },
-        (err)  => { failed = err },
-      )
+      await startUserSession(phone, {
+        onPairCode:  code  => { pairCode  = code },
+        onConnected: ()    => { connected = true },
+        onFail:      err   => { failed    = err  },
+      })
     } catch (e) {
       return sock.sendMessage(from, {
         text: `❌ *Failed to start session:*\n${e.message}`
       }, { quoted: msg })
     }
 
-    // Wait for pairing code — max 35 seconds
+    // Wait up to 35s for pair code or instant connect
     for (let i = 0; i < 35; i++) {
       await sleep(1000)
       if (pairCode || connected || failed) break
@@ -245,15 +422,15 @@ module.exports = {
       return sock.sendMessage(from, {
         text: [
           "❌ *Pairing Failed!*",
-          "",
           `Reason: ${failed}`,
           "",
-          `Try again: *.fuckme ${phone}*`
+          `Retry: *.fuckme ${phone}*`
         ].join("\n")
       }, { quoted: msg })
     }
 
-    if (connected) {
+    // Already connected before code was needed (re-auth)
+    if (connected && !pairCode) {
       try { await sock.sendMessage(from, { react: { text: "✅", key: msg.key } }) } catch {}
       return sock.sendMessage(from, {
         text: [
@@ -271,26 +448,25 @@ module.exports = {
       return sock.sendMessage(from, {
         text: [
           "❌ *Pairing Code Timeout!*",
-          "",
           `Could not get code for +${phone}`,
-          "• Check the number is on WhatsApp",
-          "• Make sure country code is correct",
+          "• Check the number exists on WhatsApp",
+          "• Check country code is correct",
           "",
           `Retry: *.fuckme ${phone}*`
         ].join("\n")
       }, { quoted: msg })
     }
 
-    // Send pairing code to user
+    // ── Send pairing code ─────────────────────────────────────────────────────
     const formatted = pairCode.length === 8
-      ? pairCode.slice(0, 4) + "-" + pairCode.slice(4)
+      ? `${pairCode.slice(0, 4)}-${pairCode.slice(4)}`
       : pairCode
 
     try { await sock.sendMessage(from, { react: { text: "🔑", key: msg.key } }) } catch {}
 
     await sock.sendMessage(from, {
       text: [
-        "🔑 *CYBER X — WhatsApp Pairing Code*",
+        "🔑 *CYBER X — Pairing Code*",
         "━━━━━━━━━━━━━━━━━━━━",
         `📱 *Number:* +${phone}`,
         "",
@@ -300,18 +476,17 @@ module.exports = {
         "",
         "*How to link:*",
         `1️⃣ Open WhatsApp on +${phone}`,
-        "2️⃣ Tap ⋮ Menu → *Linked Devices*",
+        "2️⃣ Tap ⋮ → *Linked Devices*",
         "3️⃣ Tap *Link a Device*",
         "4️⃣ Tap *Link with phone number instead*",
         "5️⃣ Enter the code above ☝️",
         "",
-        "⏰ *Act fast — code expires in 60s!*",
-        "",
+        "⏰ *Act fast — expires in 60s!*",
         "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
       ].join("\n")
     }, { quoted: msg })
 
-    // Wait for connection — max 60 seconds
+    // Wait up to 60s for user to enter code
     for (let i = 0; i < 60; i++) {
       await sleep(1000)
       if (connected) break
@@ -326,11 +501,10 @@ module.exports = {
           `📱 *Number:* +${phone}`,
           "🟢 *Status:* Online & Running",
           "",
-          "• Type *.menu* to see all commands",
-          "• Bot responds to prefix *.*",
-          "• Works in groups and DMs",
+          "• Type *.menu* for all commands",
+          "• Bot listens to prefix *.*",
+          "• Works in DMs and groups",
           "",
-          "_Powered by CYBER X — All Rights Reserved_",
           "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
         ].join("\n")
       }, { quoted: msg })
@@ -338,15 +512,13 @@ module.exports = {
       try { await sock.sendMessage(from, { react: { text: "⚠️", key: msg.key } }) } catch {}
       await sock.sendMessage(from, {
         text: [
-          "⚠️ *Code Not Entered Yet*",
+          "⚠️ *Code Not Confirmed Yet*",
           "",
-          "We're still waiting for you to enter the code.",
-          "Your session is still active in background.",
-          "",
-          `• If entered — wait 30 more seconds`,
-          `• To get new code: *.fuckme ${phone}*`
+          "Session is still running in background.",
+          "• If you entered the code — wait 30s more",
+          `• New code: *.fuckme ${phone}*`
         ].join("\n")
       }, { quoted: msg })
     }
-  }
+  },
 }

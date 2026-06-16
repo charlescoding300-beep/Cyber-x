@@ -8,3 +8,4 @@ session/
 sessions/
 node_modules/
 .env
+cyberx-gateway/
