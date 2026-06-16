@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYBER X — Next-Gen WhatsApp Automation</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --black:  #0a0a0a;
+    --green:  #00ff88;
+    --blue:   #00cfff;
+    --purple: #9d00ff;
+    --red:    #ff003c;
+    --glass:  rgba(255,255,255,0.04);
+    --border: rgba(0,255,136,0.15);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* ── PARTICLES ── */
+  #particles {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900; font-size: 20px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  .nav-links { display: flex; gap: 24px; }
+  .nav-links a {
+    color: rgba(255,255,255,0.6); text-decoration: none;
+    font-size: 14px; transition: color .2s;
+  }
+  .nav-links a:hover { color: var(--green); }
+
+  /* ── SECTIONS ── */
+  section { position: relative; z-index: 1; }
+
+  /* ── HERO ── */
+  #hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 100px 24px 60px;
+  }
+
+  .hero-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900; font-size: clamp(48px, 10vw, 96px);
+    background: linear-gradient(135deg, var(--green), var(--blue), var(--purple));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 40px rgba(0,255,136,0.4));
+    animation: pulse-glow 3s ease-in-out infinite;
+    line-height: 1.1; margin-bottom: 24px;
+  }
+
+  @keyframes pulse-glow {
+    0%,100% { filter: drop-shadow(0 0 30px rgba(0,255,136,0.4)); }
+    50%      { filter: drop-shadow(0 0 60px rgba(0,207,255,0.6)); }
+  }
+
+  .hero-tagline {
+    font-size: clamp(14px, 3vw, 18px);
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 3px; text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+
+  #typed-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(16px, 4vw, 28px);
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    min-height: 40px; margin-bottom: 40px;
+  }
+
+  .cursor { display: inline-block; width: 3px; height: 1em; background: var(--green); animation: blink 1s infinite; vertical-align: middle; margin-left: 4px; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+  .btn-primary {
+    padding: 16px 40px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px; font-weight: 700;
+    letter-spacing: 2px; text-transform: uppercase;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    color: #000; border: none; border-radius: 8px;
+    cursor: pointer; transition: all .3s;
+    box-shadow: 0 0 30px rgba(0,255,136,0.3);
+    text-decoration: none; display: inline-block;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 50px rgba(0,255,136,0.5);
+  }
+
+  .stats-bar {
+    margin-top: 48px;
+    display: flex; flex-wrap: wrap; gap: 24px;
+    justify-content: center; align-items: center;
+  }
+
+  .stat-item {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px; font-weight: 700;
+    color: var(--green); letter-spacing: 1px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    background: var(--glass);
+  }
+
+  /* ── CONNECT SECTION ── */
+  #connect {
+    padding: 100px 24px;
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+
+  .section-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(24px, 5vw, 40px);
+    font-weight: 900; text-align: center;
+    margin-bottom: 12px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  .section-sub {
+    color: rgba(255,255,255,0.4);
+    font-size: 14px; text-align: center;
+    margin-bottom: 48px;
+  }
+
+  .steps {
+    display: flex; gap: 0; margin-bottom: 40px;
+    align-items: center;
+  }
+
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-family: 'Orbitron', sans-serif;
+  }
+
+  .step-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    border: 2px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.4);
+    transition: all .3s;
+  }
+
+  .step.active .step-num {
+    border-color: var(--green); color: var(--green);
+    box-shadow: 0 0 12px rgba(0,255,136,0.4);
+  }
+
+  .step-line { width: 40px; height: 1px; background: rgba(255,255,255,0.1); margin: 0 8px; }
+
+  .connect-card {
+    width: 100%; max-width: 480px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px;
+    backdrop-filter: blur(12px);
+  }
+
+  .input-group { margin-bottom: 24px; }
+
+  .input-group label {
+    display: block; font-size: 12px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .input-group input {
+    width: 100%; padding: 14px 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 8px; color: #fff;
+    font-size: 16px; font-family: 'Inter', sans-serif;
+    outline: none; transition: border-color .2s;
+  }
+
+  .input-group input:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 16px rgba(0,255,136,0.15);
+  }
+
+  .input-group input::placeholder { color: rgba(255,255,255,0.25); }
+
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .btn-glow {
+    padding: 14px 12px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    border: none; border-radius: 8px;
+    cursor: pointer; transition: all .3s;
+  }
+
+  .btn-green {
+    background: transparent;
+    border: 2px solid var(--green); color: var(--green);
+    box-shadow: 0 0 16px rgba(0,255,136,0.2);
+  }
+  .btn-green:hover {
+    background: rgba(0,255,136,0.1);
+    box-shadow: 0 0 30px rgba(0,255,136,0.4);
+    transform: translateY(-2px);
+  }
+
+  .btn-blue {
+    background: transparent;
+    border: 2px solid var(--blue); color: var(--blue);
+    box-shadow: 0 0 16px rgba(0,207,255,0.2);
+  }
+  .btn-blue:hover {
+    background: rgba(0,207,255,0.1);
+    box-shadow: 0 0 30px rgba(0,207,255,0.4);
+    transform: translateY(-2px);
+  }
+
+  /* ── RESULT AREA ── */
+  #result-area { margin-top: 24px; display: none; }
+
+  .spinner {
+    display: flex; align-items: center; gap: 12px;
+    color: rgba(255,255,255,0.6); font-size: 14px;
+  }
+
+  .spin {
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .pair-code-box {
+    text-align: center; padding: 24px;
+    background: rgba(0,255,136,0.05);
+    border: 2px solid var(--green);
+    border-radius: 12px;
+    box-shadow: 0 0 30px rgba(0,255,136,0.2);
+  }
+
+  .pair-code-label {
+    font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--green);
+    margin-bottom: 12px;
+  }
+
+  .pair-code {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(28px, 8vw, 48px);
+    font-weight: 900; letter-spacing: 8px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 16px rgba(0,255,136,0.5));
+  }
+
+  .pair-instruction {
+    margin-top: 16px; font-size: 13px;
+    color: rgba(255,255,255,0.5); line-height: 1.6;
+  }
+
+  .qr-box {
+    text-align: center; padding: 24px;
+    background: rgba(0,207,255,0.05);
+    border: 2px solid var(--blue);
+    border-radius: 12px;
+    box-shadow: 0 0 30px rgba(0,207,255,0.2);
+  }
+
+  .qr-box img {
+    width: 220px; height: 220px;
+    border-radius: 8px; display: block; margin: 0 auto 16px;
+  }
+
+  .success-box {
+    text-align: center; padding: 32px;
+    background: rgba(0,255,136,0.08);
+    border: 2px solid var(--green);
+    border-radius: 12px;
+    animation: success-flash 0.5s ease;
+  }
+
+  @keyframes success-flash {
+    0% { background: rgba(0,255,136,0.4); }
+    100% { background: rgba(0,255,136,0.08); }
+  }
+
+  .success-icon { font-size: 48px; margin-bottom: 12px; }
+
+  .success-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px; font-weight: 900; color: var(--green);
+    margin-bottom: 8px;
+  }
+
+  /* ── DASHBOARD ── */
+  #dashboard {
+    padding: 100px 24px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  .dashboard-card {
+    width: 100%; max-width: 600px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px;
+  }
+
+  .dash-header {
+    display: flex; align-items: center;
+    justify-content: space-between; margin-bottom: 24px;
+    flex-wrap: wrap; gap: 12px;
+  }
+
+  .dash-phone {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px; color: rgba(255,255,255,0.7);
+  }
+
+  .status-badge {
+    padding: 6px 14px; border-radius: 100px;
+    font-size: 12px; font-weight: 700;
+    font-family: 'Orbitron', sans-serif; letter-spacing: 1px;
+  }
+
+  .badge-online  { background: rgba(0,255,136,0.15); color: var(--green); border: 1px solid var(--green); }
+  .badge-offline { background: rgba(255,0,60,0.15);  color: var(--red);   border: 1px solid var(--red); }
+  .badge-pairing { background: rgba(255,200,0,0.15); color: #ffc800;      border: 1px solid #ffc800; }
+
+  .dash-stats {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 12px; margin-bottom: 24px;
+  }
+
+  .dash-stat {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 16px;
+  }
+
+  .dash-stat-label {
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px; color: rgba(255,255,255,0.4);
+    margin-bottom: 4px;
+  }
+
+  .dash-stat-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px; font-weight: 700; color: var(--green);
+  }
+
+  .dash-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+
+  .btn-sm {
+    padding: 8px 16px; border-radius: 6px;
+    font-size: 12px; font-family: 'Orbitron', sans-serif;
+    font-weight: 700; cursor: pointer; border: none;
+    transition: all .2s;
+  }
+
+  .btn-stop    { background: rgba(255,0,60,0.15);  color: var(--red);   border: 1px solid var(--red); }
+  .btn-restart { background: rgba(0,207,255,0.15); color: var(--blue);  border: 1px solid var(--blue); }
+  .btn-delete  { background: rgba(157,0,255,0.15); color: var(--purple); border: 1px solid var(--purple); }
+  .btn-logout  { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+
+  .btn-sm:hover { opacity: 0.8; transform: translateY(-1px); }
+
+  .terminal {
+    background: #050505; border: 1px solid rgba(0,255,136,0.1);
+    border-radius: 8px; padding: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px; line-height: 1.6;
+    max-height: 180px; overflow-y: auto;
+    color: rgba(0,255,136,0.8);
+  }
+
+  .terminal::-webkit-scrollbar { width: 4px; }
+  .terminal::-webkit-scrollbar-track { background: transparent; }
+  .terminal::-webkit-scrollbar-thumb { background: var(--green); border-radius: 2px; }
+
+  /* ── PUBLIC BOARD ── */
+  #board { padding: 100px 24px; }
+
+  .board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px; max-width: 700px; margin: 0 auto 40px;
+  }
+
+  .board-card {
+    background: var(--glass); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px 16px; text-align: center;
+  }
+
+  .board-card-num {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 32px; font-weight: 900; color: var(--green);
+    margin-bottom: 4px;
+  }
+
+  .board-card-label {
+    font-size: 11px; color: rgba(255,255,255,0.4);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  .instance-list {
+    max-width: 700px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .instance-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--glass); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px;
+    font-size: 13px;
+  }
+
+  .instance-phone { color: rgba(255,255,255,0.6); font-family: monospace; }
+
+  /* ── FEATURES ── */
+  #features { padding: 100px 24px; }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; max-width: 900px; margin: 0 auto;
+  }
+
+  .feature-card {
+    background: var(--glass); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px;
+    transition: all .3s; cursor: default;
+  }
+
+  .feature-card:hover {
+    border-color: var(--green);
+    box-shadow: 0 0 24px rgba(0,255,136,0.15);
+    transform: translateY(-4px);
+  }
+
+  .feature-icon { font-size: 28px; margin-bottom: 12px; }
+
+  .feature-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px; font-weight: 700;
+    color: var(--green); margin-bottom: 6px;
+  }
+
+  .feature-desc { font-size: 12px; color: rgba(255,255,255,0.4); line-height: 1.5; }
+
+  /* ── HOW IT WORKS ── */
+  #how { padding: 100px 24px; }
+
+  .how-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 24px; max-width: 700px; margin: 0 auto;
+  }
+
+  .how-step {
+    text-align: center; padding: 32px 24px;
+    background: var(--glass); border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .how-step-icon { font-size: 40px; margin-bottom: 16px; }
+
+  .how-step-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px; font-weight: 700;
+    color: var(--green); margin-bottom: 8px;
+  }
+
+  .how-step-desc { font-size: 13px; color: rgba(255,255,255,0.4); }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 24px; text-align: center;
+  }
+
+  .footer-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900; font-size: 24px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 16px;
+  }
+
+  .footer-text { font-size: 12px; color: rgba(255,255,255,0.3); line-height: 1.8; }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 999;
+    padding: 14px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    transform: translateY(80px); opacity: 0;
+    transition: all .3s; pointer-events: none;
+    max-width: 300px;
+  }
+
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.success { background: rgba(0,255,136,0.15); border: 1px solid var(--green); color: var(--green); }
+  #toast.error   { background: rgba(255,0,60,0.15);  border: 1px solid var(--red);   color: var(--red); }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.8); backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+
+  .modal-overlay.show { display: flex; }
+
+  .modal {
+    background: #111; border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px;
+    max-width: 360px; width: 90%; text-align: center;
+  }
+
+  .modal h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px; color: var(--red); margin-bottom: 12px;
+  }
+
+  .modal p { font-size: 14px; color: rgba(255,255,255,0.6); margin-bottom: 24px; }
+  .modal-btns { display: flex; gap: 12px; justify-content: center; }
+
+  /* ── OWNER BADGE ── */
+  .owner-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 100px;
+    background: rgba(255,200,0,0.15); border: 1px solid #ffc800;
+    color: #ffc800; font-family: 'Orbitron', sans-serif;
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 480px) {
+    nav { padding: 12px 16px; }
+    .nav-links { display: none; }
+    .connect-card { padding: 20px; }
+    .btn-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- PARTICLES -->
+<canvas id="particles"></canvas>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">CYBER X</div>
+  <div class="nav-links">
+    <a href="#connect">Connect</a>
+    <a href="#board">Live Board</a>
+    <a href="#features">Features</a>
+    <a href="#how">How It Works</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-logo">CYBER X</div>
+  <div class="hero-tagline">Developed by Charles Tech</div>
+  <div id="typed-text"><span id="typed"></span><span class="cursor"></span></div>
+  <a href="#connect" class="btn-primary">Connect Your WhatsApp Now</a>
+  <div class="stats-bar">
+    <div class="stat-item">29+ Commands</div>
+    <div class="stat-item">Multi-Device</div>
+    <div class="stat-item">24/7 Online</div>
+    <div class="stat-item">QR + Pairing Code</div>
+  </div>
+</section>
+
+<!-- CONNECT -->
+<section id="connect">
+  <div class="section-title">Link Your WhatsApp</div>
+  <div class="section-sub">Choose QR or Pairing Code — your bot goes live in seconds</div>
+
+  <div class="steps">
+    <div class="step active" id="step1">
+      <div class="step-num">1</div>
+      <span style="font-size:11px;color:rgba(255,255,255,0.4)">Enter Number</span>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step2">
+      <div class="step-num">2</div>
+      <span style="font-size:11px;color:rgba(255,255,255,0.4)">Choose Method</span>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step3">
+      <div class="step-num">3</div>
+      <span style="font-size:11px;color:rgba(255,255,255,0.4)">Pair & Go</span>
+    </div>
+  </div>
+
+  <div class="connect-card">
+    <div class="input-group">
+      <label>Phone Number (with country code)</label>
+      <input type="tel" id="phone-input" placeholder="e.g. 2348012345678">
+    </div>
+    <div class="btn-row">
+      <button class="btn-glow btn-green" onclick="connect('pairing')">📱 Get Pairing Code</button>
+      <button class="btn-glow btn-blue"  onclick="connect('qr')">📷 Scan QR Code</button>
+    </div>
+
+    <div id="result-area"></div>
+  </div>
+</section>
+
+<!-- DASHBOARD -->
+<section id="dashboard" style="display:none">
+  <div class="section-title">Your Bot Dashboard</div>
+  <div class="section-sub">Your WhatsApp bot is running on the CYBER X server</div>
+
+  <div class="dashboard-card">
+    <div class="dash-header">
+      <div>
+        <div class="dash-phone" id="dash-phone">—</div>
+        <div id="owner-badge-area" style="margin-top:6px;display:none">
+          <span class="owner-badge">⚡ OWNER</span>
+        </div>
+      </div>
+      <div id="dash-status" class="status-badge badge-offline">Offline</div>
+    </div>
+
+    <div class="dash-stats">
+      <div class="dash-stat">
+        <div class="dash-stat-label">Groups</div>
+        <div class="dash-stat-value" id="dash-groups">—</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Commands</div>
+        <div class="dash-stat-value" id="dash-commands">—</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Uptime</div>
+        <div class="dash-stat-value" id="dash-uptime">—</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Memory</div>
+        <div class="dash-stat-value" id="dash-memory">—</div>
+      </div>
+    </div>
+
+    <div class="dash-actions">
+      <button class="btn-sm btn-stop"    onclick="instanceAction('stop')">⏹ Stop</button>
+      <button class="btn-sm btn-restart" onclick="instanceAction('restart')">↻ Restart</button>
+      <button class="btn-sm btn-delete"  onclick="confirmDelete()">🗑 Delete</button>
+      <button class="btn-sm btn-logout"  onclick="logout()">← Logout</button>
+    </div>
+
+    <div class="dash-stat-label" style="margin-bottom:8px">Live Logs</div>
+    <div class="terminal" id="dash-logs">Connecting to log stream...</div>
+  </div>
+</section>
+
+<!-- PUBLIC BOARD -->
+<section id="board">
+  <div class="section-title" style="text-align:center">Live Network Board</div>
+  <div class="section-sub" style="text-align:center">Real-time view of all active bots</div>
+
+  <div class="board-grid">
+    <div class="board-card">
+      <div class="board-card-num" id="b-online">—</div>
+      <div class="board-card-label">🟢 Online</div>
+    </div>
+    <div class="board-card">
+      <div class="board-card-num" id="b-total">—</div>
+      <div class="board-card-label">🔵 Total</div>
+    </div>
+    <div class="board-card">
+      <div class="board-card-num" id="b-pairing">—</div>
+      <div class="board-card-label">🟡 Pairing</div>
+    </div>
+    <div class="board-card">
+      <div class="board-card-num" id="b-stopped">—</div>
+      <div class="board-card-label">⚫ Stopped</div>
+    </div>
+  </div>
+
+  <div class="instance-list" id="board-instances"></div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-title" style="text-align:center">Features</div>
+  <div class="section-sub" style="text-align:center">Everything your WhatsApp bot can do</div>
+  <div class="features-grid">
+    <div class="feature-card"><div class="feature-icon">🤖</div><div class="feature-name">AI Character</div><div class="feature-desc">CYBER X AI powered by advanced language models</div></div>
+    <div class="feature-card"><div class="feature-icon">🛡️</div><div class="feature-name">Antilink</div><div class="feature-desc">Auto-removes harmful links from groups</div></div>
+    <div class="feature-card"><div class="feature-icon">👋</div><div class="feature-name">Welcome & Goodbye</div><div class="feature-desc">Custom messages for group members</div></div>
+    <div class="feature-card"><div class="feature-icon">🎵</div><div class="feature-name">Music Player</div><div class="feature-desc">Stream audio directly in WhatsApp groups</div></div>
+    <div class="feature-card"><div class="feature-icon">⚠️</div><div class="feature-name">Warn System</div><div class="feature-desc">Auto-kick on maximum warnings reached</div></div>
+    <div class="feature-card"><div class="feature-icon">🏷️</div><div class="feature-name">Tag All</div><div class="feature-desc">Mention every group member instantly</div></div>
+    <div class="feature-card"><div class="feature-icon">🔇</div><div class="feature-name">Mute/Unmute</div><div class="feature-desc">Full group message control</div></div>
+    <div class="feature-card"><div class="feature-icon">🕵️</div><div class="feature-name">Detective Mode</div><div class="feature-desc">User information lookup</div></div>
+    <div class="feature-card"><div class="feature-icon">👁️</div><div class="feature-name">View Once Revealer</div><div class="feature-desc">Reveals hidden view-once media</div></div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="section-title" style="text-align:center">How It Works</div>
+  <div class="section-sub" style="text-align:center">Three steps to automate your WhatsApp</div>
+  <div class="how-steps">
+    <div class="how-step">
+      <div class="how-step-icon">🔢</div>
+      <div class="how-step-title">Enter Your Number</div>
+      <div class="how-step-desc">Type your WhatsApp number with country code</div>
+    </div>
+    <div class="how-step">
+      <div class="how-step-icon">📱</div>
+      <div class="how-step-title">Pair With WhatsApp</div>
+      <div class="how-step-desc">Scan QR or enter pairing code in WhatsApp</div>
+    </div>
+    <div class="how-step">
+      <div class="how-step-icon">✅</div>
+      <div class="how-step-title">Bot Is Live</div>
+      <div class="how-step-desc">Type .menu in any chat to get started</div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">CYBER X</div>
+  <div class="footer-text">
+    © 2025 CYBER X — Developed by Charles Tech. All Rights Reserved.<br>
+    Unauthorized use, copying or redistribution is strictly prohibited.
+  </div>
+</footer>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- DELETE MODAL -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal">
+    <h3>Delete Instance?</h3>
+    <p>This will permanently delete your bot session. You will need to link your WhatsApp again.</p>
+    <div class="modal-btns">
+      <button class="btn-sm btn-delete" onclick="doDelete()">Yes, Delete</button>
+      <button class="btn-sm btn-logout" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BASE_URL    = "https://cyber-x-y8yv.onrender.com"
+const SECRET      = "RGNpLM3n5OcA78bMB8YGYFjRmAWBh1Gb"
+const OWNER_PHONE = "2348120382097"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARTICLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById("particles")
+const ctx    = canvas.getContext("2d")
+let dots     = []
+
+function resizeCanvas() {
+  canvas.width  = window.innerWidth
+  canvas.height = window.innerHeight
+}
+
+function initDots() {
+  dots = []
+  for (let i = 0; i < 80; i++) {
+    dots.push({
+      x:  Math.random() * canvas.width,
+      y:  Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      r:  Math.random() * 2 + 1,
+    })
+  }
+}
+
+function drawParticles() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  for (const d of dots) {
+    d.x += d.vx; d.y += d.vy
+    if (d.x < 0) d.x = canvas.width
+    if (d.x > canvas.width) d.x = 0
+    if (d.y < 0) d.y = canvas.height
+    if (d.y > canvas.height) d.y = 0
+
+    ctx.beginPath()
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2)
+    ctx.fillStyle = "rgba(0,255,136,0.25)"
+    ctx.fill()
+  }
+
+  for (let i = 0; i < dots.length; i++) {
+    for (let j = i + 1; j < dots.length; j++) {
+      const dx = dots[i].x - dots[j].x
+      const dy = dots[i].y - dots[j].y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < 120) {
+        ctx.beginPath()
+        ctx.moveTo(dots[i].x, dots[i].y)
+        ctx.lineTo(dots[j].x, dots[j].y)
+        ctx.strokeStyle = `rgba(0,207,255,${0.15 * (1 - dist / 120)})`
+        ctx.lineWidth = 0.5
+        ctx.stroke()
+      }
+    }
+  }
+
+  requestAnimationFrame(drawParticles)
+}
+
+resizeCanvas(); initDots(); drawParticles()
+window.addEventListener("resize", () => { resizeCanvas(); initDots() })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPING ANIMATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+const phrases = [
+  "Connect. Automate. Dominate.",
+  "Your WhatsApp. Supercharged.",
+  "Powered by Charles Tech."
+]
+let phraseIdx = 0, charIdx = 0, deleting = false
+const typedEl = document.getElementById("typed")
+
+function type() {
+  const phrase = phrases[phraseIdx]
+  if (!deleting) {
+    typedEl.textContent = phrase.slice(0, ++charIdx)
+    if (charIdx === phrase.length) {
+      deleting = true
+      setTimeout(type, 2000)
+      return
+    }
+  } else {
+    typedEl.textContent = phrase.slice(0, --charIdx)
+    if (charIdx === 0) {
+      deleting = false
+      phraseIdx = (phraseIdx + 1) % phrases.length
+    }
+  }
+  setTimeout(type, deleting ? 40 : 80)
+}
+type()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────────────────────────────────────
+
+function showToast(msg, type = "success") {
+  const t = document.getElementById("toast")
+  t.textContent = msg
+  t.className = `show ${type}`
+  setTimeout(() => t.className = "", 3500)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Secret": SECRET
+    }
+  }
+  if (body) opts.body = JSON.stringify(body)
+  const r = await fetch(BASE_URL + path, opts)
+  return r.json()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEPS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setStep(n) {
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`step${i}`).classList.toggle("active", i <= n)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONNECT
+// ─────────────────────────────────────────────────────────────────────────────
+
+let pollTimer = null
+let currentPhone = ""
+
+async function connect(method) {
+  const phone = document.getElementById("phone-input").value.replace(/\D/g, "")
+  if (!phone || phone.length < 7) {
+    showToast("Enter a valid phone number with country code", "error")
+    return
+  }
+
+  currentPhone = phone
+  setStep(2)
+  showResult(`<div class="spinner"><div class="spin"></div> Starting your bot instance...</div>`)
+
+  try {
+    const res = await api("POST", "/instance/create", { phone, method })
+
+    if (res.status === "online") {
+      handleOnline(phone)
+      return
+    }
+
+    setStep(3)
+
+    if (method === "pairing") {
+      pollPairing(phone)
+    } else {
+      pollQR(phone)
+    }
+  } catch (e) {
+    showToast("Connection failed — check your server is running", "error")
+    showResult("")
+  }
+}
+
+function showResult(html) {
+  const area = document.getElementById("result-area")
+  area.style.display = html ? "block" : "none"
+  area.innerHTML = html
+}
+
+function pollPairing(phone) {
+  showResult(`<div class="spinner"><div class="spin"></div> Waiting for pairing code...</div>`)
+
+  clearInterval(pollTimer)
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api("GET", `/instance/${phone}/pair`)
+      const code = data.pairCode || data.pairingCode
+
+      if (data.status === "online") {
+        clearInterval(pollTimer)
+        handleOnline(phone)
+        return
+      }
+
+      if (code) {
+        clearInterval(pollTimer)
+        showResult(`
+          <div class="pair-code-box">
+            <div class="pair-code-label">Your Pairing Code</div>
+            <div class="pair-code">${code}</div>
+            <div class="pair-instruction">
+              Open WhatsApp → Linked Devices → Link a Device → Enter this code
+            </div>
+          </div>
+        `)
+        // After showing code, keep polling for online status
+        pollTimer = setInterval(async () => {
+          const d = await api("GET", `/instance/${phone}/pair`)
+          if (d.status === "online") {
+            clearInterval(pollTimer)
+            handleOnline(phone)
+          }
+        }, 3000)
+      }
+    } catch {}
+  }, 3000)
+}
+
+function pollQR(phone) {
+  showResult(`<div class="spinner"><div class="spin"></div> Generating QR code...</div>`)
+
+  clearInterval(pollTimer)
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api("GET", `/instance/${phone}/qr`)
+
+      if (data.status === "online") {
+        clearInterval(pollTimer)
+        handleOnline(phone)
+        return
+      }
+
+      if (data.qr) {
+        showResult(`
+          <div class="qr-box">
+            <img src="${data.qr}" alt="QR Code">
+            <div class="pair-instruction">
+              Open WhatsApp → Linked Devices → Scan QR Code
+            </div>
+          </div>
+        `)
+      }
+    } catch {}
+  }, 3000)
+}
+
+function handleOnline(phone) {
+  clearInterval(pollTimer)
+  localStorage.setItem("cyberx_phone", phone)
+  setStep(3)
+  showResult(`
+    <div class="success-box">
+      <div class="success-icon">✅</div>
+      <div class="success-title">YOUR BOT IS NOW LIVE!</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px">
+        Type <strong style="color:var(--green)">.menu</strong> in any WhatsApp chat to get started
+      </div>
+    </div>
+  `)
+  showToast("Bot connected successfully!", "success")
+  setTimeout(() => loadDashboard(phone), 2000)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+let dashTimer = null
+let logsTimer = null
+
+async function loadDashboard(phone) {
+  document.getElementById("dashboard").style.display = "flex"
+  document.getElementById("connect").style.display = "none"
+  document.getElementById("dash-phone").textContent = phone
+
+  if (phone === OWNER_PHONE) {
+    document.getElementById("owner-badge-area").style.display = "block"
+  }
+
+  refreshDash(phone)
+  refreshLogs(phone)
+
+  clearInterval(dashTimer)
+  clearInterval(logsTimer)
+  dashTimer = setInterval(() => refreshDash(phone), 10000)
+  logsTimer = setInterval(() => refreshLogs(phone), 8000)
+}
+
+async function refreshDash(phone) {
+  try {
+    const d = await api("GET", `/instance/${phone}`)
+    const statusEl = document.getElementById("dash-status")
+
+    if (d.status === "online") {
+      statusEl.textContent = "🟢 Online"
+      statusEl.className = "status-badge badge-online"
+    } else if (d.status === "connecting") {
+      statusEl.textContent = "🟡 Pairing"
+      statusEl.className = "status-badge badge-pairing"
+    } else {
+      statusEl.textContent = "🔴 Offline"
+      statusEl.className = "status-badge badge-offline"
+    }
+
+    document.getElementById("dash-groups").textContent   = d.groups   ?? "—"
+    document.getElementById("dash-commands").textContent = d.commands  ?? "—"
+    document.getElementById("dash-memory").textContent   = d.memory    ? d.memory + "MB" : "—"
+
+    const uptime = d.uptime || 0
+    const h = Math.floor(uptime / 3600)
+    const m = Math.floor((uptime % 3600) / 60)
+    const s = uptime % 60
+    document.getElementById("dash-uptime").textContent = `${h}h ${m}m`
+  } catch {}
+}
+
+async function refreshLogs(phone) {
+  try {
+    const d = await api("GET", `/instance/${phone}/logs`)
+    const el = document.getElementById("dash-logs")
+    const logs = d.logs || []
+    if (logs.length === 0) {
+      el.textContent = "No logs yet..."
+      return
+    }
+    el.innerHTML = logs.slice(-10).map(l =>
+      `<div>${l}</div>`
+    ).join("")
+    el.scrollTop = el.scrollHeight
+  } catch {}
+}
+
+async function instanceAction(action) {
+  const phone = localStorage.getItem("cyberx_phone")
+  if (!phone) return
+  try {
+    await api("POST", `/instance/${phone}/${action}`)
+    showToast(`Bot ${action} successful`, "success")
+    setTimeout(() => refreshDash(phone), 2000)
+  } catch {
+    showToast(`Failed to ${action} bot`, "error")
+  }
+}
+
+function confirmDelete() {
+  document.getElementById("delete-modal").classList.add("show")
+}
+
+function closeModal() {
+  document.getElementById("delete-modal").classList.remove("show")
+}
+
+async function doDelete() {
+  closeModal()
+  const phone = localStorage.getItem("cyberx_phone")
+  if (!phone) return
+  try {
+    await api("DELETE", `/instance/${phone}`)
+    showToast("Instance deleted", "success")
+    logout()
+  } catch {
+    showToast("Delete failed", "error")
+  }
+}
+
+function logout() {
+  clearInterval(dashTimer)
+  clearInterval(logsTimer)
+  localStorage.removeItem("cyberx_phone")
+  document.getElementById("dashboard").style.display = "none"
+  document.getElementById("connect").style.display = "flex"
+  document.getElementById("phone-input").value = ""
+  showResult("")
+  setStep(1)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC BOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function refreshBoard() {
+  try {
+    const r = await fetch(`${BASE_URL}/dashboard`)
+    const d = await r.json()
+
+    document.getElementById("b-online").textContent  = d.totalOnline    ?? 0
+    document.getElementById("b-total").textContent   = d.totalInstances ?? 0
+    document.getElementById("b-pairing").textContent = d.pairing        ?? 0
+    document.getElementById("b-stopped").textContent = d.stopped        ?? 0
+
+    const list = document.getElementById("board-instances")
+    const insts = d.instances || []
+    list.innerHTML = insts.length === 0
+      ? `<div style="text-align:center;color:rgba(255,255,255,0.3);font-size:13px;padding:24px">No active instances yet</div>`
+      : insts.map(i => `
+          <div class="instance-row">
+            <span class="instance-phone">${i.phone}</span>
+            <span class="status-badge ${i.status === 'online' ? 'badge-online' : i.status === 'connecting' ? 'badge-pairing' : 'badge-offline'}">
+              ${i.status}
+            </span>
+          </div>
+        `).join("")
+  } catch {}
+}
+
+refreshBoard()
+setInterval(refreshBoard, 15000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ON PAGE LOAD — check localStorage
+// ─────────────────────────────────────────────────────────────────────────────
+
+window.addEventListener("load", () => {
+  const saved = localStorage.getItem("cyberx_phone")
+  if (saved) {
+    loadDashboard(saved)
+  }
+})
+</script>
+</body>
+</html>
