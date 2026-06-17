@@ -1,21 +1,31 @@
-"use strict"
+// commands/autoread.js — CYBER X
+// Usage: .autoread on / .autoread off
+
+let db
+try { db = require("../lib/userDb") } catch {}
+
 module.exports = {
-  pattern:  "autoreply",
-  desc:     "Toggle auto reply or set reply text (owner only)",
-  usage:    ".autoreply  |  .autoreply Hey I am busy!",
+  pattern:  "autoread",
+  desc:     "Toggle auto read receipts",
+  usage:    ".autoread on/off",
   category: "settings",
 
-  async run({ sock, from, msg, args, settings, helper, isOwner }) {
-    if (!isOwner) return helper.reply(sock, msg, "❌ Owner only.")
+  async run({ sock, from, msg, args, sender }) {
+    const phone = sender.replace(/\D/g, "").split("@")[0] ||
+                  from.replace(/\D/g, "").split("@")[0]
 
-    const text = args.join(" ").trim()
-    if (text) {
-      settings.set("autoReplyText", text)
-      settings.set("autoReply", true)
-      return helper.reply(sock, msg, `✅ Auto Reply *ON* with text:\n"${text}"`)
+    if (!args.length) {
+      const current = db ? db.getSetting(phone, "autoRead") : false
+      return sock.sendMessage(from, {
+        text: `✅ Auto Read is currently *${current ? "ON" : "OFF"}*\nUsage: *.autoread on/off*`
+      }, { quoted: msg })
     }
 
-    const val = settings.toggle("autoReply")
-    return helper.reply(sock, msg, `${val ? "✅" : "❌"} Auto Reply *${val ? "ON" : "OFF"}*`)
-  }
+    const on = ["on", "true", "yes", "1"].includes(args[0].toLowerCase())
+    if (db) db.updateSettings(phone, { autoRead: on })
+
+    await sock.sendMessage(from, {
+      text: `✅ Auto Read: *${on ? "ON 🟢" : "OFF 🔴"}*`
+    }, { quoted: msg })
+  },
 }

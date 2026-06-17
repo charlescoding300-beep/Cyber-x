@@ -4,6 +4,7 @@ const path  = require("path")
 const http  = require("http")
 const https = require("https")
 const Pino  = require("pino")
+const crypto = require("crypto")
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -23,16 +24,31 @@ const CMD_DIR     = path.join(__dirname, "commands")
 const LIB_DIR     = path.join(__dirname, "lib")
 const UTILS_DIR   = path.join(__dirname, "utils")
 
-// FIX 1 — use SESSION_DIR from env (critical for server.js multi-instance)
 const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, "session")
 
-// FIX 2 — Termux sets PREFIX system-wide, delete it before anything loads
 delete process.env.PREFIX
-// FIX 3 — respect BOT_PREFIX from env (server.js passes it)
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
 
 for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, SESSION_DIR])
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
+
+// ─── SESSION PASSWORD SYSTEM ────────────────────────────────────────────────
+// On every restart, a new random password is generated.
+// The owner must DM the bot: .owner <password>
+// Until verified, owner commands won't work.
+let SESSION_PASSWORD   = crypto.randomBytes(4).toString("hex").toUpperCase()  // e.g. A3F9C2B1
+let ownerVerified      = false   // flips to true once owner types correct password
+let ownerVerifiedJid   = null    // stores the verified owner JID for this session
+
+function resetSessionPassword() {
+  SESSION_PASSWORD = crypto.randomBytes(4).toString("hex").toUpperCase()
+  ownerVerified    = false
+  ownerVerifiedJid = null
+  console.log(`[OWNER] 🔑 New session password: ${SESSION_PASSWORD}`)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 const lib = {}
 function loadDir(dir, label) {
   if (!fs.existsSync(dir)) return
@@ -60,8 +76,6 @@ const settings = lib.settings || {
   set(k, v) { this[k] = v },
 }
 
-// Do NOT override prefix here — let settings.js manage it from disk
-// Only set it if settings never loaded at all (fallback)
 if (!lib.settings) {
   settings.prefix = BOT_PREFIX
 }
@@ -148,6 +162,7 @@ function watchCommands() {
   })
   console.log("[CMD] 👁 watching commands/")
 }
+
 function extractBody(msg) {
   const m = msg?.message
   if (!m) return ""
@@ -172,6 +187,13 @@ function extractBody(msg) {
 function checkIsOwner(sender) {
   const clean = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")
   if (!clean) return false
+
+  // If owner already verified this session, trust the verified JID
+  if (ownerVerified && ownerVerifiedJid) {
+    const verifiedClean = ownerVerifiedJid.split("@")[0].split(":")[0].replace(/\D/g, "")
+    if (clean === verifiedClean) return true
+  }
+
   if (typeof settings.isOwner === "function") return settings.isOwner(sender)
   const owners = settings.owners || []
   if (owners.includes(clean)) return true
@@ -215,13 +237,68 @@ const helper = {
   sleep(ms) { return new Promise(r => setTimeout(r, ms)) },
 }
 
+// ─── OWNER PASSWORD HANDLER ──────────────────────────────────────────────────
+// Intercepts .owner <password> BEFORE normal command routing
+// Works in DM only for security
+async function handleOwnerAuth(sock, msg, body) {
+  const from   = msg.key.remoteJid
+  const sender = msg.key.participant || from
+  const isDM   = !from.endsWith("@g.us")
+  if (!isDM) return false  // only allow in DM
+
+  const prefix  = (settings.get ? settings.get("prefix") : null) || BOT_PREFIX
+  if (!body.startsWith(prefix)) return false
+
+  const slice  = body.slice(prefix.length).trimStart()
+  const parts  = slice.split(/\s+/)
+  const cmd    = parts[0]?.toLowerCase()
+  const passwd = parts[1]?.trim()
+
+  if (cmd !== "owner") return false
+
+  // Already verified
+  if (ownerVerified) {
+    await sock.sendMessage(from, {
+      text: `✅ *Already verified as owner for this session.*`
+    }, { quoted: msg })
+    return true
+  }
+
+  if (!passwd) {
+    await sock.sendMessage(from, {
+      text: `🔐 *Owner Verification*\n\nSend: \`${prefix}owner <password>\`\n\nCheck your Render logs for the session password.`
+    }, { quoted: msg })
+    return true
+  }
+
+  if (passwd.toUpperCase() === SESSION_PASSWORD) {
+    ownerVerified    = true
+    ownerVerifiedJid = sender
+    console.log(`[OWNER] ✅ Verified: ${sender}`)
+    await sock.sendMessage(from, {
+      text: `╔══════════════════════════╗\n║  ✅ OWNER VERIFIED       ║\n╠══════════════════════════╣\n║  Welcome back, Boss! 👑  ║\n║  All owner commands are  ║\n║  now unlocked.           ║\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+    }, { quoted: msg })
+    return true
+  } else {
+    console.warn(`[OWNER] ✗ Wrong password attempt from ${sender}: "${passwd}"`)
+    await sock.sendMessage(from, {
+      text: `❌ *Wrong password.* Try again or check your Render logs.`
+    }, { quoted: msg })
+    return true
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function handleMessage(sock, msg, fromMe) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
   const body = extractBody(msg)
   if (!body) return
 
-  // FIX 4 — always read prefix live from settings so .setprefix works instantly
+  // Intercept .owner auth first (before anything else)
+  const wasOwnerCmd = await handleOwnerAuth(sock, msg, body)
+  if (wasOwnerCmd) return
+
   const prefix = (settings.get ? settings.get("prefix") : null) || BOT_PREFIX
   if (!body.startsWith(prefix)) return
 
@@ -231,7 +308,6 @@ async function handleMessage(sock, msg, fromMe) {
   const mode    = (typeof settings.get === "function"
     ? settings.get("mode") : settings.mode) || "public"
 
-  // FIX 5 — private mode: allow owner AND bot's own messages (fromMe)
   if (mode === "private" && !isOwner && !fromMe) return
 
   const slice    = body.slice(prefix.length).trimStart()
@@ -268,6 +344,9 @@ async function handleMessage(sock, msg, fromMe) {
       settings, lib, helper,
       isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
       extractBody, groupCache,
+      // expose session auth state to commands if needed
+      ownerVerified: () => ownerVerified,
+      sessionPassword: () => SESSION_PASSWORD,
     })
   } catch (e) {
     console.error(`[RUN ERR] ${rawCmd}: ${e.message}`)
@@ -278,19 +357,21 @@ async function handleMessage(sock, msg, fromMe) {
     } catch {}
   }
 }
+
 let pingCount = 0, lastPing = null
 const server = http.createServer((req, res) => {
   const url = req.url.split("?")[0]
   if (url === "/ping" || url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-cache" })
     return res.end(JSON.stringify({
-      status:   "online",
-      bot:      settings.botName,
-      uptime:   Math.floor(process.uptime()),
-      memory:   Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
-      commands: registry.map.size,
-      groups:   Object.keys(groupCache).length,
-      pings:    pingCount,
+      status:        "online",
+      bot:           settings.botName,
+      uptime:        Math.floor(process.uptime()),
+      memory:        Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
+      commands:      registry.map.size,
+      groups:        Object.keys(groupCache).length,
+      pings:         pingCount,
+      ownerVerified: ownerVerified,
     }))
   }
   res.writeHead(200, { "Content-Type": "text/plain" })
@@ -325,11 +406,15 @@ setInterval(() => {
   const mem = process.memoryUsage()
   console.log(`[CLEAN] Heap:${Math.round(mem.heapUsed/1024/1024)}MB RSS:${Math.round(mem.rss/1024/1024)}MB cleaned:${cleaned}`)
 }, 15 * 60 * 1000)
+
 let retries = 0
 function getDelay(n) { return Math.min(1000 * Math.pow(2, n), 30000) }
 
 async function startBot() {
   try {
+    // Generate fresh session password on every (re)start
+    resetSessionPassword()
+
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
     const { version }          = await fetchLatestBaileysVersion()
     const sock = makeWASocket({
@@ -386,7 +471,8 @@ async function startBot() {
     if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
     if (typeof lib.initAdminCache === "function") lib.initAdminCache(groupCache)
     try { require("./lib/welcome").setStore({ groupMetadata: groupCache }) } catch {}
-sock.ev.on("messages.upsert", async ({ messages, type }) => {
+
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return
       for (const m of messages) {
         const fromMe = m.key.fromMe === true
@@ -413,6 +499,39 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
         console.log(`║  ⚡ ${settings.botName} ONLINE         ║`)
         console.log(`║  Prefix: "${currentPrefix}"                ║`)
         console.log(`╚══════════════════════════════╝\n`)
+
+        // ── Send password to owner via WhatsApp DM ──────────────────────────
+        const ownerRaw = process.env.PAIRING_NUMBER || process.env.PHONE_NUMBER || settings.owner
+        const ownerNum = (ownerRaw || "").replace(/\D/g, "")
+        if (ownerNum && ownerNum.length >= 7) {
+          const ownerJid = `${ownerNum}@s.whatsapp.net`
+          setTimeout(async () => {
+            try {
+              await sock.sendMessage(ownerJid, {
+                text:
+                  `╔══════════════════════════╗\n` +
+                  `║  🔐 CYBER X RESTARTED    ║\n` +
+                  `╠══════════════════════════╣\n` +
+                  `║  Session Password:       ║\n` +
+                  `║                          ║\n` +
+                  `║  *${SESSION_PASSWORD}*              ║\n` +
+                  `║                          ║\n` +
+                  `║  Type to verify:         ║\n` +
+                  `║  ${currentPrefix}owner ${SESSION_PASSWORD}    ║\n` +
+                  `╚══════════════════════════╝\n\n` +
+                  `_This password expires on next restart._\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+              })
+              console.log(`[OWNER] 📨 Password sent to ${ownerJid}`)
+            } catch (e) {
+              console.error("[OWNER] ✗ Could not send password DM:", e.message)
+              console.log(`[OWNER] 🔑 Manual password: ${SESSION_PASSWORD}`)
+            }
+          }, 4000)
+        } else {
+          console.log(`[OWNER] 🔑 Session password (no owner number set): ${SESSION_PASSWORD}`)
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         try {
           const all = await sock.groupFetchAllParticipating()
           let n = 0

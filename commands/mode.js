@@ -1,23 +1,37 @@
-"use strict"
+// commands/mode.js — CYBER X
+// Usage: .mode public / .mode private
+
+let db
+try { db = require("../lib/userDb") } catch {}
+
 module.exports = {
   pattern:  "mode",
-  desc:     "Switch bot between public and private mode (owner only)",
-  usage:    ".mode public  |  .mode private",
+  desc:     "Set bot mode to public or private",
+  usage:    ".mode public/private",
   category: "settings",
 
-  async run({ sock, from, msg, args, settings, helper, isOwner }) {
-    if (!isOwner) return helper.reply(sock, msg, "❌ Owner only.")
+  async run({ sock, from, msg, args, sender }) {
+    const phone = sender.replace(/\D/g, "").split("@")[0] ||
+                  from.replace(/\D/g, "").split("@")[0]
 
-    const m = args[0]?.toLowerCase()
-    if (!m || !["public", "private"].includes(m))
-      return helper.reply(sock, msg, "❌ Usage: .mode public  or  .mode private")
+    if (!args.length) {
+      const current = db ? db.getSetting(phone, "mode") : "public"
+      return sock.sendMessage(from, {
+        text: `🔒 Mode is currently *${current || "public"}*\nUsage: *.mode public/private*`
+      }, { quoted: msg })
+    }
 
-    settings.set("mode", m)
-    return helper.reply(sock, msg,
-      `🌐 Bot mode: *${m.toUpperCase()}*\n${
-        m === "private"
-          ? "Only you (owner) can use commands now."
-          : "Everyone can use commands now."
-      }`)
-  }
+    const val = args[0].toLowerCase()
+    if (!["public", "private"].includes(val)) {
+      return sock.sendMessage(from, {
+        text: `❌ Invalid mode. Use *public* or *private*`
+      }, { quoted: msg })
+    }
+
+    if (db) db.updateSettings(phone, { mode: val })
+
+    await sock.sendMessage(from, {
+      text: `🔒 Mode set to: *${val}*`
+    }, { quoted: msg })
+  },
 }

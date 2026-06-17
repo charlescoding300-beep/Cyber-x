@@ -77,14 +77,14 @@ const MP3_APIS = [
 async function downloadMp3(ytUrl) {
   for (const api of MP3_APIS) {
     try {
-      console.log(`[PLAY] Trying ${api.name}...`)
+      console.log(`[SONG] Trying ${api.name}...`)
       const dlUrl = await api.get(ytUrl)
       const buf   = await fetchBuffer(dlUrl)
       if (buf?.length > 0) {
-        console.log(`[PLAY] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
+        console.log(`[SONG] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
         return buf
       }
-    } catch (e) { console.log(`[PLAY] ❌ ${api.name}: ${e.message}`) }
+    } catch (e) { console.log(`[SONG] ❌ ${api.name}: ${e.message}`) }
   }
   throw new Error('All download sources failed')
 }
@@ -98,13 +98,17 @@ function fmtViews(n) {
 }
 
 module.exports = {
-  pattern: 'play',
+  pattern: 'song',
+  alias: ['play', 'music', 'yta'],
+  category: 'media',
+  desc: 'Download audio from YouTube',
+  usage: '.song <song name or YouTube link>',
 
   run: async ({ sock, from, msg, args }) => {
     const query = args.join(' ').trim()
     if (!query) {
       return sock.sendMessage(from, {
-        text: `❌ Usage: *.play <song name>*\nExample: .play Burna Boy Last Last\n\n${CREDIT}`,
+        text: `❌ Usage: *.song <song name>*\nExample: .song Burna Boy Last Last\n\n${CREDIT}`,
       }, { quoted: msg })
     }
 
@@ -165,7 +169,10 @@ ${CREDIT}`
       const { ext } = detectFormat(raw)
       const audio = await toAudio(raw, ext)
 
-      // ── 6. Send audio ────────────────────────────────────────────
+      // ── 6. Delete card ───────────────────────────────────────────
+      sock.sendMessage(from, { delete: infoMsg.key }).catch(() => {})
+
+      // ── 7. Send audio ────────────────────────────────────────────
       await sock.sendMessage(from, {
         audio,
         mimetype: 'audio/mpeg',
@@ -175,7 +182,7 @@ ${CREDIT}`
 
     } catch (e) {
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      console.error('[PLAY]', e.message)
+      console.error('[SONG]', e.message)
       await sock.sendMessage(from, {
         text: `❌ *Failed:* ${e.message}\n\n${CREDIT}`,
       }, { quoted: msg })

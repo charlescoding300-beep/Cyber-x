@@ -1,8 +1,7 @@
 'use strict'
 
+const yts  = require('yt-search')
 const axios = require('axios')
-const yts   = require('yt-search')
-const { toVideo } = require('../lib/converter')
 
 const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
 const HEADERS = {
@@ -21,32 +20,12 @@ async function tryGet(fn, tries = 3) {
   throw last
 }
 
-async function fetchBuffer(url) {
-  try {
-    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    return Buffer.from(r.data)
-  } catch {
-    const r = await axios.get(url, { responseType: 'stream', timeout: 120000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    const chunks = []
-    await new Promise((res, rej) => {
-      r.data.on('data', c => chunks.push(c))
-      r.data.on('end', res)
-      r.data.on('error', rej)
-    })
-    return Buffer.concat(chunks)
-  }
-}
-
 const MP4_APIS = [
   {
     name: 'EliteProTech',
-    get: async (url, quality) => {
+    get: async (url) => {
       const r = await tryGet(() => axios.get(
-        `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp4&quality=${quality}`,
+        `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp4`,
         { timeout: 30000, headers: HEADERS }))
       if (r?.data?.success && r?.data?.downloadURL) return r.data.downloadURL
       throw new Error('No URL')
@@ -74,16 +53,13 @@ const MP4_APIS = [
   },
 ]
 
-async function downloadMp4(ytUrl, quality = '480') {
+async function downloadMp4(ytUrl) {
   for (const api of MP4_APIS) {
     try {
       console.log(`[VIDEO] Trying ${api.name}...`)
-      const dlUrl = await api.get(ytUrl, quality)
-      const buf   = await fetchBuffer(dlUrl)
-      if (buf?.length > 0) {
-        console.log(`[VIDEO] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
-        return buf
-      }
+      const dlUrl = await api.get(ytUrl)
+      console.log(`[VIDEO] ✅ ${api.name} got URL`)
+      return dlUrl
     } catch (e) { console.log(`[VIDEO] ❌ ${api.name}: ${e.message}`) }
   }
   throw new Error('All download sources failed')
@@ -97,67 +73,56 @@ function fmtViews(n) {
   return n.toLocaleString()
 }
 
-const QUALITIES = ['360', '480', '720', '1080']
-
 module.exports = {
   pattern: 'video',
-  desc: 'Download YouTube video',
+  alias: ['ytv', 'ytmp4', 'ytvideo', 'ytvid'],
   category: 'media',
+  desc: 'Download video from YouTube',
+  usage: '.video <video name or URL>',
 
   run: async ({ sock, from, msg, args }) => {
-    let queryArgs = [...args]
-    let quality   = '480'
-    if (QUALITIES.includes(queryArgs[queryArgs.length - 1])) quality = queryArgs.pop()
-    const query = queryArgs.join(' ').trim()
-
+    const query = args.join(' ').trim()
     if (!query) {
       return sock.sendMessage(from, {
-        text:
-`🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓 VIDEO*
-
-• *.video <title>*       → 480p
-• *.video <title> 360*   → 360p
-• *.video <title> 720*   → 720p
-
-Example: *.video Burna Boy Last Last*
-
-${CREDIT}`,
+        text: `❌ Usage: *.video <video name>*\nExample: .video Burna Boy Last Last\n\n${CREDIT}`,
       }, { quoted: msg })
     }
 
-    sock.sendMessage(from, { react: { text: '⏳', key: msg.key } }).catch(() => {})
-
     // ── 1. Send searching message ──────────────────────────────────
     const searchMsg = await sock.sendMessage(from, {
-      text: `🔍 *Searching:* ${query} *(${quality}p)*...`,
+      text: `🔎 *Searching:* ${query}...`,
     }, { quoted: msg })
 
     try {
       // ── 2. Search YouTube ────────────────────────────────────────
-      const search = await yts(query)
-
-      if (!search?.videos?.length) {
-        sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-        sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
-        return sock.sendMessage(from, {
-          text: `❌ No results found for *${query}*\n\n${CREDIT}`,
-        }, { quoted: msg })
+      let v
+      if (query.includes('youtube.com') || query.includes('youtu.be')) {
+        v = { url: query, title: query, thumbnail: '', timestamp: '', views: 0, author: { name: '' }, ago: '' }
+      } else {
+        const search = await yts(query)
+        if (!search?.videos?.length) {
+          sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+          return sock.sendMessage(from, {
+            text: `❌ No results found for *${query}*\n\n${CREDIT}`,
+          }, { quoted: msg })
+        }
+        v = search.videos[0]
       }
 
-      const v     = search.videos[0]
       const ytUrl = v.url
+      const ytId  = (ytUrl.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1]
+      const thumb = v.thumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : null)
 
-      const caption =
+      const card =
 `┏━━━━━━━━━━━━━━━━━━━━━━━┓
    🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓  𝙑𝙄𝘿𝙀𝙊* 🎬
 ┗━━━━━━━━━━━━━━━━━━━━━━━┛
 
-🎬 *Title*    » ${v.title}
-🎤 *Artist*   » ${v.author?.name || 'Unknown'}
+🎞 *Title*    » ${v.title}
+📺 *Channel*  » ${v.author?.name || 'Unknown'}
 ⏱️ *Duration* » ${v.timestamp || 'N/A'}
 👁️ *Views*    » ${fmtViews(v.views)}
 📅 *Uploaded* » ${v.ago || 'N/A'}
-🎯 *Quality*  » ${quality}p
 🔗 *Link*     » ${ytUrl}
 
 ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -168,46 +133,38 @@ ${CREDIT}`
       // ── 3. Send thumbnail + card ─────────────────────────────────
       const infoMsg = await (async () => {
         try {
-          if (v.thumbnail) {
+          if (thumb) {
             return await sock.sendMessage(from, {
-              image: { url: v.thumbnail }, caption,
+              image: { url: thumb }, caption: card,
             }, { quoted: msg })
           }
         } catch {}
-        return sock.sendMessage(from, { text: caption }, { quoted: msg })
+        return sock.sendMessage(from, { text: card }, { quoted: msg })
       })()
 
-      // ── 4. Delete searching message AFTER thumbnail ──────────────
+      // ── 4. Delete searching message ──────────────────────────────
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
 
-      // ── 5. Download + convert ────────────────────────────────────
-      const raw    = await downloadMp4(ytUrl, quality)
-      const buffer = await toVideo(raw, 'mp4')
+      // ── 5. Get download URL ──────────────────────────────────────
+      const dlUrl = await downloadMp4(ytUrl)
 
-      // ── 6. Send video ────────────────────────────────────────────
+      // ── 6. Delete card ───────────────────────────────────────────
+      sock.sendMessage(from, { delete: infoMsg.key }).catch(() => {})
+
+      // ── 7. Send video ────────────────────────────────────────────
+      const safeName = v.title.replace(/[^\w\s]/g, '').trim()
       await sock.sendMessage(from, {
-        video:    buffer,
+        video: { url: dlUrl },
         mimetype: 'video/mp4',
-        caption:  `🎬 *${v.title}*\n${CREDIT}`,
-        fileName: `${v.title.replace(/[^\w\s]/g, '').trim()}.mp4`,
-      }, { quoted: infoMsg })
-
-      sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+        fileName: `${safeName}.mp4`,
+        caption: `🎬 *${v.title}*\n\n${CREDIT}`,
+      }, { quoted: msg })
 
     } catch (e) {
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
       console.error('[VIDEO]', e.message)
       await sock.sendMessage(from, {
-        text:
-`╔════════════════════╗
-║  ❌ *VIDEO FAILED* ║
-╚════════════════════╝
-
-│ *Error:* ${e.message.slice(0,100)}
-│ 💡 Try: .video ${query} 360
-
-${CREDIT}`,
+        text: `❌ *Failed:* ${e.message}\n\n${CREDIT}`,
       }, { quoted: msg })
     }
   },

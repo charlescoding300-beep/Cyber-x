@@ -1,172 +1,119 @@
-// ════════════════════════════════════════════════════════════════════
-//  commands/welcome.js  —  CYBER X  |  Welcome & Goodbye Config
+// ─────────────────────────────────────────────────────────────────────────────
+// commands/welcome.js  —  CYBER X
 //
-//  .welcome               → show current settings
-//  .welcome on            → enable welcome messages
-//  .welcome off           → disable welcome messages
-//  .welcome set [msg]     → set custom welcome message
+// USAGE (group only, admin only):
+//   .welcome          → show current status + message
+//   .welcome on       → enable welcome messages
+//   .welcome off      → disable welcome messages
+//   .welcome set Welcome to {group}, {mention}! 🎉
+//   .welcome reset    → restore default welcome message
 //
-//  .welcome goodbye on    → enable goodbye
-//  .welcome goodbye off   → disable goodbye
-//  .welcome goodbye set [msg] → set custom goodbye message
-//
-//  Placeholders: {tag} {user}
-// ════════════════════════════════════════════════════════════════════
+// Template variables: {name} {mention} {group} {count} {date}
+// ─────────────────────────────────────────────────────────────────────────────
+
+const welcomeDb           = require("../lib/welcomeDb")
+const { DEFAULT_WELCOME } = require("../lib/groupParticipants")
+
+const WELCOME_IMAGE = "https://i.ibb.co/BK2SW9RP/file-00000000c748720c9fd1c812931ae6f7.png"
 
 module.exports = {
   pattern:  "welcome",
-  desc:     "Configure welcome & goodbye messages for the group",
-  usage:    ".welcome on/off/set | .welcome goodbye on/off/set",
+  desc:     "Enable/disable & customise welcome messages (admin only)",
+  usage:    ".welcome on/off/set <text>/reset",
   category: "group",
 
-  run: async ({ sock, from, msg, sender, args, isGroup, isOwner, lib }) => {
-
-    // ── Groups only ───────────────────────────────────────────────
+  async run({ sock, from, msg, args, isGroup, isAdmin }) {
+    // ── Group only ────────────────────────────────────────────────────────────
     if (!isGroup) {
       return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
+        text: "❌ This command only works in groups."
       }, { quoted: msg })
     }
 
-    // ── Admin check — uses lib/isAdmin.js (already in your lib) ──
-    const adminCheck = isOwner || (
-      typeof lib?.isAdmin === "function"
-        ? await lib.isAdmin(sock, from, sender).catch(() => false)
-        : false
-    )
-
-    if (!adminCheck) {
+    // ── Admin only ────────────────────────────────────────────────────────────
+    if (!isAdmin) {
       return sock.sendMessage(from, {
-        text: "❌ *Admins only.*",
+        text: "❌ Only group admins can use this command."
       }, { quoted: msg })
     }
 
-    // ── Resolve welcome lib ───────────────────────────────────────
-    const wLib = lib?.welcome
-    if (!wLib || typeof wLib.setCfg !== "function") {
-      return sock.sendMessage(from, {
-        text: "❌ Welcome lib not loaded. Make sure *lib/welcome.js* exists.",
-      }, { quoted: msg })
-    }
-
-    const { getCfg, setCfg } = wLib
     const sub = (args[0] || "").toLowerCase()
-    const c   = getCfg(from)
 
-    // ══════════════════════════════════════════
-    //  .welcome on
-    // ══════════════════════════════════════════
+    // ── No args → show status ─────────────────────────────────────────────────
+    if (!sub) {
+      const enabled = welcomeDb.get(from, "welcome", false)
+      const text    = welcomeDb.get(from, "welcomeText", DEFAULT_WELCOME)
+
+      return sock.sendMessage(from, {
+        image:   { url: WELCOME_IMAGE },
+        caption:
+          `👋 *Welcome Messages*\n\n` +
+          `Status: ${enabled ? "🟢 ON" : "🔴 OFF"}\n\n` +
+          `*Current message:*\n${text}\n\n` +
+          `_Variables: {name} {mention} {group} {count} {date}_\n\n` +
+          `• .welcome on/off\n` +
+          `• .welcome set <your message>\n` +
+          `• .welcome reset`
+      }, { quoted: msg })
+    }
+
+    // ── ON ────────────────────────────────────────────────────────────────────
     if (sub === "on") {
-      setCfg(from, { welcomeOn: true })
+      welcomeDb.set(from, "welcome", true)
       return sock.sendMessage(from, {
-        text:
-          "✅ *Welcome messages ON*\n\n" +
-          "New members will be greeted with their profile picture.\n\n" +
-          "Customise: *.welcome set [message]*\n" +
-          "Placeholders: *{tag}* *{user}*",
+        image:   { url: WELCOME_IMAGE },
+        caption:
+          `✅ *Welcome messages enabled!*\n\n` +
+          `New members will be greeted automatically with this image.\n\n` +
+          `_Type .welcome set <text> to customise the message_`
       }, { quoted: msg })
     }
 
-    // ══════════════════════════════════════════
-    //  .welcome off
-    // ══════════════════════════════════════════
+    // ── OFF ───────────────────────────────────────────────────────────────────
     if (sub === "off") {
-      setCfg(from, { welcomeOn: false })
+      welcomeDb.set(from, "welcome", false)
       return sock.sendMessage(from, {
-        text: "🔕 *Welcome messages OFF*",
+        text: "🔴 Welcome messages *disabled* for this group."
       }, { quoted: msg })
     }
 
-    // ══════════════════════════════════════════
-    //  .welcome set [message]
-    // ══════════════════════════════════════════
+    // ── SET ───────────────────────────────────────────────────────────────────
     if (sub === "set") {
-      const newMsg = args.slice(1).join(" ").trim()
-      if (!newMsg) {
+      const newText = args.slice(1).join(" ").trim()
+      if (!newText) {
         return sock.sendMessage(from, {
           text:
-            "❌ *Provide a message after .welcome set*\n\n" +
-            "Example:\n*.welcome set Welcome {tag}! 🎉*\n\n" +
-            "Placeholders:\n*{tag}* → @mention\n*{user}* → phone number",
+            "❌ Please provide a message.\n\n" +
+            "Example:\n*.welcome set Welcome to {group}, {mention}! 🎉*\n\n" +
+            "_Variables: {name} {mention} {group} {count} {date}_"
         }, { quoted: msg })
       }
-      setCfg(from, { welcomeMsg: newMsg })
+      welcomeDb.set(from, "welcomeText", newText)
       return sock.sendMessage(from, {
-        text: `✅ *Welcome message saved:*\n\n${newMsg}`,
+        image:   { url: WELCOME_IMAGE },
+        caption:
+          `✅ *Welcome message updated!*\n\n` +
+          `*Preview:*\n${newText}\n\n` +
+          `_Use .welcome on to activate it_`
       }, { quoted: msg })
     }
 
-    // ══════════════════════════════════════════
-    //  .welcome goodbye [on/off/set]
-    // ══════════════════════════════════════════
-    if (sub === "goodbye" || sub === "bye") {
-      const action = (args[1] || "").toLowerCase()
-
-      if (action === "on") {
-        setCfg(from, { goodbyeOn: true })
-        return sock.sendMessage(from, {
-          text:
-            "✅ *Goodbye messages ON*\n\n" +
-            "Bot will farewell members who leave or get removed.\n\n" +
-            "Customise: *.welcome goodbye set [message]*",
-        }, { quoted: msg })
-      }
-
-      if (action === "off") {
-        setCfg(from, { goodbyeOn: false })
-        return sock.sendMessage(from, {
-          text: "🔕 *Goodbye messages OFF*",
-        }, { quoted: msg })
-      }
-
-      if (action === "set") {
-        const newMsg = args.slice(2).join(" ").trim()
-        if (!newMsg) {
-          return sock.sendMessage(from, {
-            text:
-              "❌ *Provide a message after .welcome goodbye set*\n\n" +
-              "Example:\n*.welcome goodbye set Bye {tag} 👋*\n\n" +
-              "Placeholders: *{tag}* *{user}*",
-          }, { quoted: msg })
-        }
-        setCfg(from, { goodbyeMsg: newMsg })
-        return sock.sendMessage(from, {
-          text: `✅ *Goodbye message saved:*\n\n${newMsg}`,
-        }, { quoted: msg })
-      }
-
-      // .welcome goodbye — show goodbye status
+    // ── RESET ─────────────────────────────────────────────────────────────────
+    if (sub === "reset") {
+      welcomeDb.set(from, "welcomeText", DEFAULT_WELCOME)
       return sock.sendMessage(from, {
-        text:
-          `╔═══════════════════════════╗\n` +
-          `║  🚪  GOODBYE SETTINGS     ║\n` +
-          `╚═══════════════════════════╝\n\n` +
-          `Status: ${c.goodbyeOn ? "🟢 ON" : "🔴 OFF"}\n\n` +
-          `Message:\n${c.goodbyeMsg || "(default)"}\n\n` +
-          `*.welcome goodbye on*\n` +
-          `*.welcome goodbye off*\n` +
-          `*.welcome goodbye set [text]*`,
+        text: "♻️ Welcome message reset to default."
       }, { quoted: msg })
     }
 
-    // ══════════════════════════════════════════
-    //  .welcome — show full status
-    // ══════════════════════════════════════════
+    // ── Unknown ───────────────────────────────────────────────────────────────
     return sock.sendMessage(from, {
       text:
-        `╔═══════════════════════════╗\n` +
-        `║  👋  WELCOME SETTINGS     ║\n` +
-        `╚═══════════════════════════╝\n\n` +
-        `👋 *Welcome:* ${c.welcomeOn ? "🟢 ON" : "🔴 OFF"}\n` +
-        `🚪 *Goodbye:* ${c.goodbyeOn ? "🟢 ON" : "🔴 OFF"}\n\n` +
-        `📝 *Welcome msg:*\n${c.welcomeMsg || "(default)"}\n\n` +
-        `📝 *Goodbye msg:*\n${c.goodbyeMsg || "(default)"}\n\n` +
-        `─────────────────────────\n` +
-        `*.welcome on / off*\n` +
-        `*.welcome set [message]*\n` +
-        `*.welcome goodbye on / off*\n` +
-        `*.welcome goodbye set [message]*\n\n` +
-        `Placeholders: *{tag}*  *{user}*`,
+        "❓ Unknown option.\n\n" +
+        "• *.welcome on* — enable\n" +
+        "• *.welcome off* — disable\n" +
+        "• *.welcome set <text>* — custom message\n" +
+        "• *.welcome reset* — restore default"
     }, { quoted: msg })
   },
 }

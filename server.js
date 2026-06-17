@@ -423,8 +423,21 @@ const server = http.createServer(async (req, res) => {
   const url    = req.url.split("?")[0]
   const method = req.method
 
+  // ── Serve pair.html at root URL ──────────────────────────────────────────
+  if (url === "/" || url === "/pair" || url === "/connect") {
+    const htmlFile = require("path").join(__dirname, "pair.html")
+    const fs2 = require("fs")
+    if (fs2.existsSync(htmlFile)) {
+      res.writeHead(200, { "Content-Type": "text/html" })
+      return res.end(fs2.readFileSync(htmlFile))
+    }
+    // Fallback if pair.html not found
+    res.writeHead(200, { "Content-Type": "text/html" })
+    return res.end("<h1>CYBER X Gateway Online</h1><p>Visit /health for status</p>")
+  }
+
   // ── Health / ping ─────────────────────────────────────────────────────────
-  if (url === "/" || url === "/health" || url === "/ping") {
+  if (url === "/health" || url === "/ping") {
     const all = [...instances.values()]
     return json(res, 200, {
       ok:       true,
