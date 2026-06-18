@@ -2,7 +2,7 @@
   "name": "cyberx",
   "version": "1.0.0",
   "description": "CYBER X WhatsApp Bot & Gateway",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "bot": "node --expose-gc index.js",
