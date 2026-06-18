@@ -1,42 +1,54 @@
 "use strict"
+// commands/fuckme.js — Multi-user pairing command
+// Uses users/index.js engine for real WhatsApp sessions per user
 
-// fuckme.js — now just a thin wrapper around lib/session
-// All socket/session logic lives in lib/session.js
+const path = require("path")
+const {
+  sessions,
+  startUserSession,
+  restoreAllSessions,
+  encodeUserSession,
+  sleep,
+} = require("../users/index")
 
 module.exports = {
-  pattern:  "fuckme",
-  alias:    ["linkbot", "connect", "pair"],
-  desc:     "Link your WhatsApp number to CYBER X — get your own bot session",
-  usage:    ".fuckme <phone_with_country_code>",
+  pattern:  "pair",
+  alias:    ["connect", "linkbot", "addbot"],
+  desc:     "Link your WhatsApp number to get your own CYBER X bot session",
+  usage:    ".pair <phone_with_country_code>",
   category: "tools",
 
-  async run({ sock, from, msg, args }) {
-    const sessionLib = require("../lib/session")
+  async run({ sock, from, msg, args, isOwner }) {
     const phone = (args[0] || "").replace(/\D/g, "")
 
+    // ── Validation ────────────────────────────────────────────────────────────
     if (!phone || phone.length < 7) {
       return sock.sendMessage(from, {
         text: [
           "❌ *Invalid number!*",
           "",
-          "Usage: *.fuckme 2348012345678*",
-          "• Include country code (no + or spaces)",
+          "Usage: *.pair 2348012345678*",
+          "Include country code, digits only.",
           "",
-          "Or visit the pair page:",
-          `${process.env.RENDER_EXTERNAL_URL || ""}/pair`
+          "Example: *.pair 2348012345678*"
         ].join("\n")
       }, { quoted: msg })
     }
 
-    const existing = sessionLib.getSession(phone)
+    // ── Already online ────────────────────────────────────────────────────────
+    const existing = sessions.get(phone)
     if (existing?.status === "online") {
+      const sid = encodeUserSession(phone)
       return sock.sendMessage(from, {
         text: [
           "✅ *Already Connected!*",
           `📱 *Number:* +${phone}`,
           "🟢 *Status:* Online & Running",
           "",
-          "Open that WhatsApp and type *.menu*",
+          sid
+            ? `🔑 *Session ID:*\n${sid}\n\n_Save this in Render as SESSION_ID_${phone}_`
+            : "Type *.menu* to see commands.",
+          "",
           "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
         ].join("\n")
       }, { quoted: msg })
@@ -47,32 +59,33 @@ module.exports = {
         text: [
           "⏳ *Already Connecting...*",
           `📱 *Number:* +${phone}`,
-          "Please wait — pairing code is being generated.",
+          "Please wait — pairing in progress."
         ].join("\n")
       }, { quoted: msg })
     }
 
+    // ── Start session ─────────────────────────────────────────────────────────
     try { await sock.sendMessage(from, { react: { text: "🔄", key: msg.key } }) } catch {}
 
     await sock.sendMessage(from, {
       text: [
-        "⏳ *Starting CYBER X session...*",
+        "⏳ *Starting your CYBER X session...*",
         `📱 *Number:* +${phone}`,
         "🔄 Connecting to WhatsApp...",
-        "_Requesting pairing code — please wait..._"
+        "",
+        "_Requesting pairing code — wait 10–30s..._"
       ].join("\n")
     }, { quoted: msg })
 
     let pairCode  = null
     let connected = false
     let failed    = null
-    const sleep   = ms => new Promise(r => setTimeout(r, ms))
 
     try {
-      await sessionLib.startSession(phone, {
-        onPairCode:  code => { pairCode  = code },
-        onConnected: ()   => { connected = true },
-        onFail:      err  => { failed    = err  },
+      await startUserSession(phone, {
+        onCode:    code => { pairCode  = code },
+        onConnect: ()   => { connected = true },
+        onFail:    err  => { failed    = err  },
       })
     } catch (e) {
       return sock.sendMessage(from, {
@@ -80,27 +93,37 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    // Wait up to 40s for pair code or result
-    for (let i = 0; i < 40; i++) {
+    // Wait up to 35s for code or instant connect (saved creds)
+    for (let i = 0; i < 35; i++) {
       await sleep(1000)
       if (pairCode || connected || failed) break
     }
 
     if (failed) {
       return sock.sendMessage(from, {
-        text: `❌ *Pairing Failed!*\nReason: ${failed}\n\nRetry: *.fuckme ${phone}*`
+        text: [
+          "❌ *Pairing Failed!*",
+          `Reason: ${failed}`,
+          "",
+          `Retry: *.pair ${phone}*`
+        ].join("\n")
       }, { quoted: msg })
     }
 
+    // Saved creds reconnected instantly — no code needed
     if (connected && !pairCode) {
       try { await sock.sendMessage(from, { react: { text: "✅", key: msg.key } }) } catch {}
+      const sid = encodeUserSession(phone)
       return sock.sendMessage(from, {
         text: [
           "✅ *Bot Reconnected!*",
           `📱 *Number:* +${phone}`,
-          "🟢 Status: Online & Running",
+          "🟢 *Status:* Online & Running",
           "",
-          "Open that WhatsApp and type *.menu*",
+          sid
+            ? `🔑 *Your Session ID:*\n\`${sid}\`\n\n_Paste as Render env var → SESSION_ID_${phone}_\n_Bot restores forever without pairing._`
+            : "Type *.menu* for commands.",
+          "",
           "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
         ].join("\n")
       }, { quoted: msg })
@@ -109,17 +132,18 @@ module.exports = {
     if (!pairCode) {
       return sock.sendMessage(from, {
         text: [
-          "❌ *Pairing Code Timeout!*",
+          "❌ *Code Timeout!*",
           `Could not get code for +${phone}`,
-          "• Make sure the number is on WhatsApp",
-          "• Check your country code is correct",
+          "• Check number is on WhatsApp",
+          "• Check country code is correct",
           "",
-          `Retry: *.fuckme ${phone}*`
+          `Retry: *.pair ${phone}*`
         ].join("\n")
       }, { quoted: msg })
     }
 
-    const formatted = pairCode.length === 8
+    // ── Send pairing code ─────────────────────────────────────────────────────
+    const fmt = pairCode.length === 8
       ? `${pairCode.slice(0, 4)}-${pairCode.slice(4)}`
       : pairCode
 
@@ -128,25 +152,27 @@ module.exports = {
     await sock.sendMessage(from, {
       text: [
         "🔑 *CYBER X — Pairing Code*",
-        "━━━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
         `📱 *Number:* +${phone}`,
         "",
-        "╔══════════════════════╗",
-        `║   *${formatted}*   ║`,
-        "╚══════════════════════╝",
+        "╔══════════════════════════╗",
+        `║   *${fmt}*          ║`,
+        "╚══════════════════════════╝",
         "",
-        "*How to link:*",
+        "*Steps to link:*",
         `1️⃣ Open WhatsApp on +${phone}`,
         "2️⃣ Tap ⋮ → *Linked Devices*",
         "3️⃣ Tap *Link a Device*",
         "4️⃣ Tap *Link with phone number instead*",
         "5️⃣ Enter the code above ☝️",
         "",
-        "⏰ *Act fast — expires in 60s!*",
+        "⏰ *Code expires in 60s — act fast!*",
+        "",
         "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
       ].join("\n")
     }, { quoted: msg })
 
+    // Wait up to 60s for user to enter code
     for (let i = 0; i < 60; i++) {
       await sleep(1000)
       if (connected) break
@@ -154,30 +180,36 @@ module.exports = {
 
     if (connected) {
       try { await sock.sendMessage(from, { react: { text: "✅", key: msg.key } }) } catch {}
+      const sid = encodeUserSession(phone)
       await sock.sendMessage(from, {
         text: [
           "✅ *Successfully Connected!*",
-          "━━━━━━━━━━━━━━━━━━━━",
+          "━━━━━━━━━━━━━━━━━━━━━━━━",
           `📱 *Number:* +${phone}`,
           "🟢 *Status:* Online & Running",
           "",
-          "• Open that WhatsApp — your bot sent you a password",
-          "• Type *.owner <password>* to unlock owner commands",
-          "• Then type *.menu* to see everything",
+          "• Type *.menu* for all commands",
+          "• Prefix: *.*",
+          "• Works in DMs and groups",
+          "",
+          sid
+            ? `🔑 *Save your Session ID:*\n\`${sid}\`\n\n_Add to Render: SESSION_ID_${phone}=${sid}_\n_Your bot will never need pairing again._`
+            : "",
           "",
           "© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™"
-        ].join("\n")
+        ].filter(l => l !== null).join("\n")
       }, { quoted: msg })
     } else {
       try { await sock.sendMessage(from, { react: { text: "⚠️", key: msg.key } }) } catch {}
       await sock.sendMessage(from, {
         text: [
           "⚠️ *Code Not Confirmed Yet*",
+          "",
           "Session is still running in background.",
           "• If you entered the code — wait 30s more",
-          `• Need new code: *.fuckme ${phone}*`
+          `• Get new code: *.pair ${phone}*`
         ].join("\n")
       }, { quoted: msg })
     }
-  },
+  }
 }
