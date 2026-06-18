@@ -125,7 +125,6 @@ const helper = {
 }
 
 // ─── Per-session state — one entry per connected number ─────
-// sessions Map: phone => { sock, groupCache, settings, ownerVerified, ownerVerifiedJid, sessionPassword, retries }
 const sessions = new Map()
 
 function makeSessionState(phone) {
@@ -360,7 +359,6 @@ async function startBot(phone) {
       const prefix = state.settings.get("prefix") || BOT_PREFIX
       console.log(`[${phone}] ✅ Connected | Prefix: "${prefix}"`)
 
-      // Send session password to owner via DM
       const ownerJid = `${phone.replace(/\D/g,"")}@s.whatsapp.net`
       setTimeout(async () => {
         try {
@@ -419,7 +417,6 @@ async function addSession(phone) {
     return { message: "Already connected", phone: clean }
   await startBot(clean)
   saveMeta()
-  // Wait up to 15s for pairing code
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 500))
     const s = sessions.get(clean)
@@ -449,7 +446,6 @@ async function init() {
   await loadCommands()
   watchCommands()
 
-  // Clean old group caches every 15 min
   setInterval(() => {
     for (const state of sessions.values()) {
       const now = Date.now()
@@ -462,7 +458,6 @@ async function init() {
     console.log(`[CLEAN] Heap:${Math.round(mem.heapUsed/1024/1024)}MB RSS:${Math.round(mem.rss/1024/1024)}MB`)
   }, 15 * 60 * 1000)
 
-  // Restore saved sessions
   const meta = loadMeta()
   for (const phone of Object.keys(meta)) {
     const dir = path.join(SESS_ROOT, phone)
@@ -473,92 +468,4 @@ async function init() {
   }
 }
 
-module.exports = { init, addSession, removeSession, listBots, sessions }
-
-
-// ─── Multi-session exports ───────────────────────────────────────────────
-const _childProcs = new Map() // phone => { proc, connected, pairingCode }
-const _META_FILE  = require("path").join(SESS_ROOT, "_meta.json")
-
-function _loadMeta() { try { return JSON.parse(require("fs").readFileSync(_META_FILE,"utf8")) } catch { return {} } }
-function _saveMeta() {
-  const out = {}
-  for (const [k] of _childProcs.entries()) out[k] = 1
-  require("fs").writeFileSync(_META_FILE, JSON.stringify(out, null, 2))
-}
-
-function addSession(phone) {
-  const clean = phone.replace(/\D/g,"")
-  if (!clean || clean.length < 7) throw new Error("Invalid phone")
-  if (_childProcs.has(clean) && _childProcs.get(clean).connected)
-    return Promise.resolve({ phone: clean, message: "Already connected" })
-
-  return new Promise((resolve) => {
-    const { fork } = require("child_process")
-    const sessDir  = require("path").join(SESS_ROOT, clean)
-    if (!require("fs").existsSync(sessDir)) require("fs").mkdirSync(sessDir, { recursive: true })
-
-    const child = fork(__filename, [], {
-      env: { ...process.env, SESSION_DIR: sessDir, PAIRING_NUMBER: clean, _IS_CHILD: "1" },
-      silent: false,
-    })
-
-    const entry = { proc: child, connected: false, pairingCode: null, phone: clean }
-    _childProcs.set(clean, entry)
-    _saveMeta()
-
-    let resolved = false
-    const done = (val) => { if (!resolved) { resolved = true; resolve(val) } }
-
-    child.on("message", msg => {
-      if (msg?.type === "pairing_code") { entry.pairingCode = msg.code; done({ phone: clean, pairingCode: msg.code }) }
-      if (msg?.type === "connected")    { entry.connected = true;       done({ phone: clean, message: "Connected" }) }
-      if (msg?.type === "disconnected") { entry.connected = false }
-    })
-
-    child.on("exit", (code, signal) => {
-      entry.connected = false
-      if (signal !== "SIGTERM") {
-        console.log(`[MGR] 🔄 Respawn ${clean} in 10s`)
-        setTimeout(() => { if (_childProcs.has(clean)) addSession(clean) }, 10000)
-      }
-    })
-
-    // Resolve after 15s fallback
-    setTimeout(() => done({ phone: clean, message: "Starting — check logs" }), 15000)
-  })
-}
-
-function removeSession(phone) {
-  const clean = phone.replace(/\D/g,"")
-  const e = _childProcs.get(clean)
-  if (e?.proc) { try { e.proc.kill("SIGTERM") } catch {} }
-  _childProcs.delete(clean)
-  _saveMeta()
-  const dir = require("path").join(SESS_ROOT, clean)
-  if (require("fs").existsSync(dir)) require("fs").rmSync(dir, { recursive: true, force: true })
-}
-
-function listBots() {
-  return [..._childProcs.entries()].map(([phone, e]) => ({
-    phone, connected: e.connected, pairingCode: e.pairingCode || null
-  }))
-}
-
-async function restoreAllSessions() {
-  const meta = _loadMeta()
-  for (const phone of Object.keys(meta)) {
-    const dir = require("path").join(SESS_ROOT, phone)
-    if (require("fs").existsSync(dir)) {
-      console.log(`[MGR] ♻️  Restoring ${phone}`)
-      await addSession(phone).catch(e => console.error(`[MGR] ✗ ${phone}: ${e.message}`))
-    }
-  }
-}
-
-if (require.main === module && !process.env._IS_CHILD) {
-  // Standalone mode — run as single bot (backward compat)
-  startBot()
-}
-
-module.exports = { addSession, removeSession, listBots, restoreAllSessions }
+module.exports = { init, addSession, removeSession, listBots, sessions, restoreAllSessions: init }
