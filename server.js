@@ -816,70 +816,30 @@ function spawnBot() {
 spawnBot()
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMMAND REGISTRY
+// COMMAND LOADER — uses lib/userCommandLoader.js (mirrors index.js logic)
+// Hot reload, O(1) lookup, owner-cmd filtering — all built in
 // ─────────────────────────────────────────────────────────────────────────────
-const cmdRegistry = new Map()
+const ucl = require("./lib/userCommandLoader")
 
-function loadCommands() {
-  if (!fs.existsSync(CMD_DIR)) return
-  cmdRegistry.clear()
-  let ok = 0
-  for (const file of fs.readdirSync(CMD_DIR).filter(f => f.endsWith(".js"))) {
-    try {
-      const full = path.join(CMD_DIR, file)
-      delete require.cache[require.resolve(full)]
-      const mod = require(full)
-      if (mod?.pattern && typeof mod.run === "function") {
-        cmdRegistry.set(mod.pattern.replace(/^\./, "").toLowerCase().trim(), mod)
-        ok++
-      }
-    } catch (e) { console.error(`[CMD] ✗ ${file}: ${e.message}`) }
-  }
-  console.log(`[SERVER] ✔ ${ok} commands loaded`)
-}
-loadCommands()
-
-let cmdTimer = null
-if (fs.existsSync(CMD_DIR)) {
-  fs.watch(CMD_DIR, { persistent: false }, (_, f) => {
-    if (!f?.endsWith(".js")) return
-    clearTimeout(cmdTimer)
-    cmdTimer = setTimeout(loadCommands, 150)
-  })
-}
-
-function extractBody(msg) {
-  const m = msg.message
-  return m?.conversation || m?.extendedTextMessage?.text ||
-         m?.imageMessage?.caption || m?.videoMessage?.caption || ""
-}
+// Alias for backward compat with instanceMeta cmdRegistry.size references
+const cmdRegistry = ucl.map
 
 async function runCommand(sock, msg, phone) {
-  const body = extractBody(msg).trim()
-  if (!body.startsWith(".")) return
-  const slice = body.slice(1).trimStart()
-  const sp    = slice.indexOf(" ")
-  const cmd   = (sp === -1 ? slice : slice.slice(0, sp)).toLowerCase()
-  const rest  = sp === -1 ? "" : slice.slice(sp + 1).trim()
-  const command = cmdRegistry.get(cmd)
-  if (!command) return
-  const from   = msg.key.remoteJid
-  const sender = msg.key.participant || from
+  // Pull per-user settings from userDb if available
+  let prefix = "."
+  let privateMode = false
   try {
-    await command.run({
-      sock, from, msg, sender,
-      args: rest ? rest.split(/\s+/) : [],
-      text: rest, full: body,
-      commands: cmdRegistry,
-      cmdList: [...cmdRegistry.keys()].map(k => `.${k}`).sort(),
-      isOwner: sender.replace(/\D/g, "").includes(OWNER_PHONE),
-      isGroup: from.endsWith("@g.us"),
-      isAdmin: false, isBotAdmin: false, extractBody,
-      settings: { botName: "CYBER X", prefix: ".", owner: OWNER_PHONE, get(k) { return this[k] } },
-    })
-  } catch (e) {
-    try { await sock.sendMessage(from, { text: `❌ Error: ${e.message}` }, { quoted: msg }) } catch {}
-  }
+    const db = require("./lib/userDb")
+    prefix      = db.getSetting(phone, "prefix")      || "."
+    privateMode = db.getSetting(phone, "mode") === "private"
+  } catch {}
+
+  await ucl.handleMessage(sock, msg, phone, {
+    prefix,
+    ownerPhone:      phone,   // for their session, they are owner
+    privateMode,
+    allowOwnerCmds:  false,   // regular users cannot run owner-only commands
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
