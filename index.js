@@ -2,7 +2,6 @@ require("dotenv").config()
 const fs     = require("fs")
 const path   = require("path")
 const Pino   = require("pino")
-const crypto = require("crypto")
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -10,6 +9,16 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
 } = require("@whiskeysockets/baileys")
+
+// ── Permission-critical modules — required directly, not via the dynamic
+// lib/ loader below. Both lib/isAdmin.js and lib/settings.js export a
+// function called isOwner, and the dynamic loader flattens everything onto
+// one shared `lib` object — whichever loads alphabetically last silently
+// wins. Requiring these two explicitly removes that ambiguity for anything
+// permission-related. (Node caches modules, so this is still the exact same
+// singleton instance the dynamic loader also picks up — no duplicated state.)
+const isAdminLib = require("./lib/isAdmin")
+const settingsLib = require("./lib/settings")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -127,92 +136,44 @@ const helper = {
 // ─── Per-session state — one entry per connected number ─────
 const sessions = new Map()
 
+// ── Session state now uses lib/settings.js's per-user layer directly ────────
+// settingsLib.forUser(phone) auto-falls-back to the global store for any key
+// the user hasn't customized themselves — no separate per-session JSON file
+// to keep in sync anymore.
 function makeSessionState(phone) {
-  const sessDir  = path.join(SESS_ROOT, phone)
+  const sessDir = path.join(SESS_ROOT, phone)
   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })
-
-  const settingsFile = path.join(sessDir, "settings.json")
-  const defaults = {
-    botName: process.env.BOT_NAME || "CYBER X",
-    prefix:  BOT_PREFIX,
-    owner:   phone,
-    mode:    "public",
-    antilink: false, antitag: false, antistatus: false,
-    abwa: false, welcome: false, autoread: false,
-    autotyping: false, autorecording: false, alwaysonline: false,
-  }
-
-  function loadSettings() {
-    try { return { ...defaults, ...JSON.parse(fs.readFileSync(settingsFile, "utf8")) } }
-    catch { return { ...defaults } }
-  }
-  function saveSettings(obj) {
-    const out = {}
-    for (const k of Object.keys(defaults)) out[k] = obj[k]
-    fs.writeFileSync(settingsFile, JSON.stringify(out, null, 2))
-  }
-
-  const data = loadSettings()
-  const settings = {
-    ...data,
-    get(k)    { return this[k] },
-    set(k, v) { this[k] = v; saveSettings(this) },
-  }
 
   return {
     phone,
     sessDir,
-    settings,
-    groupCache:       {},
-    ownerVerified:    false,
-    ownerVerifiedJid: null,
-    sessionPassword:  crypto.randomBytes(4).toString("hex").toUpperCase(),
-    retries:          0,
-    sock:             null,
-    connected:        false,
+    settings:   settingsLib.forUser(phone),
+    groupCache: {},
+    retries:    0,
+    sock:       null,
+    connected:  false,
   }
 }
 
-function checkIsOwner(state, sender) {
-  const clean = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")
-  if (!clean) return false
-  if (state.ownerVerified && state.ownerVerifiedJid) {
-    if (clean === state.ownerVerifiedJid.split("@")[0].split(":")[0].replace(/\D/g, "")) return true
-  }
-  const base = (state.settings.get("owner") || "").replace(/\D/g, "")
-  return !!base && clean === base
-}
+// ─── Owner check — wired straight to lib/isAdmin.js, fully automatic ────────
+// 1. The number that linked this specific session is always its owner
+//    (compared against state.phone directly — not a settings key, since
+//    settings now layers onto the global store and shouldn't carry
+//    session-identity data).
+// 2. Falls back to global owners (lib/settings.js owners[] / OWNER_NUMBER
+//    env) via isAdminLib.isOwner(), so no manual ".owner <password>" step
+//    is needed.
+function checkIsOwner(state, sender, senderAlt) {
+  const ownerNum  = (state.phone || "").replace(/\D/g, "")
+  const senderNum = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")
+  const altNum    = senderAlt ? senderAlt.split("@")[0].split(":")[0].replace(/\D/g, "") : null
 
-async function handleOwnerAuth(state, sock, msg, body) {
-  const from   = msg.key.remoteJid
-  const sender = msg.key.participant || from
-  if (from.endsWith("@g.us")) return false
+  if (ownerNum && (senderNum === ownerNum || (altNum && altNum === ownerNum))) return true
 
-  const prefix = state.settings.get("prefix") || BOT_PREFIX
-  if (!body.startsWith(prefix)) return false
-  const parts = body.slice(prefix.length).trimStart().split(/\s+/)
-  if (parts[0]?.toLowerCase() !== "owner") return false
+  if (isAdminLib.isOwner(sender)) return true
+  if (senderAlt && isAdminLib.isOwner(senderAlt)) return true
 
-  const passwd = parts[1]?.trim()
-  if (state.ownerVerified) {
-    await sock.sendMessage(from, { text: "✅ *Already verified as owner.*" }, { quoted: msg })
-    return true
-  }
-  if (!passwd) {
-    await sock.sendMessage(from, { text: `🔐 Send: ${prefix}owner <password>\n\nCheck Render logs.` }, { quoted: msg })
-    return true
-  }
-  if (passwd.toUpperCase() === state.sessionPassword) {
-    state.ownerVerified    = true
-    state.ownerVerifiedJid = sender
-    console.log(`[${state.phone}] ✅ Owner verified: ${sender}`)
-    await sock.sendMessage(from, {
-      text: helper.box("✅ OWNER VERIFIED", ["Welcome back, Boss! 👑", "All owner commands unlocked."])
-    }, { quoted: msg })
-  } else {
-    await sock.sendMessage(from, { text: "❌ Wrong password." }, { quoted: msg })
-  }
-  return true
+  return false
 }
 
 async function handleMessage(state, sock, msg) {
@@ -221,16 +182,15 @@ async function handleMessage(state, sock, msg) {
   const body = extractBody(msg)
   if (!body) return
 
-  if (await handleOwnerAuth(state, sock, msg, body)) return
-
   const prefix = state.settings.get("prefix") || BOT_PREFIX
   if (!body.startsWith(prefix)) return
 
-  const from    = msg.key.remoteJid
-  const sender  = msg.key.participant || from
-  const fromMe  = msg.key.fromMe === true
-  const isOwner = checkIsOwner(state, sender)
-  const mode    = state.settings.get("mode") || "public"
+  const from      = msg.key.remoteJid
+  const sender    = msg.key.participant || from
+  const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
+  const fromMe    = msg.key.fromMe === true
+  const isOwner   = checkIsOwner(state, sender, senderAlt)
+  const mode      = state.settings.get("mode") || "public"
   if (mode === "private" && !isOwner && !fromMe) return
 
   const slice    = body.slice(prefix.length).trimStart()
@@ -243,17 +203,15 @@ async function handleMessage(state, sock, msg) {
   const command   = registry.map.get(canonical)
   if (!command) return
 
+  // ── Real admin checks — wired straight to lib/isAdmin.js, lid + phone-
+  // number safe. Passing state.groupCache explicitly (not isAdmin.js's
+  // singleton cache wrapper) keeps each session's admin check isolated from
+  // every other linked session running through this same process.
   const isGroup = from.endsWith("@g.us")
   let isAdmin = false, isBotAdmin = false
-  if (isGroup && state.groupCache[from]) {
-    const botJid    = (sock.user?.id || "").replace(/:.*@/, "@")
-    const senderJid = sender.replace(/:.*@/, "@")
-    for (const p of (state.groupCache[from].participants || [])) {
-      const pid = (p.id || "").replace(/:.*@/, "@")
-      const adm = p.admin === "admin" || p.admin === "superadmin"
-      if (pid === senderJid && adm) isAdmin    = true
-      if (pid === botJid    && adm) isBotAdmin = true
-    }
+  if (isGroup) {
+    isAdmin    = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt)
+    isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock)
   }
 
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin}`)
@@ -265,8 +223,6 @@ async function handleMessage(state, sock, msg) {
       settings: state.settings, lib, helper,
       isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
       extractBody, groupCache: state.groupCache,
-      ownerVerified:   () => state.ownerVerified,
-      sessionPassword: () => state.sessionPassword,
     })
   } catch (e) {
     console.error(`[${state.phone}] RUN ERR ${rawCmd}: ${e.message}`)
@@ -277,11 +233,6 @@ async function handleMessage(state, sock, msg) {
 async function startBot(phone) {
   let state = sessions.get(phone)
   if (!state) { state = makeSessionState(phone); sessions.set(phone, state) }
-
-  state.sessionPassword  = crypto.randomBytes(4).toString("hex").toUpperCase()
-  state.ownerVerified    = false
-  state.ownerVerifiedJid = null
-  console.log(`[${phone}] 🔑 Password: ${state.sessionPassword}`)
 
   const { state: authState, saveCreds } = await useMultiFileAuthState(state.sessDir)
   const { version } = await fetchLatestBaileysVersion()
@@ -332,7 +283,6 @@ async function startBot(phone) {
 
   if (typeof lib.setSocket      === "function") lib.setSocket(sock)
   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
-  if (typeof lib.initAdminCache === "function") lib.initAdminCache(state.groupCache)
   try { require("./lib/welcome").setStore({ groupMetadata: state.groupCache }) } catch {}
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
@@ -359,16 +309,17 @@ async function startBot(phone) {
       const prefix = state.settings.get("prefix") || BOT_PREFIX
       console.log(`[${phone}] ✅ Connected | Prefix: "${prefix}"`)
 
+      // ── Clean "bot online" notice — points to .menu ───────────────────
       const ownerJid = `${phone.replace(/\D/g,"")}@s.whatsapp.net`
       setTimeout(async () => {
         try {
           await sock.sendMessage(ownerJid, {
-            text: helper.box("🔐 CYBER X RESTARTED", [
-              `Session Password:`,
-              `*${state.sessionPassword}*`,
-              ``,
-              `Verify: ${prefix}owner ${state.sessionPassword}`,
-              `_Expires on next restart_`,
+            text: helper.box("✅ CYBER X ONLINE", [
+              "Your bot has been deployed",
+              "and is now active. 🚀",
+              "",
+              `Type ${prefix}menu to view`,
+              "the latest commands.",
             ])
           })
         } catch {}
@@ -468,4 +419,4 @@ async function init() {
   }
 }
 
-module.exports = { init, addSession, removeSession, listBots, sessions, restoreAllSessions: init }
+module.exports = { init, addSession, removeSession, listBots }

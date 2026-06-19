@@ -1,0 +1,258 @@
+[1mdiff --git a/index.js b/index.js[m
+[1mindex c42ea787..c9b60fb8 100644[m
+[1m--- a/index.js[m
+[1m+++ b/index.js[m
+[36m@@ -2,7 +2,6 @@[m [mrequire("dotenv").config()[m
+ const fs     = require("fs")[m
+ const path   = require("path")[m
+ const Pino   = require("pino")[m
+[31m-const crypto = require("crypto")[m
+ const {[m
+   default: makeWASocket,[m
+   DisconnectReason,[m
+[36m@@ -11,6 +10,16 @@[m [mconst {[m
+   makeCacheableSignalKeyStore,[m
+ } = require("@whiskeysockets/baileys")[m
+ [m
+[32m+[m[32m// ── Permission-critical modules — required directly, not via the dynamic[m
+[32m+[m[32m// lib/ loader below. Both lib/isAdmin.js and lib/settings.js export a[m
+[32m+[m[32m// function called isOwner, and the dynamic loader flattens everything onto[m
+[32m+[m[32m// one shared `lib` object — whichever loads alphabetically last silently[m
+[32m+[m[32m// wins. Requiring these two explicitly removes that ambiguity for anything[m
+[32m+[m[32m// permission-related. (Node caches modules, so this is still the exact same[m
+[32m+[m[32m// singleton instance the dynamic loader also picks up — no duplicated state.)[m
+[32m+[m[32mconst isAdminLib = require("./lib/isAdmin")[m
+[32m+[m[32mconst settingsLib = require("./lib/settings")[m
+[32m+[m
+ process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))[m
+ process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))[m
+ [m
+[36m@@ -127,92 +136,44 @@[m [mconst helper = {[m
+ // ─── Per-session state — one entry per connected number ─────[m
+ const sessions = new Map()[m
+ [m
+[32m+[m[32m// ── Session state now uses lib/settings.js's per-user layer directly ────────[m
+[32m+[m[32m// settingsLib.forUser(phone) auto-falls-back to the global store for any key[m
+[32m+[m[32m// the user hasn't customized themselves — no separate per-session JSON file[m
+[32m+[m[32m// to keep in sync anymore.[m
+ function makeSessionState(phone) {[m
+[31m-  const sessDir  = path.join(SESS_ROOT, phone)[m
+[32m+[m[32m  const sessDir = path.join(SESS_ROOT, phone)[m
+   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })[m
+ [m
+[31m-  const settingsFile = path.join(sessDir, "settings.json")[m
+[31m-  const defaults = {[m
+[31m-    botName: process.env.BOT_NAME || "CYBER X",[m
+[31m-    prefix:  BOT_PREFIX,[m
+[31m-    owner:   phone,[m
+[31m-    mode:    "public",[m
+[31m-    antilink: false, antitag: false, antistatus: false,[m
+[31m-    abwa: false, welcome: false, autoread: false,[m
+[31m-    autotyping: false, autorecording: false, alwaysonline: false,[m
+[31m-  }[m
+[31m-[m
+[31m-  function loadSettings() {[m
+[31m-    try { return { ...defaults, ...JSON.parse(fs.readFileSync(settingsFile, "utf8")) } }[m
+[31m-    catch { return { ...defaults } }[m
+[31m-  }[m
+[31m-  function saveSettings(obj) {[m
+[31m-    const out = {}[m
+[31m-    for (const k of Object.keys(defaults)) out[k] = obj[k][m
+[31m-    fs.writeFileSync(settingsFile, JSON.stringify(out, null, 2))[m
+[31m-  }[m
+[31m-[m
+[31m-  const data = loadSettings()[m
+[31m-  const settings = {[m
+[31m-    ...data,[m
+[31m-    get(k)    { return this[k] },[m
+[31m-    set(k, v) { this[k] = v; saveSettings(this) },[m
+[31m-  }[m
+[31m-[m
+   return {[m
+     phone,[m
+     sessDir,[m
+[31m-    settings,[m
+[31m-    groupCache:       {},[m
+[31m-    ownerVerified:    false,[m
+[31m-    ownerVerifiedJid: null,[m
+[31m-    sessionPassword:  crypto.randomBytes(4).toString("hex").toUpperCase(),[m
+[31m-    retries:          0,[m
+[31m-    sock:             null,[m
+[31m-    connected:        false,[m
+[31m-  }[m
+[31m-}[m
+[31m-[m
+[31m-function checkIsOwner(state, sender) {[m
+[31m-  const clean = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")[m
+[31m-  if (!clean) return false[m
+[31m-  if (state.ownerVerified && state.ownerVerifiedJid) {[m
+[31m-    if (clean === state.ownerVerifiedJid.split("@")[0].split(":")[0].replace(/\D/g, "")) return true[m
+[32m+[m[32m    settings:   settingsLib.forUser(phone),[m
+[32m+[m[32m    groupCache: {},[m
+[32m+[m[32m    retries:    0,[m
+[32m+[m[32m    sock:       null,[m
+[32m+[m[32m    connected:  false,[m
+   }[m
+[31m-  const base = (state.settings.get("owner") || "").replace(/\D/g, "")[m
+[31m-  return !!base && clean === base[m
+ }[m
+ [m
+[31m-async function handleOwnerAuth(state, sock, msg, body) {[m
+[31m-  const from   = msg.key.remoteJid[m
+[31m-  const sender = msg.key.participant || from[m
+[31m-  if (from.endsWith("@g.us")) return false[m
+[31m-[m
+[31m-  const prefix = state.settings.get("prefix") || BOT_PREFIX[m
+[31m-  if (!body.startsWith(prefix)) return false[m
+[31m-  const parts = body.slice(prefix.length).trimStart().split(/\s+/)[m
+[31m-  if (parts[0]?.toLowerCase() !== "owner") return false[m
+[31m-[m
+[31m-  const passwd = parts[1]?.trim()[m
+[31m-  if (state.ownerVerified) {[m
+[31m-    await sock.sendMessage(from, { text: "✅ *Already verified as owner.*" }, { quoted: msg })[m
+[31m-    return true[m
+[31m-  }[m
+[31m-  if (!passwd) {[m
+[31m-    await sock.sendMessage(from, { text: `🔐 Send: ${prefix}owner <password>\n\nCheck Render logs.` }, { quoted: msg })[m
+[31m-    return true[m
+[31m-  }[m
+[31m-  if (passwd.toUpperCase() === state.sessionPassword) {[m
+[31m-    state.ownerVerified    = true[m
+[31m-    state.ownerVerifiedJid = sender[m
+[31m-    console.log(`[${state.phone}] ✅ Owner verified: ${sender}`)[m
+[31m-    await sock.sendMessage(from, {[m
+[31m-      text: helper.box("✅ OWNER VERIFIED", ["Welcome back, Boss! 👑", "All owner commands unlocked."])[m
+[31m-    }, { quoted: msg })[m
+[31m-  } else {[m
+[31m-    await sock.sendMessage(from, { text: "❌ Wrong password." }, { quoted: msg })[m
+[31m-  }[m
+[31m-  return true[m
+[32m+[m[32m// ─── Owner check — wired straight to lib/isAdmin.js, fully automatic ────────[m
+[32m+[m[32m// 1. The number that linked this specific session is always its owner[m
+[32m+[m[32m//    (compared against state.phone directly — not a settings key, since[m
+[32m+[m[32m//    settings now layers onto the global store and shouldn't carry[m
+[32m+[m[32m//    session-identity data).[m
+[32m+[m[32m// 2. Falls back to global owners (lib/settings.js owners[] / OWNER_NUMBER[m
+[32m+[m[32m//    env) via isAdminLib.isOwner(), so no manual ".owner <password>" step[m
+[32m+[m[32m//    is needed.[m
+[32m+[m[32mfunction checkIsOwner(state, sender, senderAlt) {[m
+[32m+[m[32m  const ownerNum  = (state.phone || "").replace(/\D/g, "")[m
+[32m+[m[32m  const senderNum = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")[m
+[32m+[m[32m  const altNum    = senderAlt ? senderAlt.split("@")[0].split(":")[0].replace(/\D/g, "") : null[m
+[32m+[m
+[32m+[m[32m  if (ownerNum && (senderNum === ownerNum || (altNum && altNum === ownerNum))) return true[m
+[32m+[m
+[32m+[m[32m  if (isAdminLib.isOwner(sender)) return true[m
+[32m+[m[32m  if (senderAlt && isAdminLib.isOwner(senderAlt)) return true[m
+[32m+[m
+[32m+[m[32m  return false[m
+ }[m
+ [m
+ async function handleMessage(state, sock, msg) {[m
+[36m@@ -221,16 +182,15 @@[m [masync function handleMessage(state, sock, msg) {[m
+   const body = extractBody(msg)[m
+   if (!body) return[m
+ [m
+[31m-  if (await handleOwnerAuth(state, sock, msg, body)) return[m
+[31m-[m
+   const prefix = state.settings.get("prefix") || BOT_PREFIX[m
+   if (!body.startsWith(prefix)) return[m
+ [m
+[31m-  const from    = msg.key.remoteJid[m
+[31m-  const sender  = msg.key.participant || from[m
+[31m-  const fromMe  = msg.key.fromMe === true[m
+[31m-  const isOwner = checkIsOwner(state, sender)[m
+[31m-  const mode    = state.settings.get("mode") || "public"[m
+[32m+[m[32m  const from      = msg.key.remoteJid[m
+[32m+[m[32m  const sender    = msg.key.participant || from[m
+[32m+[m[32m  const senderAlt = msg.key.participantPn || msg.key.participantAlt || null[m
+[32m+[m[32m  const fromMe    = msg.key.fromMe === true[m
+[32m+[m[32m  const isOwner   = checkIsOwner(state, sender, senderAlt)[m
+[32m+[m[32m  const mode      = state.settings.get("mode") || "public"[m
+   if (mode === "private" && !isOwner && !fromMe) return[m
+ [m
+   const slice    = body.slice(prefix.length).trimStart()[m
+[36m@@ -243,17 +203,15 @@[m [masync function handleMessage(state, sock, msg) {[m
+   const command   = registry.map.get(canonical)[m
+   if (!command) return[m
+ [m
+[32m+[m[32m  // ── Real admin checks — wired straight to lib/isAdmin.js, lid + phone-[m
+[32m+[m[32m  // number safe. Passing state.groupCache explicitly (not isAdmin.js's[m
+[32m+[m[32m  // singleton cache wrapper) keeps each session's admin check isolated from[m
+[32m+[m[32m  // every other linked session running through this same process.[m
+   const isGroup = from.endsWith("@g.us")[m
+   let isAdmin = false, isBotAdmin = false[m
+[31m-  if (isGroup && state.groupCache[from]) {[m
+[31m-    const botJid    = (sock.user?.id || "").replace(/:.*@/, "@")[m
+[31m-    const senderJid = sender.replace(/:.*@/, "@")[m
+[31m-    for (const p of (state.groupCache[from].participants || [])) {[m
+[31m-      const pid = (p.id || "").replace(/:.*@/, "@")[m
+[31m-      const adm = p.admin === "admin" || p.admin === "superadmin"[m
+[31m-      if (pid === senderJid && adm) isAdmin    = true[m
+[31m-      if (pid === botJid    && adm) isBotAdmin = true[m
+[31m-    }[m
+[32m+[m[32m  if (isGroup) {[m
+[32m+[m[32m    isAdmin    = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt)[m
+[32m+[m[32m    isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock)[m
+   }[m
+ [m
+   console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin}`)[m
+[36m@@ -265,8 +223,6 @@[m [masync function handleMessage(state, sock, msg) {[m
+       settings: state.settings, lib, helper,[m
+       isOwner, isGroup, isAdmin, isBotAdmin, fromMe,[m
+       extractBody, groupCache: state.groupCache,[m
+[31m-      ownerVerified:   () => state.ownerVerified,[m
+[31m-      sessionPassword: () => state.sessionPassword,[m
+     })[m
+   } catch (e) {[m
+     console.error(`[${state.phone}] RUN ERR ${rawCmd}: ${e.message}`)[m
+[36m@@ -278,11 +234,6 @@[m [masync function startBot(phone) {[m
+   let state = sessions.get(phone)[m
+   if (!state) { state = makeSessionState(phone); sessions.set(phone, state) }[m
+ [m
+[31m-  state.sessionPassword  = crypto.randomBytes(4).toString("hex").toUpperCase()[m
+[31m-  state.ownerVerified    = false[m
+[31m-  state.ownerVerifiedJid = null[m
+[31m-  console.log(`[${phone}] 🔑 Password: ${state.sessionPassword}`)[m
+[31m-[m
+   const { state: authState, saveCreds } = await useMultiFileAuthState(state.sessDir)[m
+   const { version } = await fetchLatestBaileysVersion()[m
+ [m
+[36m@@ -332,7 +283,6 @@[m [masync function startBot(phone) {[m
+ [m
+   if (typeof lib.setSocket      === "function") lib.setSocket(sock)[m
+   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)[m
+[31m-  if (typeof lib.initAdminCache === "function") lib.initAdminCache(state.groupCache)[m
+   try { require("./lib/welcome").setStore({ groupMetadata: state.groupCache }) } catch {}[m
+ [m
+   sock.ev.on("messages.upsert", async ({ messages, type }) => {[m
+[36m@@ -359,16 +309,17 @@[m [masync function startBot(phone) {[m
+       const prefix = state.settings.get("prefix") || BOT_PREFIX[m
+       console.log(`[${phone}] ✅ Connected | Prefix: "${prefix}"`)[m
+ [m
+[32m+[m[32m      // ── Clean "bot online" notice — points to .menu ───────────────────[m
+       const ownerJid = `${phone.replace(/\D/g,"")}@s.whatsapp.net`[m
+       setTimeout(async () => {[m
+         try {[m
+           await sock.sendMessage(ownerJid, {[m
+[31m-            text: helper.box("🔐 CYBER X RESTARTED", [[m
+[31m-              `Session Password:`,[m
+[31m-              `*${state.sessionPassword}*`,[m
+[31m-              ``,[m
+[31m-              `Verify: ${prefix}owner ${state.sessionPassword}`,[m
+[31m-              `_Expires on next restart_`,[m
+[32m+[m[32m            text: helper.box("✅ CYBER X ONLINE", [[m
+[32m+[m[32m              "Your bot has been deployed",[m
+[32m+[m[32m              "and is now active. 🚀",[m
+[32m+[m[32m              "",[m
+[32m+[m[32m              `Type ${prefix}menu to view`,[m
+[32m+[m[32m              "the latest commands.",[m
+             ])[m
+           })[m
+         } catch {}[m
+[36m@@ -468,4 +419,4 @@[m [masync function init() {[m
+   }[m
+ }[m
+ [m
+[31m-module.exports = { init, addSession, removeSession, listBots, sessions, restoreAllSessions: init }[m
+[32m+[m[32mmodule.exports = { init, addSession, removeSession, listBots }[m

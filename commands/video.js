@@ -81,6 +81,9 @@ module.exports = {
   usage: '.video <video name or URL>',
 
   run: async ({ sock, from, msg, args }) => {
+    // ── Reaction ────────────────────────────────────────────────────
+    sock.sendMessage(from, { react: { text: '📺', key: msg.key } }).catch(() => {})
+
     const query = args.join(' ').trim()
     if (!query) {
       return sock.sendMessage(from, {
@@ -148,10 +151,7 @@ ${CREDIT}`
       // ── 5. Get download URL ──────────────────────────────────────
       const dlUrl = await downloadMp4(ytUrl)
 
-      // ── 6. Delete card ───────────────────────────────────────────
-      sock.sendMessage(from, { delete: infoMsg.key }).catch(() => {})
-
-      // ── 7. Send video ────────────────────────────────────────────
+      // ── 6. Send video (card stays in chat) ────────────────────────
       const safeName = v.title.replace(/[^\w\s]/g, '').trim()
       await sock.sendMessage(from, {
         video: { url: dlUrl },

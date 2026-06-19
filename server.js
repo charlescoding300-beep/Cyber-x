@@ -3,10 +3,7 @@ const http  = require("http")
 const https = require("https")
 const bot   = require("./index")
 
-const addSession        = bot.addSession
-const removeSession     = bot.removeSession
-const listBots          = bot.listBots
-const restoreAllSessions = bot.restoreAllSessions
+const { init, addSession, removeSession, listBots } = bot
 
 const PORT     = process.env.PORT || 3000
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
@@ -20,10 +17,23 @@ function readBody(req) {
   })
 }
 
+// ── CORS — lets pairingcyber.com (or any frontend) call this API ────────────
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+}
+
 const server = http.createServer(async (req, res) => {
   const url    = req.url.split("?")[0]
   const method = req.method
+  setCors(res)
   res.setHeader("Content-Type", "application/json")
+
+  if (method === "OPTIONS") {
+    res.writeHead(204)
+    return res.end()
+  }
 
   if (url === "/" && method === "GET") {
     res.setHeader("Content-Type", "text/plain")
@@ -74,10 +84,14 @@ server.headersTimeout   = 125000
 
 server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] ⚡ CYBER X Multi-Bot on port ${PORT}`)
-  if (typeof restoreAllSessions === "function") {
-    await restoreAllSessions()
+  // ── FIX: bot.restoreAllSessions never existed — that's why commands
+  // never loaded on this path. bot.init() runs loadCommands(), starts the
+  // command-file watcher, and restores every previously-linked session
+  // from sessions/_meta.json.
+  if (typeof init === "function") {
+    await init()
   } else {
-    console.error("[WEB] ✗ restoreAllSessions not found — check index.js exports")
+    console.error("[WEB] ✗ init not found — check index.js exports")
   }
 })
 

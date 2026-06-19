@@ -105,6 +105,9 @@ module.exports = {
   usage: '.song <song name or YouTube link>',
 
   run: async ({ sock, from, msg, args }) => {
+    // ── Reaction ────────────────────────────────────────────────────
+    sock.sendMessage(from, { react: { text: '🎧', key: msg.key } }).catch(() => {})
+
     const query = args.join(' ').trim()
     if (!query) {
       return sock.sendMessage(from, {
@@ -169,10 +172,7 @@ ${CREDIT}`
       const { ext } = detectFormat(raw)
       const audio = await toAudio(raw, ext)
 
-      // ── 6. Delete card ───────────────────────────────────────────
-      sock.sendMessage(from, { delete: infoMsg.key }).catch(() => {})
-
-      // ── 7. Send audio ────────────────────────────────────────────
+      // ── 6. Send audio (card stays in chat) ────────────────────────
       await sock.sendMessage(from, {
         audio,
         mimetype: 'audio/mpeg',
