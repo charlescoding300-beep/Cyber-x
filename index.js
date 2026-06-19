@@ -1,7 +1,7 @@
 require("dotenv").config()
-const fs     = require("fs")
-const path   = require("path")
-const Pino   = require("pino")
+const fs   = require("fs")
+const path = require("path")
+const Pino = require("pino")
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -10,30 +10,43 @@ const {
   makeCacheableSignalKeyStore,
 } = require("@whiskeysockets/baileys")
 
-// ── Permission-critical modules — required directly, not via the dynamic
-// lib/ loader below. Both lib/isAdmin.js and lib/settings.js export a
-// function called isOwner, and the dynamic loader flattens everything onto
-// one shared `lib` object — whichever loads alphabetically last silently
-// wins. Requiring these two explicitly removes that ambiguity for anything
-// permission-related. (Node caches modules, so this is still the exact same
-// singleton instance the dynamic loader also picks up — no duplicated state.)
-const isAdminLib = require("./lib/isAdmin")
+// ── Permission-critical modules loaded explicitly to avoid dynamic-loader
+// name collisions (both lib/isAdmin.js and lib/settings.js export isOwner).
+const isAdminLib  = require("./lib/isAdmin")
 const settingsLib = require("./lib/settings")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
 const BOT_START  = Math.floor(Date.now() / 1000)
 const CMD_DIR    = path.join(__dirname, "commands")
 const LIB_DIR    = path.join(__dirname, "lib")
 const UTILS_DIR  = path.join(__dirname, "utils")
 const SESS_ROOT  = path.join(__dirname, "sessions")
+const META_FILE  = path.join(SESS_ROOT, "_meta.json")
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
+
+// ── Parse OWNER_NUMBER env — comma-separated, digits-only ───────────────────
+const OWNER_NUMBERS = (process.env.OWNER_NUMBER || "")
+  .split(",")
+  .map(n => n.replace(/\D/g, "").trim())
+  .filter(Boolean)
+
+// ── Parse SUDO_NUMBERS env — trusted admins below owner level ───────────────
+const SUDO_NUMBERS = (process.env.SUDO_NUMBERS || "")
+  .split(",")
+  .map(n => n.replace(/\D/g, "").trim())
+  .filter(Boolean)
 
 for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, SESS_ROOT])
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
 
-// ─── Load lib/ and utils/ once, shared across all sessions ──
+// ─────────────────────────────────────────────────────────────────────────────
+// LIB + UTILS LOADER
+// ─────────────────────────────────────────────────────────────────────────────
 const lib = {}
 function loadDir(dir, label) {
   if (!fs.existsSync(dir)) return
@@ -49,7 +62,9 @@ function loadDir(dir, label) {
 loadDir(LIB_DIR,   "LIB")
 loadDir(UTILS_DIR, "UTILS")
 
-// ─── Command registry — loaded once, shared across all sessions ──
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND REGISTRY
+// ─────────────────────────────────────────────────────────────────────────────
 const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
 const isValidCmd = m => m && typeof m.pattern === "string" && typeof m.run === "function"
 const toKey      = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
@@ -96,7 +111,105 @@ function watchCommands() {
   })
 }
 
-// ─── Helpers — shared across all sessions ───────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// JID NORMALIZER — strips @domain, :device suffix, non-digits
+// ─────────────────────────────────────────────────────────────────────────────
+function normalizeNum(raw = "") {
+  return raw
+    .replace(/@.+$/, "")
+    .replace(/:\d+$/, "")
+    .replace(/\D/g, "")
+    .trim()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ████████╗███████╗███╗   ██╗    ██╗      █████╗ ██╗   ██╗███████╗██████╗
+//     ██╔══╝██╔════╝████╗  ██║    ██║     ██╔══██╗╚██╗ ██╔╝██╔════╝██╔══██╗
+//     ██║   █████╗  ██╔██╗ ██║    ██║     ███████║ ╚████╔╝ █████╗  ██████╔╝
+//     ██║   ██╔══╝  ██║╚██╗██║    ██║     ██╔══██║  ╚██╔╝  ██╔══╝  ██╔══██╗
+//     ██║   ███████╗██║ ╚████║    ███████╗██║  ██║   ██║   ███████╗██║  ██║
+//     ╚═╝   ╚══════╝╚═╝  ╚═══╝    ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+//
+// 10-LAYER OWNER RECOGNITION SYSTEM
+// Layers 1-5 = Owner  |  Layers 6-10 = Group Admin
+// ─────────────────────────────────────────────────────────────────────────────
+
+function checkIsOwner(state, sender, senderAlt, fromMe) {
+  // Layer 1 — fromMe: message is from the bot's own linked device
+  if (fromMe === true) return true
+
+  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+
+  // Layer 2 — session phone (the number that paired this session)
+  const sessionPhone = normalizeNum(state.phone)
+  if (sessionPhone && candidates.some(n => n === sessionPhone)) return true
+
+  // Layer 3 — OWNER_NUMBER env var list
+  if (OWNER_NUMBERS.length && candidates.some(n => OWNER_NUMBERS.includes(n))) return true
+
+  // Layer 4 — lib/isAdmin.js owners array
+  if ([sender, senderAlt].filter(Boolean).some(j => {
+    try { return isAdminLib.isOwner(j) } catch { return false }
+  })) return true
+
+  // Layer 5 — lib/settings.js dynamic runtime owners
+  try {
+    const dynamicOwners = settingsLib.get?.("owners") || []
+    if (Array.isArray(dynamicOwners) && candidates.some(n => dynamicOwners.map(normalizeNum).includes(n)))
+      return true
+  } catch {}
+
+  return false
+}
+
+async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner) {
+  // Layer 10 — owners bypass all admin checks
+  if (isOwner) return { isAdmin: true, isBotAdmin: true }
+
+  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+
+  let meta = state.groupCache[from]
+
+  // Layer 8 — live fetch if cache is cold (older than 5 min or missing)
+  if (!meta || (Date.now() - (meta._cachedAt || 0)) > 5 * 60 * 1000) {
+    try {
+      meta = await sock.groupMetadata(from)
+      state.groupCache[from] = { ...meta, _cachedAt: Date.now() }
+    } catch {}
+  }
+
+  // Layer 6 — is the bot itself an admin? Computed for real, always — sudo
+  // status of the sender (layer 9) must never override this.
+  let isBotAdmin = false
+  try { isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock) } catch {}
+
+  // Layer 9 — SUDO_NUMBERS: sender always counts as admin everywhere, but
+  // isBotAdmin still reflects the bot's REAL status in this group.
+  if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n)))
+    return { isAdmin: true, isBotAdmin }
+
+  // Layer 7 — is the sender an admin? check both JID variants (lid + phone)
+  let isAdmin = false
+  try {
+    isAdmin = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt)
+  } catch {}
+
+  // Extra safety: parse participants directly from meta if isAdmin.js failed
+  if (!isAdmin && meta?.participants) {
+    const adminSet = new Set(
+      meta.participants
+        .filter(p => p.admin === "admin" || p.admin === "superadmin")
+        .map(p => normalizeNum(p.id))
+    )
+    isAdmin = candidates.some(n => adminSet.has(n))
+  }
+
+  return { isAdmin, isBotAdmin }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 function extractBody(msg) {
   const m = msg?.message
   if (!m) return ""
@@ -115,9 +228,9 @@ function extractBody(msg) {
 }
 
 const helper = {
-  async reply(sock, msg, text) { return sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg }) },
-  async send(sock, jid, text)  { return sock.sendMessage(jid, { text }) },
-  async react(sock, msg, emoji){ return sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } }) },
+  async reply(sock, msg, text)  { return sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg }) },
+  async send(sock, jid, text)   { return sock.sendMessage(jid, { text }) },
+  async react(sock, msg, emoji) { return sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } }) },
   async sendImage(sock, jid, url, caption = "")  { return sock.sendMessage(jid, { image: { url }, caption }) },
   async sendVideo(sock, jid, url, caption = "")  { return sock.sendMessage(jid, { video: { url }, caption }) },
   async sendGif(sock, jid, url, caption = "")    { return sock.sendMessage(jid, { video: { url }, gifPlayback: true, caption }) },
@@ -130,68 +243,120 @@ const helper = {
     return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
   },
   msToTime(ms) { const s = Math.floor(ms/1000); return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s` },
-  sleep(ms) { return new Promise(r => setTimeout(r, ms)) },
+  sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
 }
 
-// ─── Per-session state — one entry per connected number ─────
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION STATE
+// ─────────────────────────────────────────────────────────────────────────────
 const sessions = new Map()
 
-// ── Session state now uses lib/settings.js's per-user layer directly ────────
-// settingsLib.forUser(phone) auto-falls-back to the global store for any key
-// the user hasn't customized themselves — no separate per-session JSON file
-// to keep in sync anymore.
 function makeSessionState(phone) {
   const sessDir = path.join(SESS_ROOT, phone)
   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })
-
   return {
     phone,
     sessDir,
-    settings:   settingsLib.forUser(phone),
-    groupCache: {},
-    retries:    0,
-    sock:       null,
-    connected:  false,
+    settings:      settingsLib.forUser(phone),
+    groupCache:    {},
+    retries:       0,
+    sock:          null,
+    connected:     false,
+    pairingCode:   null,
+    presenceTimer: null,
   }
 }
 
-// ─── Owner check — wired straight to lib/isAdmin.js, fully automatic ────────
-// 1. The number that linked this specific session is always its owner
-//    (compared against state.phone directly — not a settings key, since
-//    settings now layers onto the global store and shouldn't carry
-//    session-identity data).
-// 2. Falls back to global owners (lib/settings.js owners[] / OWNER_NUMBER
-//    env) via isAdminLib.isOwner(), so no manual ".owner <password>" step
-//    is needed.
-function checkIsOwner(state, sender, senderAlt) {
-  const ownerNum  = (state.phone || "").replace(/\D/g, "")
-  const senderNum = (sender || "").split("@")[0].split(":")[0].replace(/\D/g, "")
-  const altNum    = senderAlt ? senderAlt.split("@")[0].split(":")[0].replace(/\D/g, "") : null
+// ─── Ordinary (non-command) message side effects ─────────────────────────
+async function handleOrdinaryMessage(state, sock, msg, from) {
+  const s = state.settings
 
-  if (ownerNum && (senderNum === ownerNum || (altNum && altNum === ownerNum))) return true
+  if (s.get("autoTyping")) {
+    try {
+      await sock.sendPresenceUpdate("composing", from)
+      await helper.sleep(5000)
+      await sock.sendPresenceUpdate("paused", from)
+    } catch {}
+  }
 
-  if (isAdminLib.isOwner(sender)) return true
-  if (senderAlt && isAdminLib.isOwner(senderAlt)) return true
+  if (s.get("autoRecording")) {
+    try {
+      await sock.sendPresenceUpdate("recording", from)
+      await helper.sleep(5000)
+      await sock.sendPresenceUpdate("paused", from)
+    } catch {}
+  }
 
-  return false
+  if (s.get("autoReply")) {
+    const prefix = s.get("prefix") || BOT_PREFIX
+    const text = (s.get("autoReplyText") || "").replace(/\{prefix\}/g, prefix)
+    if (text) {
+      try { await sock.sendMessage(from, { text }, { quoted: msg }) } catch {}
+    }
+  }
 }
 
+// ─── Status updates — view + react ───────────────────────────────────────
+async function handleStatus(state, sock, msg) {
+  if (msg.key.fromMe) return
+  const s = state.settings
+
+  if (s.get("autoViewStatus")) {
+    try { await sock.readMessages([msg.key]) } catch {}
+  }
+
+  if (s.get("autoReactStatus")) {
+    const emoji = s.get("statusReactEmoji") || "🔥"
+    try {
+      await sock.sendMessage("status@broadcast", {
+        react: { text: emoji, key: msg.key }
+      }, {
+        statusJidList: [msg.key.participant, sock.user?.id].filter(Boolean)
+      })
+    } catch (e) {
+      console.error(`[${state.phone}] STATUS REACT ERR:`, e.message)
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGE HANDLER
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
   const body = extractBody(msg)
   if (!body) return
 
-  const prefix = state.settings.get("prefix") || BOT_PREFIX
-  if (!body.startsWith(prefix)) return
-
   const from      = msg.key.remoteJid
   const sender    = msg.key.participant || from
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
-  const isOwner   = checkIsOwner(state, sender, senderAlt)
-  const mode      = state.settings.get("mode") || "public"
+
+  // ── Auto Read — fire-and-forget, every incoming message ────────────────
+  if (!fromMe && state.settings.get("autoRead")) {
+    sock.readMessages([msg.key]).catch(() => {})
+  }
+
+  const prefix = state.settings.get("prefix") || BOT_PREFIX
+
+  // ── Ordinary message (not a command) — typing/recording/reply only here
+  if (!body.startsWith(prefix)) {
+    if (!fromMe) handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
+    return
+  }
+
+  // ── Owner check — all 5 layers ───────────────────────────────────────────
+  const isOwner = checkIsOwner(state, sender, senderAlt, fromMe)
+
+  const mode = state.settings.get("mode") || "public"
   if (mode === "private" && !isOwner && !fromMe) return
+
+  const isGroup = from.endsWith("@g.us")
+
+  // ── Group-only / DM-only modes — owner always bypasses ─────────────────
+  if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
+  if (state.settings.get("dmOnly") && isGroup && !isOwner) return
 
   const slice    = body.slice(prefix.length).trimStart()
   const spaceIdx = slice.indexOf(" ")
@@ -203,18 +368,14 @@ async function handleMessage(state, sock, msg) {
   const command   = registry.map.get(canonical)
   if (!command) return
 
-  // ── Real admin checks — wired straight to lib/isAdmin.js, lid + phone-
-  // number safe. Passing state.groupCache explicitly (not isAdmin.js's
-  // singleton cache wrapper) keeps each session's admin check isolated from
-  // every other linked session running through this same process.
-  const isGroup = from.endsWith("@g.us")
+  // ── Admin check — layers 6-10 ────────────────────────────────────────────
   let isAdmin = false, isBotAdmin = false
   if (isGroup) {
-    isAdmin    = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt)
-    isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock)
+    ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
   }
 
-  console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin}`)
+  console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
+
   try {
     await command.run({
       sock, from, msg, sender, args,
@@ -223,6 +384,9 @@ async function handleMessage(state, sock, msg) {
       settings: state.settings, lib, helper,
       isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
       extractBody, groupCache: state.groupCache,
+      // Expose checkers so commands can re-verify if needed
+      checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
+      checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
     })
   } catch (e) {
     console.error(`[${state.phone}] RUN ERR ${rawCmd}: ${e.message}`)
@@ -230,6 +394,9 @@ async function handleMessage(state, sock, msg) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BOT START — creates/restores a single session by phone number
+// ─────────────────────────────────────────────────────────────────────────────
 async function startBot(phone) {
   let state = sessions.get(phone)
   if (!state) { state = makeSessionState(phone); sessions.set(phone, state) }
@@ -252,13 +419,24 @@ async function startBot(phone) {
     retryRequestDelayMs: 2000,
     maxMsgRetryCount:    5,
     shouldSyncHistoryMessage: m => m.syncType === 0,
-    cachedGroupMetadata: async jid => state.groupCache[jid],
+    cachedGroupMetadata:  async jid => state.groupCache[jid],
   })
 
   state.sock = sock
 
+  // ── Always Online — re-asserts "available" presence on an interval since
+  // WhatsApp presence updates expire after ~10s. Checked live every tick so
+  // toggling .settings on/off alwaysOnline takes effect without a restart.
+  if (state.presenceTimer) clearInterval(state.presenceTimer)
+  state.presenceTimer = setInterval(() => {
+    if (state.connected && state.settings.get("alwaysOnline")) {
+      sock.sendPresenceUpdate("available").catch(() => {})
+    }
+  }, 8000)
+
   sock.ev.on("creds.update", saveCreds)
 
+  // ── Group cache maintenance ──────────────────────────────────────────────
   sock.ev.on("groups.upsert", gs => {
     for (const g of gs) state.groupCache[g.id] = { ...g, _cachedAt: Date.now() }
   })
@@ -270,6 +448,7 @@ async function startBot(phone) {
     try { state.groupCache[id] = { ...(await sock.groupMetadata(id)), _cachedAt: Date.now() } } catch {}
   })
 
+  // ── Pairing code — only if NOT already registered ───────────────────────
   if (!authState.creds.registered) {
     const number = phone.replace(/\D/g, "")
     setTimeout(async () => {
@@ -285,11 +464,19 @@ async function startBot(phone) {
   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
   try { require("./lib/welcome").setStore({ groupMetadata: state.groupCache }) } catch {}
 
+  // ── Message handler ──────────────────────────────────────────────────────
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return
     for (const m of messages) {
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
+
+      // Status updates handled separately (view + react)
+      if (m.key.remoteJid === "status@broadcast") {
+        handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
+        continue
+      }
+
       if (!m.key.fromMe) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
@@ -302,15 +489,19 @@ async function startBot(phone) {
     if (typeof lib.handleGroupUpdate === "function") lib.handleGroupUpdate(sock, update).catch(() => {})
   })
 
+  // ── Connection lifecycle ─────────────────────────────────────────────────
   sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
     if (connection === "open") {
-      state.connected = true
-      state.retries   = 0
+      state.connected   = true
+      state.retries     = 0
+      state.pairingCode = null   // code used — clear it
+
       const prefix = state.settings.get("prefix") || BOT_PREFIX
       console.log(`[${phone}] ✅ Connected | Prefix: "${prefix}"`)
+      if (process.send) process.send({ type: "connected", phone })
 
-      // ── Clean "bot online" notice — points to .menu ───────────────────
-      const ownerJid = `${phone.replace(/\D/g,"")}@s.whatsapp.net`
+      // Welcome notice to owner DM
+      const ownerJid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`
       setTimeout(async () => {
         try {
           await sock.sendMessage(ownerJid, {
@@ -325,6 +516,7 @@ async function startBot(phone) {
         } catch {}
       }, 4000)
 
+      // Pre-warm group cache so admin checks are instant from the first command
       try {
         const all = await sock.groupFetchAllParticipating()
         for (const [jid, meta] of Object.entries(all))
@@ -336,15 +528,17 @@ async function startBot(phone) {
     if (connection === "close") {
       state.connected = false
       const code = lastDisconnect?.error?.output?.statusCode
-      if (process.send) process.send({ type: 'disconnected' })
+      if (process.send) process.send({ type: "disconnected", phone })
       const shouldReconnect = code !== DisconnectReason.loggedOut
       console.log(`[${phone}] 🔌 Disconnected code:${code}`)
+
       if (shouldReconnect) {
         const delay = Math.min(1000 * Math.pow(2, state.retries++), 30000)
         console.log(`[${phone}] 🔄 Reconnect in ${delay/1000}s`)
         setTimeout(() => startBot(phone), delay)
       } else {
         console.log(`[${phone}] 🚪 Logged out`)
+        if (state.presenceTimer) clearInterval(state.presenceTimer)
         sessions.delete(phone)
         saveMeta()
       }
@@ -352,8 +546,9 @@ async function startBot(phone) {
   })
 }
 
-// ─── Persist which phones are registered ────────────────────
-const META_FILE = path.join(SESS_ROOT, "_meta.json")
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSIST WHICH PHONES ARE REGISTERED
+// ─────────────────────────────────────────────────────────────────────────────
 function loadMeta() { try { return JSON.parse(fs.readFileSync(META_FILE, "utf8")) } catch { return {} } }
 function saveMeta() {
   const out = {}
@@ -361,6 +556,9 @@ function saveMeta() {
   fs.writeFileSync(META_FILE, JSON.stringify(out, null, 2))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC API — used by server.js
+// ─────────────────────────────────────────────────────────────────────────────
 async function addSession(phone) {
   const clean = phone.replace(/\D/g, "")
   if (!clean || clean.length < 7) throw new Error("Invalid phone number")
@@ -380,6 +578,7 @@ async function addSession(phone) {
 function removeSession(phone) {
   const clean = phone.replace(/\D/g, "")
   const state = sessions.get(clean)
+  if (state?.presenceTimer) clearInterval(state.presenceTimer)
   if (state?.sock) { try { state.sock.end() } catch {} }
   sessions.delete(clean)
   saveMeta()

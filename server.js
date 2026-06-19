@@ -1,111 +1,191 @@
 require("dotenv").config()
 const http  = require("http")
 const https = require("https")
-const bot   = require("./index")
+const fs    = require("fs")
+const path  = require("path")
 
-const { init, addSession, removeSession, listBots } = bot
+// ── Single entry point: everything boots from here via `node server.js` ──────
+const { init, addSession, removeSession, listBots } = require("./index")
 
-const PORT     = process.env.PORT || 3000
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
+const PORT       = process.env.PORT || 3000
+const SELF_URL   = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
+const PUBLIC_DIR = path.join(__dirname, "public")
+const ADMIN_KEY  = process.env.ADMIN_KEY || ""
 
+if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true })
+
+if (!ADMIN_KEY) {
+  console.warn("[WEB] ⚠ ADMIN_KEY not set in env — /sessions and DELETE /session are locked to EVERYONE (fail-closed) until you set it on Render")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BODY PARSER
+// ─────────────────────────────────────────────────────────────────────────────
 function readBody(req) {
   return new Promise((res, rej) => {
     let d = ""
-    req.on("data", c => d += c)
-    req.on("end",  () => { try { res(JSON.parse(d || "{}")) } catch { res({}) } })
+    req.on("data",  c   => d += c)
+    req.on("end",   ()  => { try { res(JSON.parse(d || "{}")) } catch { res({}) } })
     req.on("error", rej)
   })
 }
 
-// ── CORS — lets pairingcyber.com (or any frontend) call this API ────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CORS
+// ─────────────────────────────────────────────────────────────────────────────
 function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.setHeader("Access-Control-Allow-Origin",  "*")
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON RESPONSE HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+function json(res, data, status = 200) {
+  res.writeHead(status, { "Content-Type": "application/json" })
+  res.end(JSON.stringify(data))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OWNERSHIP CHECK — protects destructive / privacy-sensitive endpoints
+// Pass the key as header:  X-Admin-Key: <ADMIN_KEY>
+// or query string:         ?key=<ADMIN_KEY>
+// Fails CLOSED if ADMIN_KEY isn't set — better to lock yourself out and
+// notice than to silently leave these endpoints open to everyone.
+// ─────────────────────────────────────────────────────────────────────────────
+function isAdminRequest(req) {
+  if (!ADMIN_KEY) return false
+  const headerKey = req.headers["x-admin-key"]
+  const queryKey  = new URL(req.url, "http://internal").searchParams.get("key")
+  return headerKey === ADMIN_KEY || queryKey === ADMIN_KEY
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATIC FILE SERVER — serves the pairing website from /public
+// ─────────────────────────────────────────────────────────────────────────────
+function servePublicFile(res, filename, contentType) {
+  try {
+    const data = fs.readFileSync(path.join(PUBLIC_DIR, filename))
+    res.writeHead(200, { "Content-Type": contentType })
+    return res.end(data)
+  } catch {
+    res.writeHead(404, { "Content-Type": "text/plain" })
+    return res.end(`${filename} not found — place it in ${PUBLIC_DIR}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP SERVER
+// ─────────────────────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   const url    = req.url.split("?")[0]
   const method = req.method
-  setCors(res)
-  res.setHeader("Content-Type", "application/json")
 
+  setCors(res)
+
+  // ── Preflight ────────────────────────────────────────────────────────────
   if (method === "OPTIONS") {
     res.writeHead(204)
     return res.end()
   }
 
+  // ── Health / root ────────────────────────────────────────────────────────
   if (url === "/" && method === "GET") {
-    res.setHeader("Content-Type", "text/plain")
+    res.writeHead(200, { "Content-Type": "text/plain" })
     return res.end("⚡ CYBER X MULTI-BOT ONLINE")
   }
 
-  if (url === "/ping" && method === "GET") {
-    return res.end(JSON.stringify({
-      status:  "online",
-      bots:    listBots().length,
-      uptime:  Math.floor(process.uptime()),
-      memory:  Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
-    }))
+  // ── Pairing website — public/pair.html ─────────────────────────────────────
+  if ((url === "/pair" || url === "/pair.html") && method === "GET") {
+    return servePublicFile(res, "pair.html", "text/html")
   }
 
-  if (url === "/sessions" && method === "GET")
-    return res.end(JSON.stringify({ sessions: listBots() }))
+  // ── Ping — for uptime monitors and self-ping ──────────────────────────────
+  if (url === "/ping" && method === "GET") {
+    return json(res, {
+      status:    "online",
+      bots:      listBots().length,
+      connected: listBots().filter(b => b.connected).length,
+      uptime:    Math.floor(process.uptime()),
+      memory:    Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
+      timestamp: new Date().toISOString(),
+    })
+  }
 
+  // ── List all sessions — OWNER ONLY, leaks every linked phone number ────────
+  if (url === "/sessions" && method === "GET") {
+    if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
+    return json(res, { sessions: listBots() })
+  }
+
+  // ── Add / pair a new session — stays PUBLIC, this is the self-service flow
   if (url === "/pair" && method === "POST") {
     const { phone } = await readBody(req)
-    if (!phone) return res.end(JSON.stringify({ error: "phone required" }))
+    if (!phone) return json(res, { error: "phone required" }, 400)
     try {
       const result = await addSession(phone)
-      return res.end(JSON.stringify({ status: true, ...result }))
+      return json(res, { status: true, ...result })
     } catch (e) {
-      return res.end(JSON.stringify({ status: false, error: e.message }))
+      return json(res, { status: false, error: e.message }, 500)
     }
   }
 
+  // ── Delete a session — OWNER ONLY, otherwise anyone can kick anyone offline
   const delMatch = url.match(/^\/session\/(.+)$/)
   if (delMatch && method === "DELETE") {
+    if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
     removeSession(delMatch[1])
-    return res.end(JSON.stringify({ status: true }))
+    return json(res, { status: true, message: `Session ${delMatch[1]} removed` })
   }
 
+  // ── Get status of a single session — stays public (pair.html polls this)
   const statusMatch = url.match(/^\/status\/(.+)$/)
   if (statusMatch && method === "GET") {
     const found = listBots().find(b => b.phone === statusMatch[1].replace(/\D/g, ""))
-    return res.end(JSON.stringify(found || { connected: false }))
+    return json(res, found || { connected: false })
   }
 
-  res.writeHead(404)
-  res.end(JSON.stringify({ error: "Not found" }))
+  // ── 404 ───────────────────────────────────────────────────────────────────
+  json(res, { error: "Not found" }, 404)
 })
 
 server.keepAliveTimeout = 120000
 server.headersTimeout   = 125000
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STARTUP — server listens, THEN bot init runs
+// ─────────────────────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", async () => {
-  console.log(`[WEB] ⚡ CYBER X Multi-Bot on port ${PORT}`)
-  // ── FIX: bot.restoreAllSessions never existed — that's why commands
-  // never loaded on this path. bot.init() runs loadCommands(), starts the
-  // command-file watcher, and restores every previously-linked session
-  // from sessions/_meta.json.
-  if (typeof init === "function") {
+  console.log(`[WEB] ⚡ CYBER X Multi-Bot listening on port ${PORT}`)
+  console.log(`[WEB] 🌐 URL: ${SELF_URL}`)
+  console.log(`[WEB] 🔗 Pairing site: ${SELF_URL}/pair`)
+
+  try {
     await init()
-  } else {
-    console.error("[WEB] ✗ init not found — check index.js exports")
+  } catch (e) {
+    console.error("[WEB] ✗ init() failed:", e.message)
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SELF-PING — keeps Render / Railway / free-tier hosts from sleeping
+// ─────────────────────────────────────────────────────────────────────────────
 let pingCount = 0
 function selfPing() {
   const mod = SELF_URL.startsWith("https") ? https : http
-  const req = mod.get(`${SELF_URL}/ping`, () => {
+  const req = mod.get(`${SELF_URL}/ping`, res => {
     pingCount++
-    console.log(`[PING] ✔ #${pingCount}`)
+    console.log(`[PING] ✔ #${pingCount} | bots alive: ${listBots().filter(b => b.connected).length}`)
+    res.resume()
   })
   req.on("error", () => {})
   req.setTimeout(10000, () => req.destroy())
 }
 setTimeout(() => { selfPing(); setInterval(selfPing, 4 * 60 * 1000) }, 15000)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL ERROR GUARDS
+// ─────────────────────────────────────────────────────────────────────────────
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))

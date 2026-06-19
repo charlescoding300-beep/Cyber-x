@@ -1,181 +1,276 @@
+// commands/settings.js  —  CYBER X
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/settings.js  —  CYBER X  |  Settings Command
+// All presence/bot settings commands.
+// OWNER ONLY — checked inside every single command.
+// Each command reads/writes state.settings = settingsLib.forUser(phone)
+// so every linked session has its own independent settings.
 //
-// RULES (critical — read before editing):
-//   • Commands ALWAYS fire INSTANTLY — zero delay, zero auto-typing side effect
-//   • Auto-typing/recording only triggers on ordinary NON-command messages
-//   • Owner-only: all setting changes
-//   • pattern must match what the user types after the prefix
+// On bot startup these load automatically from data/users/<phone>.json
+// so whatever was set before a restart stays active — no re-typing needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const VALID_KEYS = {
-  // key             friendly label             type
-  autoTyping:      ["Auto Typing",       "bool"],
-  autoRecording:   ["Auto Recording",    "bool"],
-  autoReply:       ["Auto Reply",        "bool"],
-  autoReplyText:   ["Auto Reply Text",   "text"],
-  autoViewStatus:  ["Auto View Status",  "bool"],
-  autoReactStatus: ["Auto React Status", "bool"],
-  statusReactEmoji:["Status React Emoji","text"],
-  autoRead:        ["Auto Read",         "bool"],
-  antiLink:        ["Anti-Link",         "bool"],
-  antiSpam:        ["Anti-Spam",         "bool"],
-  welcome:         ["Welcome Message",   "bool"],
-  goodbye:         ["Goodbye Message",   "bool"],
-  alwaysOnline:    ["Always Online",     "bool"],
-  blockNonContact: ["Block Non-Contact", "bool"],
-  groupOnly:       ["Group-Only Mode",   "bool"],
-  dmOnly:          ["DM-Only Mode",      "bool"],
-  mode:            ["Bot Mode",          "mode"],   // public | private
-  prefix:          ["Command Prefix",    "text"],
-  botName:         ["Bot Name",          "text"],
+"use strict"
+
+const ON  = new Set(["on",  "true",  "yes", "1", "enable",  "open"])
+const OFF = new Set(["off", "false", "no",  "0", "disable", "close"])
+
+function parseBool(val = "") {
+  const v = val.trim().toLowerCase()
+  if (ON.has(v))  return true
+  if (OFF.has(v)) return false
+  return null
 }
 
-// ── Emoji status helpers ──────────────────────────────────────────────────────
-const ON  = "✅"
-const OFF = "❌"
-const dot = v => (v ? ON : OFF)
+function icon(val) { return val ? "✅ *ON*" : "❌ *OFF*" }
 
-function buildMenu(s) {
-  const S = s.getAll()
+// ── Shared toggle runner ──────────────────────────────────────────────────────
+async function toggle(key, label, { sock, msg, args, settings, helper, isOwner }) {
+  // OWNER ONLY
+  if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
 
-  return `╔══════════════════════════════╗
-║   ⚙️  ${S.botName} SETTINGS         
-╠══════════════════════════════╣
-║ 🌐 MODE : ${S.mode.toUpperCase().padEnd(19)}║
-║ 🔑 PREFIX : ${S.prefix.padEnd(17)}║
-╠══════════╦═══════════════════╣
-║ FEATURE  ║ STATUS            ║
-╠══════════╬═══════════════════╣
-║ Auto Typing     ║ ${dot(S.autoTyping)} ${S.autoTyping ? "ON " : "OFF"}          ║
-║ Auto Recording  ║ ${dot(S.autoRecording)} ${S.autoRecording ? "ON " : "OFF"}          ║
-║ Auto Reply      ║ ${dot(S.autoReply)} ${S.autoReply ? "ON " : "OFF"}          ║
-║ Auto View Status║ ${dot(S.autoViewStatus)} ${S.autoViewStatus ? "ON " : "OFF"}          ║
-║ Auto React Stat.║ ${dot(S.autoReactStatus)} ${S.autoReactStatus ? "ON " : "OFF"}          ║
-║ Auto Read       ║ ${dot(S.autoRead)} ${S.autoRead ? "ON " : "OFF"}          ║
-║ Anti-Link       ║ ${dot(S.antiLink)} ${S.antiLink ? "ON " : "OFF"}          ║
-║ Anti-Spam       ║ ${dot(S.antiSpam)} ${S.antiSpam ? "ON " : "OFF"}          ║
-║ Welcome         ║ ${dot(S.welcome)} ${S.welcome ? "ON " : "OFF"}          ║
-║ Goodbye         ║ ${dot(S.goodbye)} ${S.goodbye ? "ON " : "OFF"}          ║
-║ Always Online   ║ ${dot(S.alwaysOnline)} ${S.alwaysOnline ? "ON " : "OFF"}          ║
-║ Block Non-Cont. ║ ${dot(S.blockNonContact)} ${S.blockNonContact ? "ON " : "OFF"}          ║
-║ Group-Only      ║ ${dot(S.groupOnly)} ${S.groupOnly ? "ON " : "OFF"}          ║
-║ DM-Only         ║ ${dot(S.dmOnly)} ${S.dmOnly ? "ON " : "OFF"}          ║
-╠══════════════════════════════╣
-║  USAGE (owner only)          ║
-║  .settings                   ║
-║  .settings on <feature>      ║
-║  .settings off <feature>     ║
-║  .settings set <key> <val>   ║
-║  .settings mode public       ║
-║  .settings mode private      ║
-║  .settings prefix !          ║
-║  .settings reset             ║
-╚══════════════════════════════╝`
-}
+  const input = (args[0] || "").toLowerCase()
 
-// ── The command ───────────────────────────────────────────────────────────────
-module.exports = {
-  pattern:  "settings",
-  desc:     "View and change all bot settings",
-  usage:    ".settings | .settings on autoTyping | .settings mode private",
-  category: "owner",
-
-  async run({ sock, from, args, settings: s, isOwner }) {
-
-    // ── Show menu if no args ──────────────────────────────────────────────
-    if (!args.length) {
-      return sock.sendMessage(from, { text: buildMenu(s) })
-    }
-
-    // ── All write operations are owner-only ───────────────────────────────
-    if (!isOwner) {
-      return sock.sendMessage(from, { text: "❌ Owner only command." })
-    }
-
-    const sub  = args[0].toLowerCase()
-    const key  = args[1] ? args[1].toLowerCase() : ""
-    const val  = args.slice(2).join(" ").trim()
-
-    // ── .settings reset ───────────────────────────────────────────────────
-    if (sub === "reset") {
-      s.reset()
-      return sock.sendMessage(from, { text: "♻️ All settings reset to defaults." })
-    }
-
-    // ── .settings mode public|private ────────────────────────────────────
-    if (sub === "mode") {
-      const m = args[1]?.toLowerCase()
-      if (!["public", "private"].includes(m)) {
-        return sock.sendMessage(from, { text: "❌ Usage: .settings mode public | private" })
-      }
-      s.set("mode", m)
-      return sock.sendMessage(from, {
-        text: `🌐 Bot mode set to *${m.toUpperCase()}*.\n${
-          m === "private"
-            ? "Only you (owner) can now use commands."
-            : "Everyone can use commands."
-        }`
-      })
-    }
-
-    // ── .settings prefix <char> ───────────────────────────────────────────
-    if (sub === "prefix") {
-      const p = args[1]
-      if (!p || p.length > 3) {
-        return sock.sendMessage(from, { text: "❌ Usage: .settings prefix !" })
-      }
-      s.set("prefix", p)
-      return sock.sendMessage(from, { text: `🔑 Prefix changed to *${p}*` })
-    }
-
-    // ── .settings set <key> <value> ───────────────────────────────────────
-    if (sub === "set") {
-      // Find the real key (case-insensitive match)
-      const realKey = Object.keys(VALID_KEYS).find(k => k.toLowerCase() === key)
-      if (!realKey) {
-        const keys = Object.keys(VALID_KEYS).join(", ")
-        return sock.sendMessage(from, { text: `❌ Unknown key.\n\nValid keys:\n${keys}` })
-      }
-      const [label, type] = VALID_KEYS[realKey]
-      if (type === "bool") {
-        return sock.sendMessage(from, {
-          text: `❌ "${realKey}" is a toggle. Use:\n.settings on ${realKey}\n.settings off ${realKey}`
-        })
-      }
-      if (!val) {
-        return sock.sendMessage(from, { text: `❌ Usage: .settings set ${realKey} <value>` })
-      }
-      s.set(realKey, val)
-      return sock.sendMessage(from, { text: `✅ *${label}* set to: ${val}` })
-    }
-
-    // ── .settings on/off <feature> ────────────────────────────────────────
-    if (sub === "on" || sub === "off") {
-      const target = Object.keys(VALID_KEYS).find(k => k.toLowerCase() === key)
-      if (!target) {
-        return sock.sendMessage(from, { text: `❌ Unknown feature: ${key}\n\nUse .settings to see all features.` })
-      }
-      const [label, type] = VALID_KEYS[target]
-      if (type !== "bool") {
-        return sock.sendMessage(from, {
-          text: `❌ "${target}" is not a toggle. Use:\n.settings set ${target} <value>`
-        })
-      }
-      const newVal = sub === "on"
-      s.set(target, newVal)
-
-      // Side effects for specific toggles
-      if (target === "alwaysOnline") {
-        // Will be picked up by the presence loop in index
-      }
-
-      return sock.sendMessage(from, {
-        text: `${newVal ? ON : OFF} *${label}* turned *${sub.toUpperCase()}*`
-      })
-    }
-
-    // ── Fallback ──────────────────────────────────────────────────────────
-    return sock.sendMessage(from, { text: buildMenu(s) })
+  if (!input) {
+    const cur = settings.get(key)
+    return helper.reply(sock, msg,
+      `${label}\nCurrent: ${icon(cur)}\n\nUsage: .${label.toLowerCase().replace(/\s+/g, "")} on/off`
+    )
   }
+
+  const val = parseBool(input)
+  if (val === null) return helper.reply(sock, msg, "❌ Use *on* or *off*")
+
+  settings.set(key, val)
+  return helper.reply(sock, msg, `${label} → ${icon(val)}`)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+module.exports = [
+
+  // ── .autotyping on/off ───────────────────────────────────────────────────
+  // Shows "typing..." in the chat the moment anyone messages this session.
+  // Pauses automatically after 5 seconds.
+  {
+    pattern:  "autotyping",
+    alias:    ["autotype", "typing"],
+    desc:     "Show typing presence when messages arrive",
+    usage:    ".autotyping on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoTyping", "Auto Typing", ctx),
+  },
+
+  // ── .autorecording on/off ────────────────────────────────────────────────
+  // Shows "recording audio..." — same as autoTyping but for voice feel.
+  // If autoTyping is ON this is skipped (can't show both at once).
+  {
+    pattern:  "autorecording",
+    alias:    ["autorecord", "recording"],
+    desc:     "Show recording presence when messages arrive",
+    usage:    ".autorecording on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoRecording", "Auto Recording", ctx),
+  },
+
+  // ── .alwaysonline on/off ─────────────────────────────────────────────────
+  // Pushes "available" presence to every chat that messages this session.
+  // Makes this session always appear online to anyone who checks.
+  {
+    pattern:  "alwaysonline",
+    alias:    ["online", "setonline"],
+    desc:     "Always appear online",
+    usage:    ".alwaysonline on/off",
+    category: "settings",
+    run: (ctx) => toggle("alwaysOnline", "Always Online", ctx),
+  },
+
+  // ── .autoread on/off ─────────────────────────────────────────────────────
+  // Marks every incoming message as read (blue ticks) immediately.
+  {
+    pattern:  "autoread",
+    alias:    ["autoread"],
+    desc:     "Auto read all incoming messages",
+    usage:    ".autoread on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoRead", "Auto Read", ctx),
+  },
+
+  // ── .autoviewstatus on/off ───────────────────────────────────────────────
+  // Auto-views WhatsApp statuses posted by contacts.
+  {
+    pattern:  "autoviewstatus",
+    alias:    ["viewstatus", "autoview"],
+    desc:     "Auto view WhatsApp statuses",
+    usage:    ".autoviewstatus on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoViewStatus", "Auto View Status", ctx),
+  },
+
+  // ── .autoreactstatus on/off ──────────────────────────────────────────────
+  // Auto-reacts to statuses with the configured emoji.
+  {
+    pattern:  "autoreactstatus",
+    alias:    ["reactstatus", "autoreact"],
+    desc:     "Auto react to WhatsApp statuses",
+    usage:    ".autoreactstatus on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoReactStatus", "Auto React Status", ctx),
+  },
+
+  // ── .statusemoji <emoji> ─────────────────────────────────────────────────
+  // Sets the emoji used when auto-reacting to statuses.
+  {
+    pattern:  "statusemoji",
+    alias:    ["reactemoji", "setemoji"],
+    desc:     "Set emoji for auto status react",
+    usage:    ".statusemoji 🔥",
+    category: "settings",
+    async run({ sock, msg, text, settings, helper, isOwner }) {
+      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!text) return helper.reply(sock, msg,
+        `Status react emoji: *${settings.get("statusReactEmoji") || "🔥"}*\n\nUsage: .statusemoji <emoji>`
+      )
+      settings.set("statusReactEmoji", text.trim())
+      return helper.reply(sock, msg, `✅ Status emoji set to: ${text.trim()}`)
+    },
+  },
+
+  // ── .autoreply on/off ────────────────────────────────────────────────────
+  {
+    pattern:  "autoreply",
+    alias:    ["autorespond"],
+    desc:     "Auto reply to non-command messages",
+    usage:    ".autoreply on/off",
+    category: "settings",
+    run: (ctx) => toggle("autoReply", "Auto Reply", ctx),
+  },
+
+  // ── .autoreplytext <message> ─────────────────────────────────────────────
+  {
+    pattern:  "autoreplytext",
+    alias:    ["setreply", "replytext"],
+    desc:     "Set the auto reply message",
+    usage:    ".autoreplytext Hey! Type .menu for commands.",
+    category: "settings",
+    async run({ sock, msg, text, settings, helper, isOwner }) {
+      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!text) return helper.reply(sock, msg,
+        `Current auto reply:\n\n${settings.get("autoReplyText")}\n\nSend .autoreplytext <message> to change.`
+      )
+      settings.set("autoReplyText", text)
+      return helper.reply(sock, msg, `✅ Auto reply text updated:\n\n${text}`)
+    },
+  },
+
+  // ── .antilink on/off ─────────────────────────────────────────────────────
+  {
+    pattern:  "antilink",
+    alias:    ["antilnk"],
+    desc:     "Delete links posted in groups",
+    usage:    ".antilink on/off",
+    category: "settings",
+    run: (ctx) => toggle("antiLink", "Anti Link", ctx),
+  },
+
+  // ── .antispam on/off ─────────────────────────────────────────────────────
+  {
+    pattern:  "antispam",
+    desc:     "Block spam messages",
+    usage:    ".antispam on/off",
+    category: "settings",
+    run: (ctx) => toggle("antiSpam", "Anti Spam", ctx),
+  },
+
+  // ── .welcome on/off ──────────────────────────────────────────────────────
+  {
+    pattern:  "welcome",
+    alias:    ["setwelcome"],
+    desc:     "Welcome new group members",
+    usage:    ".welcome on/off",
+    category: "settings",
+    run: (ctx) => toggle("welcome", "Welcome", ctx),
+  },
+
+  // ── .goodbye on/off ──────────────────────────────────────────────────────
+  {
+    pattern:  "goodbye",
+    alias:    ["bye"],
+    desc:     "Goodbye message for leaving members",
+    usage:    ".goodbye on/off",
+    category: "settings",
+    run: (ctx) => toggle("goodbye", "Goodbye", ctx),
+  },
+
+  // ── .mode public/private ─────────────────────────────────────────────────
+  {
+    pattern:  "mode",
+    alias:    ["botmode", "setmode"],
+    desc:     "Set bot mode: public or private",
+    usage:    ".mode public  OR  .mode private",
+    category: "settings",
+    async run({ sock, msg, args, settings, helper, isOwner }) {
+      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      const val = (args[0] || "").toLowerCase()
+      if (!val) return helper.reply(sock, msg,
+        `Current mode: *${settings.get("mode")}*\n\nUsage: .mode public/private`
+      )
+      if (!["public", "private"].includes(val))
+        return helper.reply(sock, msg, "❌ Use *public* or *private*")
+      settings.set("mode", val)
+      return helper.reply(sock, msg,
+        val === "private"
+          ? "🔒 Bot is now *PRIVATE* — only owner can use commands."
+          : "🌍 Bot is now *PUBLIC* — everyone can use commands."
+      )
+    },
+  },
+
+  // ── .prefix <char> ───────────────────────────────────────────────────────
+  {
+    pattern:  "prefix",
+    alias:    ["setprefix", "changeprefix"],
+    desc:     "Change the bot command prefix",
+    usage:    ".prefix !",
+    category: "settings",
+    async run({ sock, msg, args, settings, helper, isOwner }) {
+      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      const val = args[0]
+      if (!val) return helper.reply(sock, msg,
+        `Current prefix: *${settings.get("prefix")}*\n\nUsage: .prefix <character>`
+      )
+      if (val.length > 3) return helper.reply(sock, msg, "❌ Prefix must be 1–3 characters.")
+      settings.set("prefix", val)
+      return helper.reply(sock, msg, `✅ Prefix changed to: *${val}*`)
+    },
+  },
+
+  // ── .settings — view all ─────────────────────────────────────────────────
+  {
+    pattern:  "settings",
+    alias:    ["botsettings", "config"],
+    desc:     "View all current bot settings for this session",
+    usage:    ".settings",
+    category: "settings",
+    async run({ sock, msg, settings, helper, isOwner }) {
+      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      const s = settings.getAll()
+      return helper.reply(sock, msg, helper.box("⚙️ SESSION SETTINGS", [
+        `Prefix:          *${s.prefix}*`,
+        `Mode:            *${s.mode}*`,
+        `Auto Typing:     ${s.autoTyping      ? "✅" : "❌"}`,
+        `Auto Recording:  ${s.autoRecording   ? "✅" : "❌"}`,
+        `Always Online:   ${s.alwaysOnline    ? "✅" : "❌"}`,
+        `Auto Read:       ${s.autoRead        ? "✅" : "❌"}`,
+        `Auto View Status:${s.autoViewStatus  ? "✅" : "❌"}`,
+        `Auto React:      ${s.autoReactStatus ? "✅" : "❌"}`,
+        `React Emoji:     ${s.statusReactEmoji || "🔥"}`,
+        `Auto Reply:      ${s.autoReply       ? "✅" : "❌"}`,
+        `Anti Link:       ${s.antiLink        ? "✅" : "❌"}`,
+        `Anti Spam:       ${s.antiSpam        ? "✅" : "❌"}`,
+        `Welcome:         ${s.welcome         ? "✅" : "❌"}`,
+        `Goodbye:         ${s.goodbye         ? "✅" : "❌"}`,
+      ]))
+    },
+  },
+
+]
+

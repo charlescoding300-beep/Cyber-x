@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYBER X — Real-Time WhatsApp Gateway</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #05080a;
+    --panel:     #0a120e;
+    --panel-2:   #0d1a13;
+    --border:    #163322;
+    --green:     #00ff7a;
+    --green-dim: #15a85a;
+    --green-low: #0a4f2c;
+    --cyan:      #5ef1ff;
+    --red:       #ff3b4a;
+    --text-dim:  #6f9c80;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0; padding:0;
+    background:var(--bg);
+    color:var(--green-dim);
+    font-family:'JetBrains Mono', 'Courier New', monospace;
+    overflow-x:hidden;
+  }
+
+  #matrix{
+    position:fixed; inset:0;
+    width:100%; height:100%;
+    z-index:0;
+    opacity:0.5;
+  }
+
+  .vignette{
+    position:fixed; inset:0; z-index:1;
+    background:radial-gradient(ellipse at center, transparent 0%, rgba(5,8,10,0.55) 65%, rgba(5,8,10,0.95) 100%);
+    pointer-events:none;
+  }
+
+  .wrap{
+    position:relative; z-index:2;
+    min-height:100vh;
+    display:flex; flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:32px 16px 24px;
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  .brand{ text-align:center; margin-bottom:18px; }
+
+  .brand pre{
+    margin:0;
+    color:var(--green);
+    font-size:clamp(9px, 2.4vw, 15px);
+    line-height:1.05;
+    text-shadow:0 0 14px rgba(0,255,122,0.55), 0 0 2px rgba(0,255,122,0.8);
+    letter-spacing:0;
+    animation:flicker 6s infinite;
+  }
+
+  @keyframes flicker{
+    0%, 92%, 100%{ opacity:1; filter:none; }
+    93%{ opacity:0.4; filter:blur(0.5px); }
+    94%{ opacity:1; }
+    96%{ opacity:0.6; transform:translateX(1px); }
+    97%{ opacity:1; transform:none; }
+  }
+
+  .tagline{
+    margin-top:10px;
+    font-size:12px;
+    letter-spacing:3px;
+    color:var(--text-dim);
+    text-transform:uppercase;
+  }
+  .tagline span{ color:var(--green); }
+
+  .live-bar{
+    margin-top:14px;
+    display:flex; gap:18px; flex-wrap:wrap;
+    justify-content:center;
+    font-size:11px;
+    color:var(--text-dim);
+  }
+  .live-bar .dot{
+    display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:var(--green); margin-right:6px;
+    box-shadow:0 0 8px var(--green);
+    animation:pulse 1.6s infinite;
+  }
+  .live-bar .dot.off{ background:var(--red); box-shadow:0 0 8px var(--red); animation:none; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  /* ── Terminal panel ───────────────────────────────────────── */
+  .terminal{
+    width:100%; max-width:560px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 0 0 1px rgba(0,255,122,0.04), 0 30px 80px rgba(0,0,0,0.6), 0 0 60px rgba(0,255,122,0.05);
+    overflow:hidden;
+  }
+
+  .chrome{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 14px;
+    background:var(--panel-2);
+    border-bottom:1px solid var(--border);
+  }
+  .chrome .dot{ width:10px; height:10px; border-radius:50%; background:#1d3a28; }
+  .chrome .title{
+    margin-left:8px;
+    font-size:11px; color:var(--text-dim);
+    letter-spacing:1px;
+  }
+
+  .body{ padding:22px 22px 24px; }
+
+  .prompt-row{
+    display:flex; align-items:center; gap:10px;
+    font-size:13px; color:var(--green-dim); margin-bottom:8px;
+  }
+  .prompt-row .arrow{ color:var(--green); }
+
+  .input-row{
+    display:flex; gap:8px;
+    margin-bottom:6px;
+  }
+  .input-row input{
+    flex:1; min-width:0;
+    background:#040a06;
+    border:1px solid var(--border);
+    color:var(--green);
+    font-family:inherit;
+    font-size:15px;
+    padding:12px 12px;
+    border-radius:5px;
+    outline:none;
+    letter-spacing:1px;
+  }
+  .input-row input::placeholder{ color:#2a5d3e; }
+  .input-row input:focus{
+    border-color:var(--green-dim);
+    box-shadow:0 0 0 1px var(--green-low);
+  }
+
+  .btn{
+    background:var(--green);
+    color:#04150a;
+    border:none;
+    font-family:inherit;
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:1.5px;
+    padding:0 18px;
+    border-radius:5px;
+    cursor:pointer;
+    transition:transform .12s ease, box-shadow .12s ease;
+    white-space:nowrap;
+  }
+  .btn:hover{ box-shadow:0 0 24px rgba(0,255,122,0.5); transform:translateY(-1px); }
+  .btn:active{ transform:translateY(0); }
+  .btn:disabled{ background:#1d3a28; color:#3f6650; cursor:not-allowed; box-shadow:none; transform:none; }
+
+  .hint{ font-size:10.5px; color:#3f6650; letter-spacing:0.5px; margin-bottom:4px; }
+
+  /* ── Console log ──────────────────────────────────────────── */
+  .console{
+    display:none;
+    margin-top:18px;
+    border-top:1px dashed var(--border);
+    padding-top:16px;
+    font-size:12.5px;
+    line-height:1.85;
+  }
+  .console.show{ display:block; }
+  .console .line{ opacity:0; animation:type-in .25s forwards; }
+  .console .line.err{ color:var(--red); }
+  .console .line.ok{ color:var(--cyan); }
+  @keyframes type-in{ from{opacity:0; transform:translateY(2px);} to{opacity:1; transform:none;} }
+
+  .cursor{
+    display:inline-block; width:7px; height:14px;
+    background:var(--green); margin-left:2px;
+    animation:blink 1s step-end infinite;
+    vertical-align:-2px;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  /* ── Code reveal ──────────────────────────────────────────── */
+  .code-block{
+    display:none;
+    margin-top:18px;
+    text-align:center;
+    padding:18px 10px;
+    border:1px solid var(--green-low);
+    border-radius:6px;
+    background:rgba(0,255,122,0.035);
+  }
+  .code-block.show{ display:block; }
+  .code-block .label{
+    font-size:10px; letter-spacing:3px; color:var(--text-dim); margin-bottom:10px;
+  }
+  .code-block .code{
+    font-size:clamp(26px, 7vw, 38px);
+    font-weight:800;
+    color:var(--green);
+    letter-spacing:6px;
+    text-shadow:0 0 18px rgba(0,255,122,0.6);
+  }
+
+  .steps{
+    margin-top:14px;
+    font-size:12px;
+    color:var(--text-dim);
+    text-align:left;
+    line-height:1.8;
+  }
+  .steps b{ color:var(--green-dim); }
+
+  .success-banner{
+    display:none;
+    margin-top:18px;
+    text-align:center;
+    padding:16px;
+    border:1px solid var(--cyan);
+    border-radius:6px;
+    background:rgba(94,241,255,0.06);
+    color:var(--cyan);
+    font-weight:700;
+    letter-spacing:2px;
+    font-size:13px;
+    text-shadow:0 0 14px rgba(94,241,255,0.55);
+  }
+  .success-banner.show{ display:block; animation:grant .5s ease; }
+  @keyframes grant{ from{ opacity:0; transform:scale(0.96); } to{ opacity:1; transform:scale(1); } }
+
+  footer{
+    position:relative; z-index:2;
+    margin-top:26px;
+    text-align:center;
+    font-size:10.5px;
+    color:#2a5d3e;
+    letter-spacing:1px;
+  }
+  footer b{ color:var(--green-dim); }
+
+  @media (max-width:480px){
+    .input-row{ flex-direction:column; }
+    .btn{ padding:12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .brand pre{ animation:none; }
+    .live-bar .dot{ animation:none; }
+    .cursor{ animation:none; }
+    .console .line{ animation:none; opacity:1; }
+    .success-banner.show{ animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+<div class="vignette"></div>
+
+<div class="wrap">
+
+  <div class="brand">
+    <pre>
+ ██████╗██╗   ██╗██████╗ ███████╗██████╗     ██╗  ██╗
+██╔════╝╚██╗ ██╔╝██╔══██╗██╔════╝██╔══██╗    ╚██╗██╔╝
+██║      ╚████╔╝ ██████╔╝█████╗  ██████╔╝     ╚███╔╝
+██║       ╚██╔╝  ██╔══██╗██╔══╝  ██╔══██╗     ██╔██╗
+╚██████╗   ██║   ██████╔╝███████╗██║  ██║    ██╔╝ ██╗
+ ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝
+    </pre>
+    <div class="tagline">real-time <span>whatsapp</span> gateway</div>
+    <div class="live-bar">
+      <span><i class="dot" id="netDot"></i><span id="netNodes">connecting…</span></span>
+      <span id="netUptime"></span>
+      <span id="netMem"></span>
+    </div>
+  </div>
+
+  <div class="terminal">
+    <div class="chrome">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="title">root@cyberx:~# ./pair.sh</div>
+    </div>
+    <div class="body">
+      <div class="prompt-row"><span class="arrow">$</span> link_device --target</div>
+      <div class="input-row">
+        <input id="phoneInput" type="tel" inputmode="numeric" placeholder="2348012345678" maxlength="16" autocomplete="off">
+        <button class="btn" id="pairBtn">EXECUTE</button>
+      </div>
+      <div class="hint">country code + number, no + or spaces</div>
+
+      <div class="console" id="console"></div>
+
+      <div class="code-block" id="codeBlock">
+        <div class="label">PAIRING CODE</div>
+        <div class="code" id="codeText">········</div>
+        <div class="steps">
+          <b>1.</b> Open WhatsApp → Settings → Linked Devices<br>
+          <b>2.</b> Tap "Link a Device" → "Link with phone number instead"<br>
+          <b>3.</b> Enter the code above before it expires
+        </div>
+      </div>
+
+      <div class="success-banner" id="successBanner">⚡ ACCESS GRANTED — DEVICE LINKED</div>
+    </div>
+  </div>
+
+  <footer>Built by <b>Charles Tech</b> &copy; CYBER X — unauthorized access is half the fun</footer>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// CONFIG — empty string = same-origin (this page is now served
+// directly by server.js, so it talks to its own host). Only set
+// this to a full URL if you ever host this HTML somewhere else.
+// ─────────────────────────────────────────────────────────────
+const API_BASE = "";
+
+// ─────────────────────────────────────────────────────────────
+// Matrix rain background (binary only)
+// ─────────────────────────────────────────────────────────────
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+let cols, drops;
+
+function resize(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const fontSize = 16;
+  cols = Math.floor(canvas.width / fontSize);
+  drops = Array(cols).fill(0).map(()=> Math.random() * -100);
+}
+resize();
+window.addEventListener('resize', resize);
+
+function drawMatrix(){
+  ctx.fillStyle = 'rgba(5,8,10,0.08)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font = '16px JetBrains Mono, monospace';
+  for(let i=0;i<cols;i++){
+    const char = Math.random() > 0.5 ? '1' : '0';
+    const x = i*16;
+    const y = drops[i]*16;
+    const fade = Math.random();
+    ctx.fillStyle = fade > 0.95 ? '#bfffd9' : (fade > 0.7 ? '#00ff7a' : '#0a4f2c');
+    ctx.fillText(char, x, y);
+    if(y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  }
+}
+
+if(!reduceMotion){
+  setInterval(drawMatrix, 45);
+} else {
+  ctx.fillStyle = '#05080a';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Live network status ticker
+// ─────────────────────────────────────────────────────────────
+const netDot = document.getElementById('netDot');
+const netNodes = document.getElementById('netNodes');
+const netUptime = document.getElementById('netUptime');
+const netMem = document.getElementById('netMem');
+
+function fmtUptime(s){
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return `up ${h}h ${m}m`;
+}
+
+async function pingNetwork(){
+  try{
+    const r = await fetch(`${API_BASE}/ping`);
+    const d = await r.json();
+    netDot.classList.remove('off');
+    netNodes.textContent = `${d.bots} node${d.bots===1?'':'s'} online`;
+    netUptime.textContent = fmtUptime(d.uptime);
+    netMem.textContent = d.memory;
+  }catch(e){
+    netDot.classList.add('off');
+    netNodes.textContent = 'relay unreachable';
+    netUptime.textContent = '';
+    netMem.textContent = '';
+  }
+}
+pingNetwork();
+setInterval(pingNetwork, 8000);
+
+// ─────────────────────────────────────────────────────────────
+// Decrypt-reveal scramble effect
+// ─────────────────────────────────────────────────────────────
+function scrambleReveal(el, finalText, charset='0123456789ABCDEF', duration=650){
+  if(reduceMotion){ el.textContent = finalText; return Promise.resolve(); }
+  const len = finalText.length;
+  const start = performance.now();
+  return new Promise(resolve=>{
+    function frame(now){
+      const t = Math.min(1, (now-start)/duration);
+      let out = '';
+      for(let i=0;i<len;i++){
+        const lockAt = (i/len);
+        if(t > lockAt + 0.15){
+          out += finalText[i];
+        } else if(finalText[i] === ' '){
+          out += ' ';
+        } else {
+          out += charset[Math.floor(Math.random()*charset.length)];
+        }
+      }
+      el.textContent = out;
+      if(t < 1){ requestAnimationFrame(frame); }
+      else { el.textContent = finalText; resolve(); }
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pairing flow
+// ─────────────────────────────────────────────────────────────
+const phoneInput   = document.getElementById('phoneInput');
+const pairBtn      = document.getElementById('pairBtn');
+const consoleEl    = document.getElementById('console');
+const codeBlock    = document.getElementById('codeBlock');
+const codeText     = document.getElementById('codeText');
+const successBanner= document.getElementById('successBanner');
+
+let statusPoll = null;
+
+function logLine(text, cls=''){
+  return new Promise(resolve=>{
+    const line = document.createElement('div');
+    line.className = `line ${cls}`;
+    line.textContent = text;
+    consoleEl.appendChild(line);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+    setTimeout(resolve, 380);
+  });
+}
+
+function resetUI(){
+  consoleEl.innerHTML = '';
+  consoleEl.classList.remove('show');
+  codeBlock.classList.remove('show');
+  successBanner.classList.remove('show');
+  if(statusPoll) clearInterval(statusPoll);
+}
+
+async function pollStatus(phone){
+  statusPoll = setInterval(async ()=>{
+    try{
+      const r = await fetch(`${API_BASE}/status/${phone}`);
+      const d = await r.json();
+      if(d.connected){
+        clearInterval(statusPoll);
+        await logLine('[ HANDSHAKE ] device confirmed on relay', 'ok');
+        successBanner.classList.add('show');
+      }
+    }catch(e){ /* relay hiccup, keep polling */ }
+  }, 3000);
+}
+
+async function startPairing(){
+  const phone = phoneInput.value.replace(/\D/g,'');
+  if(!phone || phone.length < 7){
+    resetUI();
+    consoleEl.classList.add('show');
+    await logLine('[ ERROR ] target number invalid — include country code', 'err');
+    return;
+  }
+
+  resetUI();
+  consoleEl.classList.add('show');
+  pairBtn.disabled = true;
+  pairBtn.textContent = 'WORKING…';
+
+  const apiCall = fetch(`${API_BASE}/pair`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ phone })
+  }).then(r=>r.json()).catch(e=>({ status:false, error:'relay unreachable' }));
+
+  await logLine(`[ DIAL ] resolving +${phone} on WhatsApp relay nodes…`);
+  await logLine('[ TUNNEL ] opening encrypted socket…');
+  await logLine('[ HANDSHAKE ] requesting pairing cipher…');
+
+  const result = await apiCall;
+
+  if(!result.status){
+    await logLine(`[ ERROR ] ${result.error || 'pairing rejected'}`, 'err');
+    pairBtn.disabled = false;
+    pairBtn.textContent = 'EXECUTE';
+    return;
+  }
+
+  if(result.pairingCode){
+    await logLine('[ CIPHER ] code acquired — decrypting…', 'ok');
+    codeBlock.classList.add('show');
+    await scrambleReveal(codeText, result.pairingCode);
+    await logLine('[ READY ] enter the code on your device now');
+    pollStatus(phone);
+  } else {
+    await logLine(`[ OK ] ${result.message || 'session already active'}`, 'ok');
+    successBanner.classList.add('show');
+  }
+
+  pairBtn.disabled = false;
+  pairBtn.textContent = 'EXECUTE';
+}
+
+pairBtn.addEventListener('click', startPairing);
+phoneInput.addEventListener('keydown', e=>{ if(e.key==='Enter') startPairing(); });
+</script>
+
+</body>
+</html>
