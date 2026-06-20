@@ -6,6 +6,7 @@ const path  = require("path")
 
 // ── Single entry point: everything boots from here via `node server.js` ──────
 const { init, addSession, removeSession, listBots } = require("./index")
+const sessionBackup = require("./lib/sessionBackup")
 
 const PORT       = process.env.PORT || 3000
 const SELF_URL   = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
@@ -16,6 +17,10 @@ if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true })
 
 if (!ADMIN_KEY) {
   console.warn("[WEB] ⚠ ADMIN_KEY not set in env — /sessions and DELETE /session are locked to EVERYONE (fail-closed) until you set it on Render")
+}
+
+if (!sessionBackup.enabled) {
+  console.warn("[WEB] ⚠ GITHUB_TOKEN / GITHUB_BACKUP_REPO not set — sessions will NOT survive Render restarts. Set both env vars to enable backup/restore.")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +112,7 @@ const server = http.createServer(async (req, res) => {
       status:    "online",
       bots:      listBots().length,
       connected: listBots().filter(b => b.connected).length,
+      backup:    sessionBackup.enabled,
       uptime:    Math.floor(process.uptime()),
       memory:    Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
       timestamp: new Date().toISOString(),
@@ -146,6 +152,42 @@ const server = http.createServer(async (req, res) => {
     return json(res, found || { connected: false })
   }
 
+  // ── Backup status — OWNER ONLY, shows whether GitHub backup is configured
+  // and lets you trigger a manual restore or push on demand
+  if (url === "/backup/status" && method === "GET") {
+    if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
+    return json(res, {
+      enabled: sessionBackup.enabled,
+      repo:    process.env.GITHUB_BACKUP_REPO || null,
+      branch:  process.env.GITHUB_BACKUP_BRANCH || "main",
+    })
+  }
+
+  // ── Manual restore trigger — OWNER ONLY, pulls latest backup from GitHub
+  // and restarts every restored session immediately (without waiting for
+  // a full server restart). Useful if you ever need to force-resync.
+  if (url === "/backup/restore" && method === "POST") {
+    if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
+    try {
+      const count = await sessionBackup.restoreAll()
+      return json(res, { status: true, restored: count })
+    } catch (e) {
+      return json(res, { status: false, error: e.message }, 500)
+    }
+  }
+
+  // ── Manual backup push trigger — OWNER ONLY, forces an immediate backup
+  // instead of waiting for the normal 20s debounce
+  if (url === "/backup/push" && method === "POST") {
+    if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
+    try {
+      await sessionBackup.pushNow()
+      return json(res, { status: true, message: "Backup pushed" })
+    } catch (e) {
+      return json(res, { status: false, error: e.message }, 500)
+    }
+  }
+
   // ── 404 ───────────────────────────────────────────────────────────────────
   json(res, { error: "Not found" }, 404)
 })
@@ -154,12 +196,16 @@ server.keepAliveTimeout = 120000
 server.headersTimeout   = 125000
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STARTUP — server listens, THEN bot init runs
+// STARTUP — server listens, THEN bot init runs.
+// init() (inside index.js) is responsible for calling sessionBackup.restoreAll()
+// BEFORE starting any sessions, so this stays a single source of truth for
+// startup order — server.js does not duplicate that restore call here.
 // ─────────────────────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] ⚡ CYBER X Multi-Bot listening on port ${PORT}`)
   console.log(`[WEB] 🌐 URL: ${SELF_URL}`)
   console.log(`[WEB] 🔗 Pairing site: ${SELF_URL}/pair`)
+  console.log(`[WEB] 💾 Session backup: ${sessionBackup.enabled ? "ENABLED (" + process.env.GITHUB_BACKUP_REPO + ")" : "DISABLED"}`)
 
   try {
     await init()
@@ -183,6 +229,38 @@ function selfPing() {
   req.setTimeout(10000, () => req.destroy())
 }
 setTimeout(() => { selfPing(); setInterval(selfPing, 4 * 60 * 1000) }, 15000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERIODIC BACKUP SAFETY NET — even if individual creds.update events get
+// missed for any reason, this guarantees a backup push at least once every
+// 10 minutes whenever any session is connected, so nothing drifts too far
+// out of sync with GitHub.
+// ─────────────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  if (!sessionBackup.enabled) return
+  const connectedCount = listBots().filter(b => b.connected).length
+  if (connectedCount > 0) {
+    console.log(`[BACKUP] ⏰ Periodic safety push (${connectedCount} session(s) connected)`)
+    sessionBackup.schedulePush()
+  }
+}, 10 * 60 * 1000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GRACEFUL SHUTDOWN — push a final backup before the process exits, so a
+// manual restart or Render's redeploy cycle never loses the most recent
+// session state even if it happens between two scheduled pushes.
+// ─────────────────────────────────────────────────────────────────────────────
+async function gracefulShutdown(signal) {
+  console.log(`[WEB] ${signal} received — pushing final backup before exit...`)
+  try {
+    if (sessionBackup.enabled) await sessionBackup.pushNow()
+  } catch (e) {
+    console.error("[WEB] ✗ Final backup push failed:", e.message)
+  }
+  process.exit(0)
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GLOBAL ERROR GUARDS
