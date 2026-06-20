@@ -1,99 +1,16 @@
 'use strict'
 
-const axios = require('axios')
-const yts   = require('yt-search')
+const yts = require('yt-search')
 const { toAudio, detectFormat } = require('../lib/converter')
+const { downloadMedia, friendlyError } = require('../lib/ytdownload')
 
 const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  'Accept': '*/*',
-}
-
-async function tryGet(fn, tries = 3) {
-  let last
-  for (let i = 0; i < tries; i++) {
-    try { return await fn() } catch (e) {
-      last = e
-      if (i < tries - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)))
-    }
-  }
-  throw last
-}
-
-async function fetchBuffer(url) {
-  try {
-    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    return Buffer.from(r.data)
-  } catch {
-    const r = await axios.get(url, { responseType: 'stream', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    const chunks = []
-    await new Promise((res, rej) => {
-      r.data.on('data', c => chunks.push(c))
-      r.data.on('end', res)
-      r.data.on('error', rej)
-    })
-    return Buffer.concat(chunks)
-  }
-}
-
-const MP3_APIS = [
-  {
-    name: 'EliteProTech',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp3`,
-        { timeout: 30000, headers: HEADERS }))
-      if (r?.data?.success && r?.data?.downloadURL) return r.data.downloadURL
-      throw new Error('No URL')
-    }
-  },
-  {
-    name: 'Yupra',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
-      if (r?.data?.success && r?.data?.data?.download_url) return r.data.data.download_url
-      throw new Error('No URL')
-    }
-  },
-  {
-    name: 'Okatsu',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
-      if (r?.data?.dl) return r.data.dl
-      throw new Error('No URL')
-    }
-  },
-]
-
-async function downloadMp3(ytUrl) {
-  for (const api of MP3_APIS) {
-    try {
-      console.log(`[SONG] Trying ${api.name}...`)
-      const dlUrl = await api.get(ytUrl)
-      const buf   = await fetchBuffer(dlUrl)
-      if (buf?.length > 0) {
-        console.log(`[SONG] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
-        return buf
-      }
-    } catch (e) { console.log(`[SONG] ❌ ${api.name}: ${e.message}`) }
-  }
-  throw new Error('All download sources failed')
-}
 
 function fmtViews(n) {
   if (!n) return 'N/A'
-  if (n >= 1e9) return `${(n/1e9).toFixed(1)}B 🔥`
-  if (n >= 1e6) return `${(n/1e6).toFixed(1)}M 🔥`
-  if (n >= 1e3) return `${(n/1e3).toFixed(1)}K`
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B 🔥`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M 🔥`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
   return n.toLocaleString()
 }
 
@@ -104,8 +21,12 @@ module.exports = {
   desc: 'Download audio from YouTube',
   usage: '.song <song name or YouTube link>',
 
+  // NOTE: this run() is called independently per session, per user,
+  // per message. Nothing here is shared state between calls except
+  // the download fallback chain and the ffmpeg concurrency limiter
+  // in lib/converter.js — both of which are designed to be safely
+  // hit by many simultaneous callers without blocking each other.
   run: async ({ sock, from, msg, args }) => {
-    // ── Reaction ────────────────────────────────────────────────────
     sock.sendMessage(from, { react: { text: '🎧', key: msg.key } }).catch(() => {})
 
     const query = args.join(' ').trim()
@@ -115,23 +36,30 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    // ── 1. Send searching message ──────────────────────────────────
     const searchMsg = await sock.sendMessage(from, {
       text: `🔎 *Searching:* ${query}...`,
     }, { quoted: msg })
 
     try {
-      // ── 2. Search YouTube ────────────────────────────────────────
-      const search = await yts(query)
-
-      if (!search?.videos?.length) {
-        sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-        return sock.sendMessage(from, {
-          text: `❌ No results found for *${query}*\n\n${CREDIT}`,
-        }, { quoted: msg })
+      let v
+      if (query.includes('youtube.com') || query.includes('youtu.be')) {
+        const ytId = (query.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1]
+        v = {
+          url: query, title: query, timestamp: '', views: 0,
+          author: { name: '' }, ago: '',
+          thumbnail: ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : '',
+        }
+      } else {
+        const search = await yts(query)
+        if (!search?.videos?.length) {
+          sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+          return sock.sendMessage(from, {
+            text: `❌ No results found for *${query}*\n\n${CREDIT}`,
+          }, { quoted: msg })
+        }
+        v = search.videos[0]
       }
 
-      const v     = search.videos[0]
       const ytUrl = v.url
 
       const card =
@@ -152,7 +80,6 @@ module.exports = {
 ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 ${CREDIT}`
 
-      // ── 3. Send thumbnail + card ─────────────────────────────────
       const infoMsg = await (async () => {
         try {
           if (v.thumbnail) {
@@ -164,19 +91,22 @@ ${CREDIT}`
         return sock.sendMessage(from, { text: card }, { quoted: msg })
       })()
 
-      // ── 4. Delete searching message AFTER thumbnail ──────────────
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
 
-      // ── 5. Download + convert ────────────────────────────────────
-      const raw   = await downloadMp3(ytUrl)
+      // ── Resolve + download via shared 4-API fallback chain ──────
+      const { buffer: raw, title } = await downloadMedia(ytUrl, 'mp3')
+
+      // ── Convert (goes through the shared, concurrency-capped
+      //    ffmpeg queue in lib/converter.js — safe under multi-user
+      //    multi-session load on Render free tier) ──────────────
       const { ext } = detectFormat(raw)
       const audio = await toAudio(raw, ext)
 
-      // ── 6. Send audio (card stays in chat) ────────────────────────
+      // ── Send immediately the moment it's ready, no extra delay ──
       await sock.sendMessage(from, {
         audio,
         mimetype: 'audio/mpeg',
-        fileName: `${v.title.replace(/[^\w\s]/g, '').trim()}.mp3`,
+        fileName: `${(title || v.title || 'song').replace(/[^\w\s]/g, '').trim()}.mp3`,
         ptt: false,
       }, { quoted: infoMsg })
 
@@ -184,7 +114,7 @@ ${CREDIT}`
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
       console.error('[SONG]', e.message)
       await sock.sendMessage(from, {
-        text: `❌ *Failed:* ${e.message}\n\n${CREDIT}`,
+        text: `${friendlyError(e)}\n\n${CREDIT}`,
       }, { quoted: msg })
     }
   },
