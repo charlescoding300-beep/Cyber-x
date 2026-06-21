@@ -493,7 +493,7 @@ async function startBot(phone) {
   })
 
   sock.ev.on("group-participants.update", async update => {
-    if (typeof lib.handleGroupUpdate === "function") lib.handleGroupUpdate(sock, update).catch(() => {})
+    if (typeof lib.handleGroupUpdate === "function") lib.handleGroupUpdate(sock, update).catch(e => console.error(`[${phone}] GROUP UPDATE ERR:`, e.message))
   })
 
   // ── Connection lifecycle ─────────────────────────────────────────────────
