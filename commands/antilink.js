@@ -6,7 +6,7 @@
 //   .antilink off         → disable
 //   .antilink delete      → delete links only, no warning
 //   .antilink warn        → warn 3x then kick
-//   .antilink kick        → kick at 3 warnings
+//   .antilink kick        → instant kick on first link, no warnings
 //   .antilink ocr on/off  → enable/disable image link scanning
 //   .antilink status      → show current settings
 //   .antilink reset @user → reset a user's warnings
@@ -17,7 +17,7 @@ module.exports = {
   desc:     "Ultra antilink — detects every link + hidden/obfuscated/image links",
   category: "group",
 
-  async run({ sock, from, msg, sender, args, lib, isOwner, isGroup }) {
+  async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup, groupCache }) {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
@@ -26,10 +26,34 @@ module.exports = {
       })
     }
 
-    // ── Integrate isAdmin from lib/isAdmin.js ──
-    const isAdmin = await lib.isAdmin(sock, from, sender)
+    // ── Independent admin re-check ─────────────────────────
+    // BUG FIX: this command was calling lib.isAdmin(sock, from, sender) —
+    // wrong argument order for lib/isAdmin.js's real signature
+    // isAdmin(groupCache, from, sender, sock, ownerJid, senderAlt). That
+    // meant `sock` was being passed in as `groupCache`, which has no
+    // participant data on it — buildAdminSet() always returned an empty
+    // set, so every admin was rejected regardless of real status.
+    //
+    // Fixed two ways for a stronger layer, same pattern as mute.js/unmute.js:
+    //   1. Use the isAdmin flag already correctly computed by index.js
+    //      and passed into run() — no need to re-call lib.isAdmin at all.
+    //   2. ALSO independently re-verify via fresh groupMetadata, so this
+    //      command doesn't depend on index.js's flag being correct either.
+    let verifiedAdmin = isOwner || isAdmin
+    if (!verifiedAdmin) {
+      try {
+        const meta = await sock.groupMetadata(from)
+        const senderNum = (sender || "").split("@")[0].split(":")[0]
+        verifiedAdmin = meta.participants.some(p => {
+          const pNum = (p.id || "").split("@")[0].split(":")[0]
+          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
+        })
+      } catch (e) {
+        verifiedAdmin = false   // fail closed if we can't verify
+      }
+    }
 
-    if (!isAdmin && !isOwner) {
+    if (!verifiedAdmin) {
       return sock.sendMessage(from, {
         text: "❌ *Only group admins can use this command.*",
         quoted: msg
@@ -126,8 +150,9 @@ module.exports = {
 ╚════════════════════╝
 
 ┌─────〔 ⚙️ *MODE SET* 〕─────
-│ 👢 Warned + kicked at *3 warnings*
-│ 🔗 Links are strictly *banned*
+│ ⚡ *Instant kick* — no warnings
+│ 🔗 First link = *removed immediately*
+│ 🚫 Links are strictly *banned*
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg

@@ -435,6 +435,7 @@ async function startBot(phone) {
   })
 
   state.sock = sock
+  require("./lib/greetListener").register(sock)
 
   if (state.presenceTimer) clearInterval(state.presenceTimer)
   state.presenceTimer = setInterval(() => {

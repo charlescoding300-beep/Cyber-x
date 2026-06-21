@@ -1,69 +1,97 @@
-const {
-  getGroupConfig,
-  setWelcome,
-  resetWelcome,
-  DEFAULT_WELCOME,
-} = require("../lib/groupParticipants")
+// ─────────────────────────────────────────────────────────────────────────────
+// commands/greetwelcome.js  —  CYBER X
+//
+// Standalone welcome command — uses greetStore.js, paired with
+// lib/greetListener.js. Separate from any other welcome system in this
+// project.
+//
+// USAGE (group only, admin only):
+//   .welcome          → show status
+//   .welcome on       → enable
+//   .welcome off      → disable
+//   .welcome set <text>
+//   .welcome reset
+//
+// Variables: {name} {mention} {group} {count} {date}
+// ─────────────────────────────────────────────────────────────────────────────
+
+const greetStore = require("../lib/greetStore")
+const { DEFAULT_WELCOME } = require("../lib/greetListener")
 
 module.exports = {
-  pattern: "welcome",
-  alias: ["welcomemsg", "setwelcome"],
-  desc: "Turn the group welcome message on/off and customize it",
-  usage: ".welcome on | .welcome off | .welcome set <message> | .welcome get | .welcome reset",
+  pattern:  "welcome",
+  alias:    [],
+  desc:     "Standalone welcome message toggle (admin only)",
+  usage:    ".welcome on/off/set <text>/reset",
   category: "group",
 
-  async run({ sock, from, msg, args, text, isGroup, isAdmin, isBotAdmin, isOwner, helper }) {
-    if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
-    if (!isAdmin && !isOwner)
-      return helper.reply(sock, msg, "❌ Only group admins can change the welcome settings.")
-    if (!isBotAdmin)
-      return helper.reply(sock, msg, "❌ I need to be a group admin first — promote me, then try again.")
+  async run({ sock, from, msg, args, isGroup, isOwner }) {
+    if (!isGroup) {
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." }, { quoted: msg })
+    }
+
+    // Independent admin re-check — same defensive pattern as mute.js,
+    // does not depend on any flag passed in from elsewhere.
+    let verifiedAdmin = isOwner
+    if (!verifiedAdmin) {
+      try {
+        const meta = await sock.groupMetadata(from)
+        const senderNum = (msg.key.participant || from).split("@")[0].split(":")[0]
+        verifiedAdmin = meta.participants.some(p => {
+          const pNum = (p.id || "").split("@")[0].split(":")[0]
+          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
+        })
+      } catch (e) {
+        verifiedAdmin = false
+      }
+    }
+    if (!verifiedAdmin) {
+      return sock.sendMessage(from, { text: "❌ Only group admins can use this command." }, { quoted: msg })
+    }
 
     const sub = (args[0] || "").toLowerCase()
-    const cfg = getGroupConfig(from)
 
-    switch (sub) {
-      case "":
-      case "get":
-      case "status":
-        return helper.reply(
-          sock, msg,
-          helper.box("WELCOME SETTINGS", [
-            `Status  : ${cfg.welcomeEnabled ? "✅ ON" : "❌ OFF"}`,
-            `Message :`,
-            cfg.welcomeMsg,
-            ``,
-            `Tags: {user} {number} {group} {count} {desc}`,
-            `Usage: ${this.usage}`,
-          ])
-        )
-
-      case "on":
-        setWelcome(from, { enabled: true })
-        return helper.reply(sock, msg, "✅ Welcome messages are now *ON* for this group.")
-
-      case "off":
-        setWelcome(from, { enabled: false })
-        return helper.reply(sock, msg, "❌ Welcome messages are now *OFF* for this group.")
-
-      case "set": {
-        const match  = text.match(/^\S+\s+([\s\S]*)$/)
-        const newMsg = match ? match[1].trim() : ""
-        if (!newMsg)
-          return helper.reply(
-            sock, msg,
-            `❌ Provide a message.\nExample:\n.welcome set Welcome {user} to *{group}*! You're member #{count} 🎉\n\nTags: {user} {number} {group} {count} {desc}`
-          )
-        setWelcome(from, { msg: newMsg })
-        return helper.reply(sock, msg, `✅ Welcome message updated:\n\n${newMsg}`)
-      }
-
-      case "reset":
-        resetWelcome(from)
-        return helper.reply(sock, msg, `✅ Welcome message reset to default:\n\n${DEFAULT_WELCOME}`)
-
-      default:
-        return helper.reply(sock, msg, `❌ Unknown option.\nUsage: ${this.usage}`)
+    if (!sub) {
+      const enabled = greetStore.get(from, "welcomeEnabled", false)
+      const text    = greetStore.get(from, "welcomeText", DEFAULT_WELCOME)
+      return sock.sendMessage(from, {
+        text:
+          `👋 *Welcome Messages (standalone)*\n\n` +
+          `Status: ${enabled ? "🟢 ON" : "🔴 OFF"}\n\n` +
+          `*Current message:*\n${text}\n\n` +
+          `_Variables: {name} {mention} {group} {count} {date}_\n\n` +
+          `• .welcome on/off\n` +
+          `• .welcome set <text>\n` +
+          `• .welcome reset`
+      }, { quoted: msg })
     }
+
+    if (sub === "on") {
+      greetStore.set(from, "welcomeEnabled", true)
+      return sock.sendMessage(from, { text: "✅ Welcome messages *enabled*." }, { quoted: msg })
+    }
+
+    if (sub === "off") {
+      greetStore.set(from, "welcomeEnabled", false)
+      return sock.sendMessage(from, { text: "🔴 Welcome messages *disabled*." }, { quoted: msg })
+    }
+
+    if (sub === "set") {
+      const newText = args.slice(1).join(" ").trim()
+      if (!newText) {
+        return sock.sendMessage(from, {
+          text: "❌ Provide a message.\nExample: .welcome set Welcome {mention} to {group}!"
+        }, { quoted: msg })
+      }
+      greetStore.set(from, "welcomeText", newText)
+      return sock.sendMessage(from, { text: `✅ Welcome message updated:\n\n${newText}` }, { quoted: msg })
+    }
+
+    if (sub === "reset") {
+      greetStore.set(from, "welcomeText", DEFAULT_WELCOME)
+      return sock.sendMessage(from, { text: "♻️ Welcome message reset to default." }, { quoted: msg })
+    }
+
+    return sock.sendMessage(from, { text: "❓ Unknown option. Usage: .welcome on/off/set/reset" }, { quoted: msg })
   },
 }
