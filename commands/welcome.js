@@ -1,119 +1,67 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// commands/welcome.js  —  CYBER X
-//
-// USAGE (group only, admin only):
-//   .welcome          → show current status + message
-//   .welcome on       → enable welcome messages
-//   .welcome off      → disable welcome messages
-//   .welcome set Welcome to {group}, {mention}! 🎉
-//   .welcome reset    → restore default welcome message
-//
-// Template variables: {name} {mention} {group} {count} {date}
-// ─────────────────────────────────────────────────────────────────────────────
-
-const welcomeDb           = require("../lib/welcomeDb")
-const { DEFAULT_WELCOME } = require("../lib/groupParticipants")
-
-const WELCOME_IMAGE = "https://i.ibb.co/BK2SW9RP/file-00000000c748720c9fd1c812931ae6f7.png"
+const {
+  getGroupConfig,
+  setWelcome,
+  resetWelcome,
+  DEFAULT_WELCOME,
+} = require("../lib/groupParticipants")
 
 module.exports = {
-  pattern:  "welcome",
-  desc:     "Enable/disable & customise welcome messages (admin only)",
-  usage:    ".welcome on/off/set <text>/reset",
+  pattern: "welcome",
+  alias: ["welcomemsg", "setwelcome"],
+  desc: "Turn the group welcome message on/off and customize it",
+  usage: ".welcome on | .welcome off | .welcome set <message> | .welcome get | .welcome reset",
   category: "group",
 
-  async run({ sock, from, msg, args, isGroup, isAdmin }) {
-    // ── Group only ────────────────────────────────────────────────────────────
-    if (!isGroup) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups."
-      }, { quoted: msg })
-    }
-
-    // ── Admin only ────────────────────────────────────────────────────────────
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "❌ Only group admins can use this command."
-      }, { quoted: msg })
-    }
+  async run({ sock, from, msg, args, text, isGroup, isAdmin, isOwner, helper }) {
+    if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
+    if (!isAdmin && !isOwner)
+      return helper.reply(sock, msg, "❌ Only group admins can change the welcome settings.")
 
     const sub = (args[0] || "").toLowerCase()
+    const cfg = getGroupConfig(from)
 
-    // ── No args → show status ─────────────────────────────────────────────────
-    if (!sub) {
-      const enabled = welcomeDb.get(from, "welcome", false)
-      const text    = welcomeDb.get(from, "welcomeText", DEFAULT_WELCOME)
+    switch (sub) {
+      case "":
+      case "get":
+      case "status":
+        return helper.reply(
+          sock, msg,
+          helper.box("WELCOME SETTINGS", [
+            `Status  : ${cfg.welcomeEnabled ? "✅ ON" : "❌ OFF"}`,
+            `Message :`,
+            cfg.welcomeMsg,
+            ``,
+            `Tags: {user} {number} {group} {count} {desc}`,
+            `Usage: ${this.usage}`,
+          ])
+        )
 
-      return sock.sendMessage(from, {
-        image:   { url: WELCOME_IMAGE },
-        caption:
-          `👋 *Welcome Messages*\n\n` +
-          `Status: ${enabled ? "🟢 ON" : "🔴 OFF"}\n\n` +
-          `*Current message:*\n${text}\n\n` +
-          `_Variables: {name} {mention} {group} {count} {date}_\n\n` +
-          `• .welcome on/off\n` +
-          `• .welcome set <your message>\n` +
-          `• .welcome reset`
-      }, { quoted: msg })
-    }
+      case "on":
+        setWelcome(from, { enabled: true })
+        return helper.reply(sock, msg, "✅ Welcome messages are now *ON* for this group.")
 
-    // ── ON ────────────────────────────────────────────────────────────────────
-    if (sub === "on") {
-      welcomeDb.set(from, "welcome", true)
-      return sock.sendMessage(from, {
-        image:   { url: WELCOME_IMAGE },
-        caption:
-          `✅ *Welcome messages enabled!*\n\n` +
-          `New members will be greeted automatically with this image.\n\n` +
-          `_Type .welcome set <text> to customise the message_`
-      }, { quoted: msg })
-    }
+      case "off":
+        setWelcome(from, { enabled: false })
+        return helper.reply(sock, msg, "❌ Welcome messages are now *OFF* for this group.")
 
-    // ── OFF ───────────────────────────────────────────────────────────────────
-    if (sub === "off") {
-      welcomeDb.set(from, "welcome", false)
-      return sock.sendMessage(from, {
-        text: "🔴 Welcome messages *disabled* for this group."
-      }, { quoted: msg })
-    }
-
-    // ── SET ───────────────────────────────────────────────────────────────────
-    if (sub === "set") {
-      const newText = args.slice(1).join(" ").trim()
-      if (!newText) {
-        return sock.sendMessage(from, {
-          text:
-            "❌ Please provide a message.\n\n" +
-            "Example:\n*.welcome set Welcome to {group}, {mention}! 🎉*\n\n" +
-            "_Variables: {name} {mention} {group} {count} {date}_"
-        }, { quoted: msg })
+      case "set": {
+        const match  = text.match(/^\S+\s+([\s\S]*)$/)
+        const newMsg = match ? match[1].trim() : ""
+        if (!newMsg)
+          return helper.reply(
+            sock, msg,
+            `❌ Provide a message.\nExample:\n.welcome set Welcome {user} to *{group}*! You're member #{count} 🎉\n\nTags: {user} {number} {group} {count} {desc}`
+          )
+        setWelcome(from, { msg: newMsg })
+        return helper.reply(sock, msg, `✅ Welcome message updated:\n\n${newMsg}`)
       }
-      welcomeDb.set(from, "welcomeText", newText)
-      return sock.sendMessage(from, {
-        image:   { url: WELCOME_IMAGE },
-        caption:
-          `✅ *Welcome message updated!*\n\n` +
-          `*Preview:*\n${newText}\n\n` +
-          `_Use .welcome on to activate it_`
-      }, { quoted: msg })
-    }
 
-    // ── RESET ─────────────────────────────────────────────────────────────────
-    if (sub === "reset") {
-      welcomeDb.set(from, "welcomeText", DEFAULT_WELCOME)
-      return sock.sendMessage(from, {
-        text: "♻️ Welcome message reset to default."
-      }, { quoted: msg })
-    }
+      case "reset":
+        resetWelcome(from)
+        return helper.reply(sock, msg, `✅ Welcome message reset to default:\n\n${DEFAULT_WELCOME}`)
 
-    // ── Unknown ───────────────────────────────────────────────────────────────
-    return sock.sendMessage(from, {
-      text:
-        "❓ Unknown option.\n\n" +
-        "• *.welcome on* — enable\n" +
-        "• *.welcome off* — disable\n" +
-        "• *.welcome set <text>* — custom message\n" +
-        "• *.welcome reset* — restore default"
-    }, { quoted: msg })
+      default:
+        return helper.reply(sock, msg, `❌ Unknown option.\nUsage: ${this.usage}`)
+    }
   },
 }
