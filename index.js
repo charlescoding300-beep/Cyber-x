@@ -186,7 +186,7 @@ function normalizeNum(raw = "") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10-LAYER OWNER / ADMIN RECOGNITION (unchanged from your version)
+// 10-LAYER OWNER / ADMIN RECOGNITION
 // ─────────────────────────────────────────────────────────────────────────────
 function checkIsOwner(state, sender, senderAlt, fromMe) {
   if (fromMe === true) return true
@@ -454,8 +454,21 @@ async function startBot(phone) {
   sock.ev.on("groups.update", us => {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
-  sock.ev.on("group-participants.update", async ({ id }) => {
-    try { state.groupCache[id] = { ...(await sock.groupMetadata(id)), _cachedAt: Date.now() } } catch {}
+
+  // ── FIX #1: this listener now ALSO calls lib.handleGroupUpdate ──────────────
+  // Previously it only refreshed the group metadata cache — it never
+  // actually invoked the welcome/goodbye handler, so joins/leaves were
+  // silently doing nothing beyond the cache update.
+  sock.ev.on("group-participants.update", async (update) => {
+    try {
+      state.groupCache[update.id] = { ...(await sock.groupMetadata(update.id)), _cachedAt: Date.now() }
+    } catch {}
+
+    if (typeof lib.handleGroupUpdate === "function") {
+      lib.handleGroupUpdate(sock, update).catch(e =>
+        console.error(`[${phone}] handleGroupUpdate ERR:`, e.message)
+      )
+    }
   })
 
   if (!authState.creds.registered) {
@@ -471,7 +484,14 @@ async function startBot(phone) {
 
   if (typeof lib.setSocket      === "function") lib.setSocket(sock)
   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
-  try { require("./lib/welcome").setStore({ groupMetadata: state.groupCache }) } catch {}
+
+  // ── FIX #2: setStore now correctly targets lib/groupParticipants.js ─────────
+  // Previously this called require("./lib/welcome").setStore(...) — but
+  // welcome/goodbye logic lives in lib/groupParticipants.js now, so that
+  // call was either hitting a stale file or a function that didn't exist
+  // there. Using the already-loaded `lib` bucket avoids a second require()
+  // entirely and points at the file that's actually wired up above.
+  try { lib.groupParticipants?.setStore?.({ groupMetadata: state.groupCache }) } catch {}
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return
@@ -487,13 +507,10 @@ async function startBot(phone) {
       if (!m.key.fromMe) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
-  })
-
-  sock.ev.on("group-participants.update", async update => {
-    if (typeof lib.handleGroupUpdate === "function") lib.handleGroupUpdate(sock, update).catch(e => console.error(`[${phone}] GROUP UPDATE ERR:`, e.message))
   })
 
   // ── Connection lifecycle ─────────────────────────────────────────────────
@@ -504,7 +521,7 @@ async function startBot(phone) {
       state.pairingCode = null
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"}`)
       saveMeta()
-      sessionBackup.pushImmediate().catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
+      sessionBackup.schedulePush()
     }
 
     if (connection === "close") {
@@ -532,12 +549,6 @@ async function startBot(phone) {
 // PUBLIC API — used by server.js
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * init() — called once when server.js boots.
- * 1. Loads commands (+ starts hot-reload watchers for commands AND lib/utils/api/config)
- * 2. Restores sessions from GitHub backup (survives Render restarts/crashes)
- * 3. Restarts every session that has saved creds, locally or freshly restored
- */
 async function init() {
   await loadCommands()
   watchCommands()
@@ -550,8 +561,6 @@ async function init() {
   })
   if (restoredCount > 0) console.log(`[INIT] ✔ Restored ${restoredCount} session(s) from backup`)
 
-  // Figure out which phones to start: anything already on disk (local or
-  // just-restored), PLUS anything in our last-known meta list.
   const onDisk = fs.existsSync(SESS_ROOT)
     ? fs.readdirSync(SESS_ROOT).filter(f => {
         const full = path.join(SESS_ROOT, f)
@@ -572,11 +581,6 @@ async function init() {
   saveMeta()
 }
 
-/**
- * addSession(phone) — called by POST /pair in server.js.
- * Starts a brand-new session (or restarts an existing one) and returns
- * the pairing code once it's generated.
- */
 async function addSession(phone) {
   const clean = phone.replace(/\D/g, "")
   if (!clean) throw new Error("Invalid phone number")
@@ -584,8 +588,6 @@ async function addSession(phone) {
   await startBot(clean)
   saveMeta()
 
-  // Wait briefly for the pairing code to be generated (requestPairingCode
-  // fires on a 3s delay inside startBot)
   const state = sessions.get(clean)
   for (let i = 0; i < 15 && !state.pairingCode && !state.connected; i++) {
     await new Promise(r => setTimeout(r, 1000))
@@ -598,12 +600,6 @@ async function addSession(phone) {
   }
 }
 
-/**
- * removeSession(phone) — called by DELETE /session/:phone in server.js.
- * Stops the socket, deletes its creds from disk, and schedules a backup
- * push so the deletion also propagates to GitHub (otherwise a restart
- * would resurrect the deleted session from the old backup).
- */
 async function removeSession(phone) {
   const clean = phone.replace(/\D/g, "")
   const state = sessions.get(clean)
@@ -623,10 +619,6 @@ async function removeSession(phone) {
   sessionBackup.schedulePush()
 }
 
-/**
- * listBots() — called by GET /sessions and GET /ping in server.js.
- * Returns a safe summary of every session (no creds, just status).
- */
 function listBots() {
   return [...sessions.entries()].map(([phone, state]) => ({
     phone,
