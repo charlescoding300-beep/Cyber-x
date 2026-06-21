@@ -20,7 +20,26 @@ module.exports = {
       })
     }
 
-    if (!isAdmin && !isOwner) {
+    // ── Independent admin re-check ─────────────────────────
+    // Same as mute.js — don't only trust the isAdmin flag passed in from
+    // index.js. Fetch fresh group metadata and verify the sender is
+    // actually listed as admin/superadmin before allowing the unmute.
+    let verifiedAdmin = isOwner
+    if (!verifiedAdmin) {
+      try {
+        const meta = await sock.groupMetadata(from)
+        const senderNum = (sender || "").split("@")[0].split(":")[0]
+        verifiedAdmin = meta.participants.some(p => {
+          const pNum = (p.id || "").split("@")[0].split(":")[0]
+          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
+        })
+      } catch (e) {
+        // Can't verify → fail closed, do NOT allow the unmute.
+        verifiedAdmin = false
+      }
+    }
+
+    if (!verifiedAdmin) {
       return sock.sendMessage(from, {
         text: "❌ *Only group admins can use this command.*",
         quoted: msg

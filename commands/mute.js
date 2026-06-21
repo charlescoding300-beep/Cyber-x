@@ -65,7 +65,27 @@ module.exports = {
       })
     }
 
-    if (!isAdmin && !isOwner) {
+    // ── Independent admin re-check ─────────────────────────
+    // Don't only trust the isAdmin flag passed in from index.js — fetch
+    // fresh group metadata here and verify the sender is actually listed
+    // as admin/superadmin. This protects against a stale or incorrect
+    // upstream isAdmin flag (e.g. cached groupCache, JID mismatch).
+    let verifiedAdmin = isOwner
+    if (!verifiedAdmin) {
+      try {
+        const meta = await sock.groupMetadata(from)
+        const senderNum = (sender || "").split("@")[0].split(":")[0]
+        verifiedAdmin = meta.participants.some(p => {
+          const pNum = (p.id || "").split("@")[0].split(":")[0]
+          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
+        })
+      } catch (e) {
+        // Can't verify → fail closed, do NOT allow the mute.
+        verifiedAdmin = false
+      }
+    }
+
+    if (!verifiedAdmin) {
       return sock.sendMessage(from, {
         text: "❌ *Only group admins can use this command.*",
         quoted: msg
