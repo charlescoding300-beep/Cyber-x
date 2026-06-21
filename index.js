@@ -504,7 +504,7 @@ async function startBot(phone) {
       state.pairingCode = null
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"}`)
       saveMeta()
-      sessionBackup.schedulePush()   // connection confirmed → backup it
+      sessionBackup.pushImmediate().catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
     }
 
     if (connection === "close") {
