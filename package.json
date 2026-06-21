@@ -20,10 +20,12 @@
     "jimp": "*",
     "mongoose": "^9.7.0",
     "node-cache": "*",
+    "node-webpmux": "^3.2.1",
     "pino": "*",
     "qrcode": "^1.5.4",
     "sharp": "*",
     "tesseract.js": "*",
+    "youtubei.js": "^17.0.1",
     "yt-dlp-exec": "*",
     "yt-search": "^2.13.1"
   },
