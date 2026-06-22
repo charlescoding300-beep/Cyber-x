@@ -4,7 +4,7 @@
   "description": "CYBER X WhatsApp Bot & Gateway",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --max-old-space-size=400 --expose-gc server.js",
     "bot": "node --expose-gc index.js",
     "dev": "node --expose-gc index.js"
   },
