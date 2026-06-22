@@ -9,6 +9,7 @@
     "dev": "node --expose-gc index.js"
   },
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "@hapi/boom": "*",
     "@whiskeysockets/baileys": "*",
     "axios": "^1.18.0",
