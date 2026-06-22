@@ -446,7 +446,7 @@ async function startBot(phone) {
 
   sock.ev.on("creds.update", async () => {
     await saveCreds()
-    sessionBackup.schedulePush()   // every creds change → backup gets scheduled (debounced)
+    sessionBackup.schedulePush(phone)   // every creds change → backup gets scheduled (debounced)
   })
 
   sock.ev.on("groups.upsert", gs => {
@@ -522,7 +522,7 @@ async function startBot(phone) {
       state.pairingCode = null
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"}`)
       saveMeta()
-      sessionBackup.schedulePush()
+      sessionBackup.pushImmediate(phone).catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
     }
 
     if (connection === "close") {
@@ -617,7 +617,7 @@ async function removeSession(phone) {
   } catch (e) { console.error(`[REMOVE] ✗ ${clean}:`, e.message) }
 
   saveMeta()
-  sessionBackup.schedulePush()
+  sessionBackup.schedulePush(clean)
 }
 
 function listBots() {
