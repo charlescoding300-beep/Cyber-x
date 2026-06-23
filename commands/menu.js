@@ -2,10 +2,11 @@
 // ════════════════════════════════════════════════════════════════════
 //  commands/menu.js  —  CYBER X  |  📋 Bot Menu
 //
+//  ✅ Auto-categorizes commands from their own category: field
+//  ✅ Add a new command with category: "owner" → appears under Owner
+//  ✅ No manual menu edits ever needed again
 //  ✅ Instant 🤖 reaction on trigger
-//  ✅ Flat alphabetical command list — no categories
-//  ✅ Zero network calls — reads directly from registry
-//  ✅ Quoted reply + image with caption
+//  ✅ Quoted reply + rotating image
 // ════════════════════════════════════════════════════════════════════
 
 const IMAGES = [
@@ -14,11 +15,33 @@ const IMAGES = [
 ]
 const rotator = new Map()
 
-// Commands to hide from menu (removed games)
+// Commands to hide from menu entirely
 const HIDDEN = new Set([
   'slot','pokedex','buy','mycard','active','battle',
   'accept','forfeit','pokemon','pikachu',
 ])
+
+// Category display order + labels
+// Any category not listed here will still appear — auto-added at the end
+const CATEGORY_ORDER = [
+  'general',
+  'owner',
+  'group',
+  'media',
+  'fun',
+  'ai',
+  'utility',
+]
+
+const CATEGORY_LABELS = {
+  general:  '🌐 GENERAL',
+  owner:    '👑 OWNER',
+  group:    '👥 GROUP',
+  media:    '🎵 MEDIA',
+  fun:      '🎮 FUN',
+  ai:       '🤖 AI',
+  utility:  '🛠️ UTILITY',
+}
 
 function bar(pct, len = 12) {
   const f = Math.round((pct / 100) * len)
@@ -39,9 +62,9 @@ module.exports = {
   desc:     'CYBER X command menu',
   usage:    '.menu',
 
-  run: async ({ sock, from, msg, sender, commands, settings }) => {
+  run: async ({ sock, from, msg, sender, commands, cmdDetails, settings }) => {
 
-    // ── 1. React instantly — fire and forget ──────────────────────
+    // ── 1. React instantly ─────────────────────────────────────────
     sock.sendMessage(from, {
       react: { text: '🤖', key: msg.key }
     }).catch(() => {})
@@ -61,18 +84,49 @@ module.exports = {
     const totMB  = (mem.heapTotal / 1024 / 1024).toFixed(1)
     const ramPct = Math.min(100, Math.round((mem.heapUsed / mem.heapTotal) * 100))
 
-    // ── 2. Collect all commands alphabetically ─────────────────────
-    const cmds = []
-    if (commands instanceof Map) {
+    // ── 2. Group commands by category ──────────────────────────────
+    // Use cmdDetails (array of {pattern, category}) if available,
+    // otherwise fall back to commands Map with no category info.
+    const grouped = new Map()   // category -> [commandName, ...]
+    let totalCmds = 0
+
+    if (Array.isArray(cmdDetails) && cmdDetails.length) {
+      for (const cmd of cmdDetails) {
+        const name = (cmd.pattern || '').replace(/^\./, '')
+        if (HIDDEN.has(name)) continue
+        const cat = (cmd.category || 'general').toLowerCase()
+        if (!grouped.has(cat)) grouped.set(cat, [])
+        grouped.get(cat).push(name)
+        totalCmds++
+      }
+    } else if (commands instanceof Map) {
+      // fallback — no category info, dump everything under general
       for (const [key] of commands) {
-        if (!HIDDEN.has(key)) cmds.push(key)
+        if (HIDDEN.has(key)) continue
+        if (!grouped.has('general')) grouped.set('general', [])
+        grouped.get('general').push(key)
+        totalCmds++
       }
     }
-    cmds.sort()
 
-    const cmdLines = cmds.map(c => `║  ◈ *${prefix}${c}*`).join('\n')
+    // Sort each category's commands alphabetically
+    for (const [, cmds] of grouped) cmds.sort()
 
-    // ── 3. Build caption ───────────────────────────────────────────
+    // Build ordered list of categories — known order first, then any extras
+    const allCats = [...new Set([
+      ...CATEGORY_ORDER.filter(c => grouped.has(c)),
+      ...[...grouped.keys()].filter(c => !CATEGORY_ORDER.includes(c)).sort(),
+    ])]
+
+    // ── 3. Build category sections ─────────────────────────────────
+    const sections = allCats.map(cat => {
+      const label = CATEGORY_LABELS[cat] || `📁 ${cat.toUpperCase()}`
+      const cmds  = grouped.get(cat) || []
+      const lines = cmds.map(c => `║  ◈ *${prefix}${c}*`).join('\n')
+      return `╠══〔 ${label} 〕══╣\n${lines}`
+    }).join('\n')
+
+    // ── 4. Build full caption ──────────────────────────────────────
     const caption =
 `╔══════════════════════════╗
 ║   ⚡ *${botName}* ⚡
@@ -89,19 +143,18 @@ module.exports = {
 ║  🧠  *RAM*
 ║  ${bar(ramPct)}
 ║  ╰─ ${ramMB} MB / ${totMB} MB
-╠══〔 📋 *COMMANDS* 〕══╣
-${cmdLines}
+${sections}
 ╠══════════════════════════╣
 ║  💡 *Type* ${prefix}*command* *to use*
-║  📌 *Total:* ${cmds.length} commands
+║  📌 *Total:* ${totalCmds} commands
 ╚══════════════════════════╝
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™* *All rights reserved*`
 
-    // ── 4. Rotate image ────────────────────────────────────────────
+    // ── 5. Rotate image ────────────────────────────────────────────
     const idx = (rotator.get(from) ?? 0) % IMAGES.length
     rotator.set(from, idx + 1)
 
-    // ── 5. Send image + caption quoted ────────────────────────────
+    // ── 6. Send ────────────────────────────────────────────────────
     try {
       await sock.sendMessage(from, {
         image:    { url: IMAGES[idx] },
