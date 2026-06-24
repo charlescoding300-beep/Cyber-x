@@ -1,797 +1,1533 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CYBER X — Gateway Control</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CYBER X — Enterprise WhatsApp Infrastructure</title>
 <style>
-:root{
-  --bg:#000;--green:#00ff41;--green2:#39ff8f;--green-dim:#1fae62;
-  --green-low:#0a4329;--amber:#ffb000;--red:#ff3b4a;
-  --panel:#050d07;--border:#0d2918;--text-dim:#3a6b4a;--text-dim2:#254d34;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#000;color:var(--green);font-family:'Share Tech Mono','JetBrains Mono',monospace;overflow-x:hidden}
-::selection{background:var(--green-low);color:var(--green)}
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
 
-/* ══════════════════════════════════════════════
-   BOOT OVERLAY — full screen hacking sequence
-   ══════════════════════════════════════════════ */
-#boot{
-  position:fixed;inset:0;z-index:9999;
-  background:#000;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  font-family:'Share Tech Mono',monospace;
-}
-#boot.done{animation:bootFade .8s forwards;pointer-events:none}
-@keyframes bootFade{to{opacity:0;transform:scale(1.03)}}
+  :root {
+    --g: #00ff41;
+    --dg: #00c032;
+    --ddg: #006b1a;
+    --bg: #000300;
+    --panel: #010a01;
+    --border: #0d2b0d;
+    --red: #ff0033;
+    --yellow: #ffe100;
+    --cyan: #00fff7;
+  }
 
-/* scrolling code background inside boot */
-#bootCode{
-  position:absolute;inset:0;overflow:hidden;
-  font-size:clamp(9px,1.3vw,13px);line-height:1.55;
-  color:#00b832;opacity:0.45;padding:10px 16px;
-  pointer-events:none;white-space:pre;
-  column-count:3;column-gap:20px;
-}
+  * { margin:0; padding:0; box-sizing:border-box; }
 
-/* the centered hack box */
-#hackBox{
-  position:relative;z-index:2;
-  border:2px solid var(--green);
-  box-shadow:0 0 40px rgba(0,255,65,0.4),inset 0 0 30px rgba(0,255,65,0.05);
-  padding:clamp(20px,4vw,44px) clamp(28px,6vw,72px);
-  text-align:center;min-width:min(90vw,520px);
-  background:rgba(0,8,3,0.88);
-}
-#hackBox::before,#hackBox::after{
-  content:'';position:absolute;background:var(--green);
-  transition:all .3s;
-}
-#hackBox::before{top:-2px;left:20px;width:60px;height:2px}
-#hackBox::after{bottom:-2px;right:20px;width:60px;height:2px}
+  body {
+    background: var(--bg);
+    color: var(--g);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
 
-#hackTitle{
-  font-size:clamp(18px,3.5vw,30px);font-weight:800;
-  letter-spacing:6px;color:var(--green);
-  text-shadow:0 0 20px rgba(0,255,65,0.8),0 0 40px rgba(0,255,65,0.4);
-  margin-bottom:6px;
-}
-#hackSub{
-  font-size:clamp(9px,1.4vw,12px);letter-spacing:3px;
-  color:var(--green-dim);margin-bottom:28px;
-}
+  /* ── MATRIX CANVAS ── */
+  #matrix {
+    position: fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    z-index: 0;
+    opacity: 0.18;
+    pointer-events: none;
+  }
 
-/* progress bar */
-#barWrap{
-  border:1px solid var(--green);padding:3px;
-  margin-bottom:16px;background:rgba(0,255,65,0.04);
-}
-#bar{
-  height:18px;width:0%;background:var(--green);
-  box-shadow:0 0 12px rgba(0,255,65,0.7);
-  transition:width .08s linear;position:relative;overflow:hidden;
-}
-#bar::after{
-  content:'';position:absolute;inset:0;
-  background:repeating-linear-gradient(90deg,transparent,transparent 8px,rgba(255,255,255,0.08) 8px,rgba(255,255,255,0.08) 10px);
-}
-#barPct{
-  font-size:clamp(22px,4vw,36px);font-weight:800;
-  color:var(--green);letter-spacing:4px;
-  text-shadow:0 0 16px rgba(0,255,65,0.8);
-  margin-bottom:20px;
-}
+  /* ── SCANLINES ── */
+  body::after {
+    content:'';
+    position:fixed;
+    top:0;left:0;width:100%;height:100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events:none;
+    z-index:1;
+  }
 
-/* status lines */
-#hackStatus{font-size:clamp(9px,1.3vw,12px);color:var(--green-dim);letter-spacing:1.5px;min-height:18px;margin-bottom:18px}
+  /* ── ACCESS GRANTED SCREEN ── */
+  #access-screen {
+    position:fixed;
+    top:0;left:0;width:100%;height:100%;
+    background:#000;
+    z-index:9999;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:30px;
+  }
 
-/* mini log inside boot */
-#bootLog{
-  text-align:left;width:100%;max-height:110px;overflow:hidden;
-  font-size:clamp(8px,1.1vw,11px);color:#00b832;line-height:1.7;
-  border-top:1px solid var(--border);padding-top:10px;
-  opacity:0.8;
-}
-#bootLog .bl{animation:blfade .2s ease forwards}
-@keyframes blfade{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+  #access-screen canvas {
+    position:absolute;
+    top:0;left:0;width:100%;height:100%;
+    opacity:0.35;
+  }
 
-/* warning flash */
-#warnFlash{
-  position:absolute;inset:0;background:rgba(255,59,74,0.06);
-  pointer-events:none;opacity:0;
-}
-.flashing #warnFlash{animation:wflash .15s 3}
-@keyframes wflash{0%,100%{opacity:0}50%{opacity:1}}
+  .access-label {
+    position:relative;
+    z-index:2;
+    font-family:'Orbitron',monospace;
+    font-size:clamp(11px,3vw,14px);
+    color: var(--dg);
+    letter-spacing:6px;
+    text-transform:uppercase;
+  }
 
-/* scan line over hack box */
-#scanBar{
-  position:absolute;left:0;right:0;height:3px;
-  background:linear-gradient(90deg,transparent,rgba(0,255,65,0.6),transparent);
-  top:0;animation:scanMove 2.5s linear infinite;pointer-events:none;
-}
-@keyframes scanMove{0%{top:0}100%{top:100%}}
+  .access-bar-wrap {
+    position:relative;
+    z-index:2;
+    width: min(400px, 80vw);
+  }
 
-/* ══════════════════════════════════════════════
-   MATRIX BG (main page)
-   ══════════════════════════════════════════════ */
-#matrix{position:fixed;inset:0;z-index:0;opacity:0.4}
-.scanlines{
-  position:fixed;inset:0;z-index:1;pointer-events:none;
-  background:repeating-linear-gradient(to bottom,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,0.16) 3px,rgba(0,0,0,0) 4px);
-  opacity:0.5;
-}
-.vignette{
-  position:fixed;inset:0;z-index:1;pointer-events:none;
-  background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,0.5) 60%,rgba(0,0,0,0.96) 100%);
-}
+  .access-bar-bg {
+    width:100%;
+    height:6px;
+    background: #0a1a0a;
+    border:1px solid var(--ddg);
+    border-radius:2px;
+    overflow:hidden;
+  }
 
-/* ── YT background ── */
-#yt-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-#yt-bg iframe{
-  position:absolute;top:50%;left:50%;
-  width:100vw;height:56.25vw;min-height:100vh;min-width:177.78vh;
-  transform:translate(-50%,-50%);border:none;opacity:0;transition:opacity 2s ease;
-}
-#yt-bg iframe.ready{opacity:0.12}
+  .access-bar-fill {
+    height:100%;
+    width:0%;
+    background: linear-gradient(90deg, var(--ddg), var(--g), var(--cyan));
+    box-shadow: 0 0 12px var(--g);
+    transition: width 0.4s ease;
+    border-radius:2px;
+  }
 
-/* ══════════════════════════════════════════════
-   MAIN PAGE
-   ══════════════════════════════════════════════ */
-.wrap{
-  position:relative;z-index:2;
-  min-height:100vh;display:flex;flex-direction:column;align-items:center;
-  padding:28px 16px 140px;opacity:0;transition:opacity .6s ease;
-}
-.wrap.visible{opacity:1}
+  .access-pct {
+    text-align:right;
+    font-size:11px;
+    color:var(--dg);
+    margin-top:4px;
+    letter-spacing:2px;
+  }
 
-.topbar{
-  width:100%;max-width:980px;
-  display:flex;align-items:center;justify-content:space-between;
-  gap:12px;flex-wrap:wrap;padding:8px 4px 18px;
-  font-size:10.5px;letter-spacing:1px;color:var(--text-dim2);
-  border-bottom:1px solid var(--border);margin-bottom:26px;
-}
-.topbar .seg{display:flex;align-items:center;gap:7px}
-.topbar .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 1.6s infinite}
-.topbar .dot.off{background:var(--red);box-shadow:0 0 7px var(--red);animation:none}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  .access-granted-text {
+    position:relative;
+    z-index:2;
+    font-family:'Orbitron',monospace;
+    font-size:clamp(22px,6vw,42px);
+    font-weight:900;
+    color: var(--g);
+    text-shadow: 0 0 20px var(--g), 0 0 40px var(--g), 0 0 80px var(--dg);
+    letter-spacing:8px;
+    display:none;
+    animation: glitch 0.4s infinite;
+  }
 
-.sound-toggle{
-  background:transparent;border:1px solid var(--border);
-  color:var(--text-dim);font-family:inherit;font-size:10px;
-  letter-spacing:1.5px;padding:6px 10px;border-radius:3px;
-  cursor:pointer;display:flex;align-items:center;gap:6px;
-  transition:border-color .15s,color .15s;
-}
-.sound-toggle:hover,.sound-toggle.active{border-color:var(--green-dim);color:var(--green-dim)}
+  @keyframes glitch {
+    0%,100% { text-shadow: 0 0 20px var(--g), 0 0 40px var(--g); transform:translateX(0); }
+    20% { transform:translateX(-2px); text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); }
+    40% { transform:translateX(2px); text-shadow: 2px 0 var(--red), -2px 0 var(--cyan); }
+    60% { transform:translateX(0); }
+  }
 
-/* brand */
-.brand{text-align:center;margin-bottom:8px}
-.brand-stack{position:relative;display:inline-block}
-.brand pre{
-  margin:0;color:var(--green);font-size:clamp(7px,2.1vw,13px);
-  line-height:1.05;
-  text-shadow:0 0 14px rgba(0,255,65,0.5),0 0 2px rgba(0,255,65,0.8);
-}
-.brand pre.ghost{position:absolute;top:0;left:0;color:var(--amber);opacity:0;text-shadow:none}
-.glitching .ghost.g1{opacity:.85;clip-path:inset(10% 0 65% 0);transform:translate(-2px,-1px)}
-.glitching .ghost.g2{opacity:.7;clip-path:inset(55% 0 15% 0);color:var(--green);transform:translate(2px,1px);filter:hue-rotate(40deg)}
-.glitching pre:not(.ghost){transform:translate(.5px,0)}
-.tagline{margin-top:12px;font-size:11px;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase}
-.tagline span{color:var(--green)}
+  /* ── MAIN LAYOUT ── */
+  #app {
+    position:relative;
+    z-index:2;
+    min-height:100vh;
+  }
 
-/* hacking ticker */
-#hackTicker{
-  width:100%;max-width:980px;margin-top:14px;
-  border:1px solid var(--border);border-radius:4px;
-  background:rgba(0,10,4,0.7);padding:10px 16px;
-  font-size:11px;color:#00b832;letter-spacing:1px;
-  overflow:hidden;white-space:nowrap;
-  position:relative;
-}
-#hackTicker::before{
-  content:'[SYS]';color:var(--green);margin-right:12px;
-  text-shadow:0 0 8px rgba(0,255,65,0.6);
-}
-#tickerInner{display:inline-block;animation:ticker 18s linear infinite}
-@keyframes ticker{0%{transform:translateX(100vw)}100%{transform:translateX(-100%)}}
+  /* ── TOP BAR ── */
+  .topbar {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,3,0,0.95);
+    position:sticky;
+    top:0;
+    z-index:100;
+    backdrop-filter:blur(4px);
+  }
 
-/* sentinel */
-.sentinel{
-  width:100%;max-width:980px;margin-top:20px;
-  border:1px solid var(--border);border-radius:6px;
-  background:var(--panel);overflow:hidden;position:relative;
-}
-.sentinel-canvas-wrap{position:relative;width:100%;aspect-ratio:16/7;max-height:260px;overflow:hidden;background:#000}
-#sentinelCanvas{position:absolute;inset:0;width:100%;height:100%}
+  .topbar-left {
+    display:flex;
+    flex-direction:column;
+  }
 
-/* mini hacking progress INSIDE sentinel */
-#miniHack{
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  z-index:3;text-align:center;pointer-events:none;min-width:220px;
-}
-#miniHackTitle{font-size:clamp(11px,2vw,16px);letter-spacing:4px;color:var(--green);text-shadow:0 0 12px rgba(0,255,65,.7);margin-bottom:8px}
-#miniBarWrap{border:1px solid var(--green);padding:2px;margin-bottom:6px}
-#miniBar{height:10px;width:0%;background:var(--green);box-shadow:0 0 8px rgba(0,255,65,.6);transition:width .1s}
-#miniPct{font-size:12px;color:var(--green-dim);letter-spacing:2px}
+  .topbar-brand {
+    font-family:'Orbitron',monospace;
+    font-weight:900;
+    font-size:clamp(14px,4vw,20px);
+    letter-spacing:6px;
+    color:var(--g);
+    text-shadow: 0 0 10px var(--g);
+  }
 
-.lock-overlay{
-  position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);
-  width:64px;height:64px;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;
-  display:none;
-}
-.lock-overlay svg{width:54px;height:54px;filter:drop-shadow(0 0 14px var(--lock-glow,rgba(255,59,74,.85))) drop-shadow(0 0 28px var(--lock-glow,rgba(255,59,74,.5)));transition:filter .4s}
-.lock-overlay .lock-body{fill:var(--lock-color,#ff3b4a);transition:fill .4s}
-.lock-overlay .lock-shackle{stroke:var(--lock-color,#ff3b4a);transition:stroke .4s}
-.sentinel.unlocked .lock-overlay{--lock-color:var(--green);--lock-glow:rgba(0,255,65,.9);display:flex}
-.sentinel.unlocked .lock-overlay svg{animation:lockPulse .9s ease}
-@keyframes lockPulse{0%{transform:scale(.7);opacity:.3}45%{transform:scale(1.25);opacity:1}100%{transform:scale(1);opacity:1}}
+  .topbar-sub {
+    font-size:9px;
+    color:var(--ddg);
+    letter-spacing:3px;
+    margin-top:2px;
+  }
 
-.sentinel-caption{
-  position:absolute;left:14px;bottom:10px;z-index:5;
-  font-size:9.5px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;
-  background:rgba(0,0,0,.65);padding:4px 8px;border-radius:2px;border:1px solid var(--border);
-}
-.sentinel-caption b{color:var(--red);transition:color .4s}
-.sentinel.unlocked .sentinel-caption b{color:var(--green)}
+  .topbar-right {
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:3px;
+  }
 
-/* IP trace widget */
-#ipTrace{
-  position:absolute;right:14px;top:10px;z-index:5;
-  font-size:9px;letter-spacing:1px;color:var(--green-dim);
-  background:rgba(0,0,0,.7);border:1px solid var(--border);
-  padding:6px 10px;border-radius:2px;line-height:1.7;
-}
-#ipTrace .ipt{color:var(--green);animation:blink .9s step-end infinite}
-@keyframes blink{50%{opacity:0}}
+  .status-pill {
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:10px;
+    color:var(--dg);
+    letter-spacing:1px;
+  }
 
-/* grid */
-.grid{width:100%;max-width:980px;display:grid;grid-template-columns:1.05fr .95fr;gap:20px;margin-top:20px;align-items:start}
-@media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .status-dot {
+    width:7px;height:7px;
+    border-radius:50%;
+    background:var(--g);
+    box-shadow:0 0 6px var(--g);
+    animation: pulse 1.5s infinite;
+  }
 
-.panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden}
-.chrome{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#020a04;border-bottom:1px solid var(--border)}
-.chrome .cdot{width:9px;height:9px;border-radius:50%;background:#0a2914}
-.chrome .ctitle{margin-left:6px;font-size:10.5px;color:var(--text-dim);letter-spacing:1px}
-.chrome .ccount{margin-left:auto;font-size:10px;color:var(--green-dim);border:1px solid var(--border);padding:2px 7px;border-radius:10px}
-.body{padding:20px 20px 22px}
-.prompt-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--green-dim);margin-bottom:9px}
-.prompt-row .arrow{color:var(--green)}
-.input-row{display:flex;gap:8px;margin-bottom:6px}
-.input-row input{
-  flex:1;min-width:0;background:#010601;border:1px solid var(--border);color:var(--green);
-  font-family:inherit;font-size:15px;padding:12px;border-radius:3px;outline:none;letter-spacing:1px;
-}
-.input-row input::placeholder{color:#1a3d24}
-.input-row input:focus{border-color:var(--green-dim);box-shadow:0 0 0 1px var(--green-low)}
-.btn{
-  background:var(--green);color:#000;border:none;
-  font-family:inherit;font-weight:800;font-size:12.5px;letter-spacing:2px;
-  padding:0 18px;border-radius:3px;cursor:pointer;
-  transition:transform .12s,box-shadow .12s;white-space:nowrap;
-}
-.btn:hover{box-shadow:0 0 22px rgba(0,255,65,.5);transform:translateY(-1px)}
-.btn:disabled{background:#0a2914;color:#254d34;cursor:not-allowed;box-shadow:none;transform:none}
-.hint{font-size:10px;color:#254d34;letter-spacing:.5px;margin-bottom:2px}
+  @keyframes pulse {
+    0%,100% { opacity:1; }
+    50% { opacity:0.3; }
+  }
 
-.console{margin-top:16px;border-top:1px dashed var(--border);padding-top:14px;font-size:12px;line-height:1.95;display:none}
-.console.show{display:block}
-.console .line{opacity:0;animation:type-in .2s forwards;display:flex;align-items:center;gap:8px}
-.console .line.err{color:var(--red)}
-.console .line.ok{color:var(--green)}
-.console .line .lprefix{color:var(--text-dim2)}
-.console .line .spinner{display:inline-block;width:9px;height:9px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--amber);animation:spin .6s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes type-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+  .ip-text {
+    font-size:9px;
+    color:var(--ddg);
+    letter-spacing:1px;
+  }
 
-.success-banner{display:none;margin-top:16px;text-align:center;padding:14px;border:1px solid var(--green);border-radius:4px;background:rgba(0,255,65,.05);color:var(--green);font-weight:700;letter-spacing:2px;font-size:12px;text-shadow:0 0 14px rgba(0,255,65,.5)}
-.success-banner.show{display:block;animation:grant .4s ease}
-@keyframes grant{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+  /* ── HERO ── */
+  .hero {
+    text-align:center;
+    padding: 40px 20px 30px;
+    border-bottom: 1px solid var(--border);
+  }
 
-.sess-list{max-height:380px;overflow-y:auto;padding:6px}
-.sess-list::-webkit-scrollbar{width:6px}
-.sess-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-.sess-empty{padding:30px 16px;text-align:center;color:var(--text-dim2);font-size:11.5px;line-height:1.8}
-.sess-row{display:flex;align-items:center;gap:10px;padding:11px 12px;margin:0 8px 8px;background:#020a04;border:1px solid var(--border);border-radius:4px;font-size:12px}
-.sess-row .ind{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 1.6s infinite}
-.sess-row.pending .ind{background:var(--amber);box-shadow:0 0 7px var(--amber)}
-.sess-row.dead .ind{background:var(--red);box-shadow:0 0 7px var(--red);animation:none}
-.sess-row .num{color:var(--green-dim);letter-spacing:.5px;flex:1}
-.sess-row .stat{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);border:1px solid var(--border);padding:3px 7px;border-radius:10px}
-.sess-row.pending .stat{color:var(--amber);border-color:#5a3d00}
-.sess-row.dead .stat{color:var(--red);border-color:#5a1f26}
-.sess-foot{padding:10px 18px 16px;font-size:10px;color:var(--text-dim2);border-top:1px solid var(--border);display:flex;justify-content:space-between}
+  .hero-title {
+    font-family:'Orbitron',monospace;
+    font-size:clamp(28px,8vw,56px);
+    font-weight:900;
+    letter-spacing:10px;
+    color:var(--g);
+    text-shadow: 0 0 30px var(--g), 0 0 60px var(--dg);
+    animation: flicker 4s infinite;
+  }
 
-/* code dock */
-.code-dock{position:fixed;left:0;right:0;bottom:0;z-index:10;display:none;background:linear-gradient(180deg,rgba(0,12,5,.96),rgba(0,8,3,.99));border-top:1px solid var(--green-low);box-shadow:0 -10px 40px rgba(0,0,0,.6);backdrop-filter:blur(6px)}
-.code-dock.show{display:block;animation:dockUp .35s ease}
-@keyframes dockUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-.code-dock-inner{max-width:980px;margin:0 auto;padding:14px 20px 18px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
-.code-dock .label{font-size:9.5px;letter-spacing:3px;color:var(--text-dim)}
-.code-dock .code{font-size:clamp(22px,5vw,30px);font-weight:800;color:var(--green);letter-spacing:6px;text-shadow:0 0 16px rgba(0,255,65,.55)}
-.code-dock .meta{flex:1;min-width:180px;font-size:11px;color:var(--text-dim);line-height:1.7}
-.code-dock .meta b{color:var(--green-dim)}
-.code-dock .timer{font-size:11px;color:var(--amber);border:1px solid #5a3d00;padding:4px 9px;border-radius:12px;white-space:nowrap}
-.code-dock .copy{background:transparent;border:1px solid var(--border);color:var(--text-dim);font-family:inherit;font-size:10px;letter-spacing:1px;padding:7px 12px;border-radius:3px;cursor:pointer}
-.code-dock .copy:hover{border-color:var(--green-dim);color:var(--green-dim)}
-.code-dock .close{background:transparent;border:none;color:var(--text-dim2);font-size:16px;cursor:pointer;padding:0 4px}
+  @keyframes flicker {
+    0%,95%,100% { opacity:1; }
+    96% { opacity:0.7; }
+    97% { opacity:1; }
+    98% { opacity:0.4; }
+    99% { opacity:1; }
+  }
 
-/* unmute */
-#unmuteBtn{position:fixed;bottom:80px;right:20px;z-index:20;background:rgba(0,10,4,.92);border:1px solid var(--green-low);color:var(--text-dim);font-family:inherit;font-size:10px;letter-spacing:1.5px;padding:8px 14px;border-radius:3px;cursor:pointer;display:none;backdrop-filter:blur(4px);transition:border-color .15s,color .15s}
-#unmuteBtn:hover{border-color:var(--green-dim);color:var(--green-dim)}
-#unmuteBtn.show{display:flex;align-items:center;gap:6px}
+  .hero-sub {
+    font-size:clamp(9px,2.5vw,12px);
+    color:var(--ddg);
+    letter-spacing:5px;
+    margin-top:8px;
+    text-transform:uppercase;
+  }
 
-footer{position:relative;z-index:3;margin-top:30px;text-align:center;font-size:10px;color:#1a3d24;letter-spacing:1px}
-footer b{color:var(--green-dim)}
+  .hero-divider {
+    margin: 20px auto;
+    width: min(500px, 80vw);
+    height:1px;
+    background: linear-gradient(90deg, transparent, var(--g), transparent);
+  }
 
-@media(prefers-reduced-motion:reduce){
-  #boot{display:none}
-  .wrap{opacity:1}
-  .glitching .ghost{display:none}
-  .topbar .dot,.sess-row .ind{animation:none}
-  #yt-bg iframe{display:none}
-}
+  .hero-stats {
+    display:flex;
+    justify-content:center;
+    gap:clamp(16px,5vw,50px);
+    flex-wrap:wrap;
+    margin-top:16px;
+  }
+
+  .hero-stat {
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+  }
+
+  .hero-stat-val {
+    font-family:'Orbitron',monospace;
+    font-size:clamp(16px,4vw,24px);
+    font-weight:700;
+    color:var(--g);
+    text-shadow:0 0 10px var(--g);
+  }
+
+  .hero-stat-label {
+    font-size:9px;
+    color:var(--ddg);
+    letter-spacing:2px;
+  }
+
+  /* ── GRID MENU ── */
+  .menu-section {
+    padding: 30px 16px;
+    max-width:800px;
+    margin:0 auto;
+  }
+
+  .menu-title {
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:4px;
+    text-align:center;
+    margin-bottom:20px;
+    text-transform:uppercase;
+  }
+
+  .menu-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+
+  .menu-card {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 20px 16px;
+    cursor:pointer;
+    position:relative;
+    overflow:hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  .menu-card::before {
+    content:'';
+    position:absolute;
+    top:0;left:-100%;
+    width:100%;height:100%;
+    background: linear-gradient(90deg, transparent, rgba(0,255,65,0.04), transparent);
+    transition: left 0.4s;
+  }
+
+  .menu-card:hover::before,
+  .menu-card:active::before {
+    left:100%;
+  }
+
+  .menu-card:hover, .menu-card:active {
+    border-color: var(--dg);
+    box-shadow: 0 0 20px rgba(0,255,65,0.15), inset 0 0 20px rgba(0,255,65,0.03);
+  }
+
+  .menu-card-icon {
+    font-size:22px;
+  }
+
+  .menu-card-title {
+    font-family:'Orbitron',monospace;
+    font-size:clamp(10px,3vw,13px);
+    font-weight:700;
+    color:var(--g);
+    letter-spacing:2px;
+  }
+
+  .menu-card-desc {
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:1px;
+    line-height:1.5;
+  }
+
+  .menu-card-arrow {
+    position:absolute;
+    bottom:12px;
+    right:14px;
+    font-size:14px;
+    color:var(--ddg);
+  }
+
+  /* ── PAGES ── */
+  .page {
+    display:none;
+    position:relative;
+    z-index:2;
+    min-height:100vh;
+  }
+
+  .page.active { display:block; }
+
+  .page-header {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,3,0,0.95);
+    position:sticky;
+    top:0;
+    z-index:50;
+  }
+
+  .back-btn {
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--dg);
+    font-family:'Share Tech Mono',monospace;
+    font-size:11px;
+    padding:5px 12px;
+    cursor:pointer;
+    letter-spacing:2px;
+    transition:border-color 0.2s;
+  }
+
+  .back-btn:hover { border-color:var(--g); color:var(--g); }
+
+  .page-title {
+    font-family:'Orbitron',monospace;
+    font-size:clamp(12px,3.5vw,16px);
+    font-weight:700;
+    letter-spacing:4px;
+    color:var(--g);
+    text-shadow:0 0 10px var(--g);
+  }
+
+  .page-content {
+    padding:16px;
+    max-width:700px;
+    margin:0 auto;
+  }
+
+  /* ── INFO CARDS ── */
+  .info-card {
+    border:1px solid var(--border);
+    background:var(--panel);
+    padding:14px 16px;
+    margin-bottom:10px;
+  }
+
+  .info-card-title {
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:3px;
+    border-bottom:1px solid var(--border);
+    padding-bottom:6px;
+    margin-bottom:10px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+
+  .info-row {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:4px 0;
+    border-bottom:1px solid #0a1a0a;
+    font-size:11px;
+  }
+
+  .info-row:last-child { border-bottom:none; }
+  .info-label { color:#4a8a4a; }
+  .info-val { color:#c8ffc8; display:flex;align-items:center;gap:6px; }
+
+  /* ── PAIRING PAGE ── */
+  .pair-box {
+    border:1px solid var(--border);
+    background:var(--panel);
+    padding:20px;
+    margin-bottom:12px;
+    text-align:center;
+  }
+
+  .pair-input {
+    width:100%;
+    background:#000500;
+    border:1px solid var(--border);
+    color:var(--g);
+    font-family:'Share Tech Mono',monospace;
+    font-size:14px;
+    padding:12px 14px;
+    outline:none;
+    letter-spacing:3px;
+    margin:12px 0;
+    transition:border-color 0.2s;
+  }
+
+  .pair-input:focus { border-color:var(--g); box-shadow:0 0 10px rgba(0,255,65,0.1); }
+
+  .pair-btn {
+    width:100%;
+    background:transparent;
+    border:1px solid var(--g);
+    color:var(--g);
+    font-family:'Orbitron',monospace;
+    font-size:12px;
+    font-weight:700;
+    padding:13px;
+    cursor:pointer;
+    letter-spacing:4px;
+    text-transform:uppercase;
+    transition:background 0.2s, box-shadow 0.2s;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .pair-btn:hover {
+    background:rgba(0,255,65,0.07);
+    box-shadow:0 0 20px rgba(0,255,65,0.2);
+  }
+
+  .pair-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  .pair-code-display {
+    font-family:'Orbitron',monospace;
+    font-size:clamp(22px,6vw,36px);
+    font-weight:900;
+    color:var(--g);
+    text-shadow:0 0 20px var(--g);
+    letter-spacing:10px;
+    padding:20px;
+    border:1px solid var(--dg);
+    background:#000800;
+    margin:16px 0;
+    display:none;
+    word-break:break-all;
+    animation: flicker 3s infinite;
+  }
+
+  .pair-warning {
+    font-size:10px;
+    color:var(--yellow);
+    letter-spacing:1px;
+    padding:8px;
+    border:1px solid #3a3000;
+    background:#0f0a00;
+    margin-top:8px;
+  }
+
+  .pair-steps {
+    text-align:left;
+    font-size:11px;
+    color:var(--ddg);
+    line-height:2;
+    letter-spacing:1px;
+  }
+
+  /* ── AI PAGE ── */
+  .ai-chat-wrap {
+    display:flex;
+    flex-direction:column;
+    height:calc(100vh - 60px);
+  }
+
+  .ai-chat-messages {
+    flex:1;
+    overflow-y:auto;
+    padding:16px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  .ai-chat-messages::-webkit-scrollbar { width:4px; }
+  .ai-chat-messages::-webkit-scrollbar-track { background:#000; }
+  .ai-chat-messages::-webkit-scrollbar-thumb { background:var(--ddg); }
+
+  .msg {
+    max-width:85%;
+    padding:10px 14px;
+    font-size:12px;
+    line-height:1.7;
+    letter-spacing:0.5px;
+  }
+
+  .msg.bot {
+    align-self:flex-start;
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:#c8ffc8;
+    border-left:2px solid var(--g);
+  }
+
+  .msg.user {
+    align-self:flex-end;
+    border:1px solid #1a3a1a;
+    background:#010f01;
+    color:var(--g);
+    border-right:2px solid var(--dg);
+  }
+
+  .msg-label {
+    font-size:9px;
+    color:var(--ddg);
+    letter-spacing:2px;
+    margin-bottom:5px;
+  }
+
+  .typing-indicator {
+    display:none;
+    align-self:flex-start;
+    padding:10px 14px;
+    border:1px solid var(--border);
+    background:var(--panel);
+    border-left:2px solid var(--g);
+    font-size:11px;
+    color:var(--ddg);
+    letter-spacing:2px;
+  }
+
+  .typing-indicator.show { display:block; }
+
+  .ai-input-bar {
+    display:flex;
+    gap:8px;
+    padding:12px 16px;
+    border-top:1px solid var(--border);
+    background:rgba(0,3,0,0.98);
+  }
+
+  .ai-input {
+    flex:1;
+    background:#000500;
+    border:1px solid var(--border);
+    color:var(--g);
+    font-family:'Share Tech Mono',monospace;
+    font-size:12px;
+    padding:10px 12px;
+    outline:none;
+    letter-spacing:1px;
+    resize:none;
+    height:42px;
+    transition:border-color 0.2s;
+  }
+
+  .ai-input:focus { border-color:var(--dg); }
+
+  .ai-send-btn {
+    background:transparent;
+    border:1px solid var(--g);
+    color:var(--g);
+    font-family:'Orbitron',monospace;
+    font-size:10px;
+    font-weight:700;
+    padding:0 16px;
+    cursor:pointer;
+    letter-spacing:2px;
+    transition:background 0.2s;
+    white-space:nowrap;
+  }
+
+  .ai-send-btn:hover { background:rgba(0,255,65,0.08); }
+  .ai-send-btn:disabled { opacity:0.3; cursor:not-allowed; }
+
+  /* ── PANEL PAGE ── */
+  .panel-tabs {
+    display:flex;
+    overflow-x:auto;
+    border-bottom:1px solid var(--border);
+    background:rgba(0,3,0,0.95);
+    padding:0 10px;
+    scrollbar-width:none;
+  }
+
+  .panel-tabs::-webkit-scrollbar { display:none; }
+
+  .ptab {
+    background:transparent;
+    border:none;
+    border-bottom:2px solid transparent;
+    color:#4a7a4a;
+    font-family:'Share Tech Mono',monospace;
+    font-size:10px;
+    padding:10px 14px;
+    cursor:pointer;
+    letter-spacing:2px;
+    white-space:nowrap;
+    transition:color 0.2s;
+  }
+
+  .ptab.active {
+    border-bottom:2px solid var(--g);
+    color:var(--g);
+  }
+
+  .ptab-content { display:none; padding:14px; }
+  .ptab-content.active { display:block; }
+
+  /* ── FOOTER ── */
+  .footer {
+    text-align:center;
+    padding:20px;
+    border-top:1px solid var(--border);
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:3px;
+    margin-top:20px;
+  }
+
+  /* ── UTILS ── */
+  .ok { color:var(--g); }
+  .fail { color:var(--red); }
+  .warn { color:var(--yellow); }
+
+  .terminal-line {
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:1px;
+    margin:2px 0;
+  }
+
+  .terminal-line::before { content:'> '; color:var(--g); }
+
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  .section-divider {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:16px 0 10px;
+    font-size:10px;
+    color:var(--ddg);
+    letter-spacing:3px;
+  }
+  .section-divider::before,
+  .section-divider::after {
+    content:'';flex:1;height:1px;
+    background:linear-gradient(90deg,transparent,var(--border));
+  }
+  .section-divider::after {
+    background:linear-gradient(90deg,var(--border),transparent);
+  }
+
+  /* ── MUSIC PLAYER ── */
+  #yt-player-wrap {
+    position: fixed;
+    left: -9999px;
+    top: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
 
-<!-- ══ BOOT SEQUENCE OVERLAY ══════════════════════════════════════════════ -->
-<div id="boot">
-  <div id="bootCode"></div>
-  <div id="hackBox">
-    <div id="warnFlash"></div>
-    <div id="scanBar"></div>
-    <div id="hackTitle">INITIALIZING SYSTEM</div>
-    <div id="hackSub">CYBER X · MULTI-SESSION GATEWAY v4.2</div>
-    <div id="barWrap"><div id="bar"></div></div>
-    <div id="barPct">0%</div>
-    <div id="hackStatus">Establishing secure channel…</div>
-    <div id="bootLog"></div>
-  </div>
-</div>
-
-<!-- ══ YT BACKGROUND ══════════════════════════════════════════════════════ -->
-<div id="yt-bg">
-  <iframe id="ytFrame"
-    src="https://www.youtube.com/embed/mh4AQkw4Jjc?autoplay=1&mute=1&loop=1&playlist=mh4AQkw4Jjc&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&enablejsapi=1"
-    allow="autoplay;encrypted-media" title="bg"></iframe>
-</div>
-
 <canvas id="matrix"></canvas>
-<div class="scanlines"></div>
-<div class="vignette"></div>
-<button id="unmuteBtn">🔇 <span id="unmuteLbl">UNMUTE</span></button>
 
-<div class="wrap" id="mainWrap">
-  <div class="topbar">
-    <div class="seg"><i class="dot" id="netDot"></i><span id="netNodes">connecting…</span></div>
-    <div class="seg" id="netUptime"></div>
-    <div class="seg" id="netMem"></div>
-    <button class="sound-toggle" id="soundToggle">🔇 <span>AUDIO OFF</span></button>
-  </div>
-
-  <div class="brand">
-    <div class="brand-stack" id="brandStack">
-      <pre class="ghost g1" aria-hidden="true">
- ██████╗██╗   ██╗██████╗ ███████╗██████╗     ██╗  ██╗
-██╔════╝╚██╗ ██╔╝██╔══██╗██╔════╝██╔══██╗    ╚██╗██╔╝
-██║      ╚████╔╝ ██████╔╝█████╗  ██████╔╝     ╚███╔╝
-██║       ╚██╔╝  ██╔══██╗██╔══╝  ██╔══██╗     ██╔██╗
-╚██████╗   ██║   ██████╔╝███████╗██║  ██║    ██╔╝ ██╗
- ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝</pre>
-      <pre class="ghost g2" aria-hidden="true">
- ██████╗██╗   ██╗██████╗ ███████╗██████╗     ██╗  ██╗
-██╔════╝╚██╗ ██╔╝██╔══██╗██╔════╝██╔══██╗    ╚██╗██╔╝
-██║      ╚████╔╝ ██████╔╝█████╗  ██████╔╝     ╚███╔╝
-██║       ╚██╔╝  ██╔══██╗██╔══╝  ██╔══██╗     ██╔██╗
-╚██████╗   ██║   ██████╔╝███████╗██║  ██║    ██╔╝ ██╗
- ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝</pre>
-      <pre>
- ██████╗██╗   ██╗██████╗ ███████╗██████╗     ██╗  ██╗
-██╔════╝╚██╗ ██╔╝██╔══██╗██╔════╝██╔══██╗    ╚██╗██╔╝
-██║      ╚████╔╝ ██████╔╝█████╗  ██████╔╝     ╚███╔╝
-██║       ╚██╔╝  ██╔══██╗██╔══╝  ██╔══██╗     ██╔██╗
-╚██████╗   ██║   ██████╔╝███████╗██║  ██║    ██╔╝ ██╗
- ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝</pre>
+<!-- ACCESS GRANTED OVERLAY -->
+<div id="access-screen">
+  <canvas id="access-canvas"></canvas>
+  <div class="access-label" id="access-label">INITIALIZING CYBER X SYSTEM...</div>
+  <div class="access-bar-wrap">
+    <div class="access-bar-bg">
+      <div class="access-bar-fill" id="access-bar"></div>
     </div>
-    <div class="tagline">real-time <span>whatsapp</span> gateway · multi-session</div>
+    <div class="access-pct" id="access-pct">0%</div>
   </div>
-
-  <!-- scrolling hacker ticker -->
-  <div id="hackTicker"><span id="tickerInner">ENCRYPTING DATA STREAM… NODE AUTHENTICATION PASSED… SSL HANDSHAKE COMPLETE… BYPASSING FIREWALL LAYER 3… SPOOFING MAC ADDRESS… INJECTING PAYLOAD… KERNEL EXPLOIT LOADED… ESTABLISHING BACKDOOR… SCANNING OPEN PORTS 22/80/443/8080… ARP CACHE POISONED… SESSION HIJACK INITIATED… ZERO-DAY DEPLOYED… ROOT ACCESS GRANTED…</span></div>
-
-  <div class="sentinel" id="sentinel">
-    <div class="sentinel-canvas-wrap">
-      <canvas id="sentinelCanvas"></canvas>
-
-      <!-- mini hack progress inside sentinel -->
-      <div id="miniHack">
-        <div id="miniHackTitle">HACKING IN PROGRESS</div>
-        <div id="miniBarWrap"><div id="miniBar"></div></div>
-        <div id="miniPct">0%</div>
-      </div>
-
-      <div class="lock-overlay" id="lockOverlay">
-        <svg viewBox="0 0 64 64" fill="none"><path class="lock-shackle" d="M20 28V20C20 13.373 25.373 8 32 8C38.627 8 44 13.373 44 20V28" stroke-width="5" stroke-linecap="round"/><rect class="lock-body" x="14" y="28" width="36" height="28" rx="5"/><circle cx="32" cy="40" r="4" fill="#000"/><rect x="30" y="40" width="4" height="8" rx="2" fill="#000"/></svg>
-      </div>
-
-      <!-- IP trace widget -->
-      <div id="ipTrace">
-        TRACING NODE…<br>
-        IP: <span class="ipt" id="ipVal">...</span><br>
-        LOC: <span id="locVal">...</span><br>
-        STATUS: <span style="color:var(--green)">ACTIVE</span>
-      </div>
-    </div>
-    <div class="sentinel-caption">node status: <b id="lockCaption">SCANNING</b></div>
-  </div>
-
-  <div class="grid">
-    <div class="panel">
-      <div class="chrome">
-        <div class="cdot"></div><div class="cdot"></div><div class="cdot"></div>
-        <div class="ctitle">root@cyberx:~# ./pair.sh</div>
-      </div>
-      <div class="body">
-        <div class="prompt-row"><span class="arrow">$</span> link_device --target</div>
-        <div class="input-row">
-          <input id="phoneInput" type="tel" inputmode="numeric" placeholder="2348012345678" maxlength="16" autocomplete="off">
-          <button class="btn" id="pairBtn">EXECUTE</button>
-        </div>
-        <div class="hint">country code + number · no + or spaces</div>
-        <div class="console" id="console"></div>
-        <div class="success-banner" id="successBanner">⚡ ACCESS GRANTED — DEVICE LINKED</div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="chrome">
-        <div class="cdot"></div><div class="cdot"></div><div class="cdot"></div>
-        <div class="ctitle">active_sessions.log</div>
-        <div class="ccount" id="sessCount">0</div>
-      </div>
-      <div class="sess-list" id="sessList">
-        <div class="sess-empty">no sessions linked yet —<br>pair a number to populate this feed</div>
-      </div>
-      <div class="sess-foot">
-        <span id="sessFootLeft">last sync —</span>
-        <span id="sessFootRight">auto-refresh 5s</span>
-      </div>
-    </div>
-  </div>
-
-  <footer>Built by <b>Charles Tech</b> &copy; CYBER X — unauthorized access is half the fun</footer>
+  <div class="access-granted-text" id="access-granted">ACCESS GRANTED</div>
 </div>
 
-<div class="code-dock" id="codeDock">
-  <div class="code-dock-inner">
-    <div><div class="label">PAIRING CODE</div><div class="code" id="codeText">········</div></div>
-    <div class="meta">target <b id="codeTarget">—</b><br>enter in Linked Devices before expiry</div>
-    <div class="timer" id="codeTimer">expires in 60s</div>
-    <button class="copy" id="codeCopy">COPY</button>
-    <button class="close" id="codeClose">✕</button>
+<!-- MAIN APP -->
+<div id="app" style="display:none;">
+
+  <!-- HOME PAGE -->
+  <div id="page-home" class="page active">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-brand">⬣ CYBER X</div>
+        <div class="topbar-sub">ENTERPRISE WHATSAPP INFRASTRUCTURE</div>
+      </div>
+      <div class="topbar-right">
+        <div class="status-pill"><div class="status-dot"></div> ALL SYSTEMS ONLINE</div>
+        <div class="ip-text" id="ip-display">STATUS: CONNECTED</div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-title">CYBER X</div>
+      <div class="hero-sub">Enterprise WhatsApp Infrastructure — Est. 2025</div>
+      <div class="hero-divider"></div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-val" id="stat-uptime">99.98%</div>
+          <div class="hero-stat-label">UPTIME</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">3</div>
+          <div class="hero-stat-label">SESSIONS</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">v2.0</div>
+          <div class="hero-stat-label">VERSION</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">NG</div>
+          <div class="hero-stat-label">REGION</div>
+        </div>
+      </div>
+      <div style="margin-top:16px; font-size:10px; color:var(--ddg); letter-spacing:2px;">
+        <span class="terminal-line">SECURITY LEVEL: MAXIMUM</span>
+        <span class="terminal-line">DEVELOPER: CHARLES CHUKWU</span>
+        <span class="terminal-line">STATUS: OPERATIONAL <span class="blink">█</span></span>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <div class="menu-title">▸ SELECT MODULE TO INITIALIZE</div>
+      <div class="menu-grid">
+        <div class="menu-card" onclick="enterSection('pairing')">
+          <div class="menu-card-icon">📱</div>
+          <div class="menu-card-title">PAIRING CODE</div>
+          <div class="menu-card-desc">Connect your WhatsApp session to the CYBER X network</div>
+          <div class="menu-card-arrow">▶</div>
+        </div>
+        <div class="menu-card" onclick="enterSection('ai')">
+          <div class="menu-card-icon">🤖</div>
+          <div class="menu-card-title">SHIVAN AI</div>
+          <div class="menu-card-desc">Gemini-powered AI assistant. Learn about CYBER X and get help</div>
+          <div class="menu-card-arrow">▶</div>
+        </div>
+        <div class="menu-card" onclick="enterSection('session')">
+          <div class="menu-card-icon">💾</div>
+          <div class="menu-card-title">SESSION</div>
+          <div class="menu-card-desc">Monitor active WhatsApp sessions and connection health</div>
+          <div class="menu-card-arrow">▶</div>
+        </div>
+        <div class="menu-card" onclick="enterSection('panel')">
+          <div class="menu-card-icon">⬣</div>
+          <div class="menu-card-title">CYBER PANEL</div>
+          <div class="menu-card-desc">Full infrastructure dashboard — performance, storage, security</div>
+          <div class="menu-card-arrow">▶</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™ — ALL RIGHTS RESERVED — CHARLES CHUKWU
+    </div>
   </div>
+
+  <!-- PAIRING PAGE -->
+  <div id="page-pairing" class="page">
+    <div class="page-header">
+      <button class="back-btn" onclick="goHome()">◀ BACK</button>
+      <div class="page-title">📱 PAIRING CODE</div>
+    </div>
+    <div class="page-content">
+      <div class="info-card">
+        <div class="info-card-title">⬣ SYSTEM STATUS</div>
+        <div class="info-row"><span class="info-label">Bot Engine</span><span class="info-val"><span class="ok">✅</span> Running</span></div>
+        <div class="info-row"><span class="info-label">WhatsApp Gateway</span><span class="info-val"><span id="wa-status-icon">⟳</span> <span id="wa-status-text">Checking...</span></span></div>
+        <div class="info-row"><span class="info-label">Redis Storage</span><span class="info-val"><span id="redis-status-icon">⟳</span> <span id="redis-status-text">Checking...</span></span></div>
+        <div class="info-row"><span class="info-label">Session Slots</span><span class="info-val"><span class="ok">3 Available</span></span></div>
+      </div>
+
+      <div class="pair-box">
+        <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
+        <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Enter your WhatsApp number with country code</div>
+        <input class="pair-input" id="phone-input" type="tel" placeholder="234XXXXXXXXXX" maxlength="15"/>
+        <button class="pair-btn" id="pair-btn" onclick="requestPairCode()">
+          ▶ GENERATE PAIRING CODE
+        </button>
+        <div class="pair-code-display" id="pair-code-display"></div>
+        <div id="pair-status" style="font-size:11px;color:var(--ddg);margin-top:8px;letter-spacing:1px;"></div>
+      </div>
+
+      <div class="pair-warning">
+        ⚠ SECURITY NOTICE: Pairing codes expire in 60 seconds. Never share your code with anyone. CYBER X will never ask for your password.
+      </div>
+
+      <div class="section-divider">HOW TO PAIR</div>
+      <div class="info-card">
+        <div class="pair-steps">
+          <div>> Enter your number above (with country code)</div>
+          <div>> Tap GENERATE PAIRING CODE</div>
+          <div>> Open WhatsApp on your phone</div>
+          <div>> Go to Settings → Linked Devices</div>
+          <div>> Tap "Link with phone number"</div>
+          <div>> Enter the 8-digit code shown above</div>
+          <div>> Wait for CYBER X to confirm connection</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI PAGE -->
+  <div id="page-ai" class="page">
+    <div class="page-header">
+      <button class="back-btn" onclick="goHome()">◀ BACK</button>
+      <div class="page-title">🤖 SHIVAN AI</div>
+      <div style="margin-left:auto;font-size:9px;color:var(--ddg);letter-spacing:2px;">GEMINI POWERED</div>
+    </div>
+    <div class="ai-chat-wrap">
+      <div class="ai-chat-messages" id="chat-messages">
+        <div class="msg bot">
+          <div class="msg-label">◈ SHIVAN AI — ONLINE</div>
+          Greetings. I am <span style="color:var(--g)">Shivan</span> — the official AI assistant for CYBER X, powered by Google Gemini and built by <span style="color:var(--g)">Charles Chukwu</span>.<br><br>
+          I can help you with:<br>
+          • Learning about CYBER X and its features<br>
+          • WhatsApp bot setup and pairing<br>
+          • Commands and how to use the bot<br>
+          • General questions about the platform<br><br>
+          How can I assist you today?
+        </div>
+      </div>
+      <div class="typing-indicator" id="typing">◈ SHIVAN IS PROCESSING<span class="blink">...</span></div>
+      <div class="ai-input-bar">
+        <textarea class="ai-input" id="ai-input" placeholder="Type your message..." rows="1" onkeydown="handleAIKey(event)"></textarea>
+        <button class="ai-send-btn" id="ai-send" onclick="sendAIMessage()">SEND ▶</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SESSION PAGE -->
+  <div id="page-session" class="page">
+    <div class="page-header">
+      <button class="back-btn" onclick="goHome()">◀ BACK</button>
+      <div class="page-title">💾 SESSION MONITOR</div>
+    </div>
+    <div class="page-content">
+      <div id="session-cards">
+        <div style="text-align:center;padding:30px;color:var(--ddg);letter-spacing:2px;font-size:11px;">
+          ⟳ SCANNING SESSIONS...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL PAGE -->
+  <div id="page-panel" class="page">
+    <div class="page-header">
+      <button class="back-btn" onclick="goHome()">◀ BACK</button>
+      <div class="page-title">⬣ CYBER PANEL</div>
+    </div>
+    <div class="panel-tabs" id="panel-tabs">
+      <button class="ptab active" onclick="switchPTab(this,'pt-overview')">OVERVIEW</button>
+      <button class="ptab" onclick="switchPTab(this,'pt-network')">NETWORK</button>
+      <button class="ptab" onclick="switchPTab(this,'pt-performance')">PERF</button>
+      <button class="ptab" onclick="switchPTab(this,'pt-security')">SECURITY</button>
+      <button class="ptab" onclick="switchPTab(this,'pt-storage')">STORAGE</button>
+      <button class="ptab" onclick="switchPTab(this,'pt-system')">SYSTEM</button>
+    </div>
+
+    <div id="pt-overview" class="ptab-content active">
+      <div class="info-card">
+        <div class="info-card-title">🟢 PLATFORM STATUS</div>
+        <div class="info-row"><span class="info-label">Service State</span><span class="info-val ok" id="p-state">Loading...</span></div>
+        <div class="info-row"><span class="info-label">Availability</span><span class="info-val" id="p-avail">—</span></div>
+        <div class="info-row"><span class="info-label">Current Status</span><span class="info-val" id="p-status">—</span></div>
+        <div class="info-row"><span class="info-label">Deployment</span><span class="info-val" id="p-deploy">—</span></div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">📡 LIVE SERVICES</div>
+        <div class="info-row"><span class="info-label">WhatsApp Gateway</span><span class="info-val" id="svc-wa">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">API Services</span><span class="info-val" id="svc-api">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">Redis Cluster</span><span class="info-val" id="svc-redis">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">Backup Services</span><span class="info-val" id="svc-backup">⟳ Checking</span></div>
+      </div>
+    </div>
+
+    <div id="pt-network" class="ptab-content">
+      <div class="info-card">
+        <div class="info-card-title">🌍 GLOBAL NETWORK</div>
+        <div class="info-row"><span class="info-label">Active Sessions</span><span class="info-val" id="n-active">—</span></div>
+        <div class="info-row"><span class="info-label">Registered</span><span class="info-val" id="n-reg">—</span></div>
+        <div class="info-row"><span class="info-label">Online %</span><span class="info-val" id="n-pct">—</span></div>
+        <div class="info-row"><span class="info-label">Total Groups</span><span class="info-val" id="n-groups">—</span></div>
+        <div class="info-row"><span class="info-label">Total Contacts</span><span class="info-val" id="n-contacts">—</span></div>
+        <div class="info-row"><span class="info-label">Active Regions</span><span class="info-val" id="n-regions">—</span></div>
+      </div>
+    </div>
+
+    <div id="pt-performance" class="ptab-content">
+      <div class="info-card">
+        <div class="info-card-title">⚡ PERFORMANCE</div>
+        <div class="info-row"><span class="info-label">Current Ping</span><span class="info-val" id="pf-ping">—</span></div>
+        <div class="info-row"><span class="info-label">Avg Response</span><span class="info-val" id="pf-resp">—</span></div>
+        <div class="info-row"><span class="info-label">Memory Usage</span><span class="info-val" id="pf-mem">—</span></div>
+        <div class="info-row"><span class="info-label">CPU</span><span class="info-val" id="pf-cpu">—</span></div>
+        <div class="info-row"><span class="info-label">Efficiency</span><span class="info-val" id="pf-eff">—</span></div>
+      </div>
+    </div>
+
+    <div id="pt-security" class="ptab-content">
+      <div class="info-card">
+        <div class="info-card-title">🛡️ SECURITY CENTER</div>
+        <div class="info-row"><span class="info-label">Session Encryption</span><span class="info-val ok">✅ Active</span></div>
+        <div class="info-row"><span class="info-label">Data Protection</span><span class="info-val ok">✅ Enabled</span></div>
+        <div class="info-row"><span class="info-label">Backup Integrity</span><span class="info-val" id="sec-backup">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">Security Status</span><span class="info-val ok">✅ Protected</span></div>
+        <div class="info-row"><span class="info-label">TLS</span><span class="info-val ok">✅ Verified</span></div>
+      </div>
+    </div>
+
+    <div id="pt-storage" class="ptab-content">
+      <div class="info-card">
+        <div class="info-card-title">☁️ STORAGE — UPSTASH REDIS</div>
+        <div class="info-row"><span class="info-label">Redis Cluster</span><span class="info-val" id="st-redis">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">Session Storage</span><span class="info-val" id="st-sess">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">Backup Service</span><span class="info-val" id="st-backup">⟳ Checking</span></div>
+        <div class="info-row"><span class="info-label">cyberx:session:critical</span><span class="info-val" id="st-critical">⟳</span></div>
+        <div class="info-row"><span class="info-label">cyberx:session:cache</span><span class="info-val" id="st-cache">⟳</span></div>
+      </div>
+    </div>
+
+    <div id="pt-system" class="ptab-content">
+      <div class="info-card">
+        <div class="info-card-title">⏳ SYSTEM INFO</div>
+        <div class="info-row"><span class="info-label">Uptime</span><span class="info-val" id="sys-uptime">—</span></div>
+        <div class="info-row"><span class="info-label">Last Restart</span><span class="info-val" id="sys-restart">—</span></div>
+        <div class="info-row"><span class="info-label">Runtime State</span><span class="info-val" id="sys-state">—</span></div>
+        <div class="info-row"><span class="info-label">Current Time (UTC)</span><span class="info-val" id="sys-time">—</span></div>
+        <div class="info-row"><span class="info-label">Platform</span><span class="info-val">Render Free Tier</span></div>
+        <div class="info-row"><span class="info-label">Library</span><span class="info-val">@whiskeysockets/baileys</span></div>
+        <div class="info-row"><span class="info-label">Developer</span><span class="info-val ok">Charles Chukwu</span></div>
+      </div>
+    </div>
+
+    <div class="footer">© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™</div>
+  </div>
+
+</div><!-- end #app -->
+
+<script>
+const BOT_URL = '';  // same origin — routes are on same server
+
+/* ══════════════════════════════════════
+   MATRIX RAIN (background)
+══════════════════════════════════════ */
+(function(){
+  const c = document.getElementById('matrix');
+  const ctx = c.getContext('2d');
+  let W, H, cols, drops;
+  function init(){
+    W = c.width = window.innerWidth;
+    H = c.height = window.innerHeight;
+    cols = Math.floor(W/14);
+    drops = Array(cols).fill(1);
+  }
+  init();
+  window.addEventListener('resize', init);
+  const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノ';
+  setInterval(()=>{
+    ctx.fillStyle='rgba(0,3,0,0.05)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#00ff41';
+    ctx.font='13px Share Tech Mono';
+    drops.forEach((y,i)=>{
+      ctx.fillText(chars[Math.floor(Math.random()*chars.length)], i*14, y*14);
+      if(y*14>H && Math.random()>0.975) drops[i]=0;
+      drops[i]++;
+    });
+  }, 40);
+})();
+
+/* ══════════════════════════════════════
+   ACCESS GRANTED BOOT SEQUENCE
+══════════════════════════════════════ */
+(function(){
+  const ac = document.getElementById('access-canvas');
+  const ctx = ac.getContext('2d');
+  ac.width = window.innerWidth;
+  ac.height = window.innerHeight;
+  const cols = Math.floor(ac.width/12);
+  const drops = Array(cols).fill(1);
+  const chars = '01';
+  const anim = setInterval(()=>{
+    ctx.fillStyle='rgba(0,0,0,0.08)';
+    ctx.fillRect(0,0,ac.width,ac.height);
+    ctx.fillStyle='#00ff41';
+    ctx.font='12px Share Tech Mono';
+    drops.forEach((y,i)=>{
+      ctx.fillText(chars[Math.floor(Math.random()*2)], i*12, y*12);
+      if(y*12>ac.height && Math.random()>0.97) drops[i]=0;
+      drops[i]++;
+    });
+  },30);
+
+  const bar = document.getElementById('access-bar');
+  const pct = document.getElementById('access-pct');
+  const label = document.getElementById('access-label');
+  const granted = document.getElementById('access-granted');
+  const screen = document.getElementById('access-screen');
+
+  const messages = [
+    'INITIALIZING CYBER X SYSTEM...',
+    'LOADING SECURITY PROTOCOLS...',
+    'ESTABLISHING ENCRYPTED CHANNEL...',
+    'VERIFYING CREDENTIALS...',
+    'CONNECTING TO REDIS CLUSTER...',
+    'SYNCING SESSION DATA...',
+    'ACCESS GRANTED'
+  ];
+
+  let progress = 0;
+  let msgIdx = 0;
+
+  const interval = setInterval(()=>{
+    progress += Math.random() * 18 + 8;
+    if(progress > 100) progress = 100;
+    bar.style.width = progress + '%';
+    pct.textContent = Math.floor(progress) + '%';
+
+    const newIdx = Math.min(Math.floor(progress / 15), messages.length - 2);
+    if(newIdx !== msgIdx && newIdx < messages.length - 1){
+      msgIdx = newIdx;
+      label.textContent = messages[msgIdx];
+    }
+
+    if(progress >= 100){
+      clearInterval(interval);
+      clearInterval(anim);
+      setTimeout(()=>{
+        label.style.display = 'none';
+        document.querySelector('.access-bar-wrap').style.display = 'none';
+        granted.style.display = 'block';
+        setTimeout(()=>{
+          screen.style.transition = 'opacity 0.5s';
+          screen.style.opacity = '0';
+          setTimeout(()=>{
+            screen.style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            startServices();
+          }, 500);
+        }, 800);
+      }, 200);
+    }
+  }, 60);
+})();
+
+/* ══════════════════════════════════════
+   SECTION ENTER (mini boot per section)
+══════════════════════════════════════ */
+let currentPage = 'home';
+
+function enterSection(name){
+  const screen = document.getElementById('access-screen');
+  const bar = document.getElementById('access-bar');
+  const pct = document.getElementById('access-pct');
+  const label = document.getElementById('access-label');
+  const granted = document.getElementById('access-granted');
+  const wrap = document.querySelector('.access-bar-wrap');
+
+  // Reset
+  bar.style.width = '0%';
+  pct.textContent = '0%';
+  label.textContent = 'AUTHENTICATING MODULE...';
+  label.style.display = 'block';
+  wrap.style.display = 'block';
+  granted.style.display = 'none';
+  screen.style.opacity = '1';
+  screen.style.display = 'flex';
+
+  // Re-init binary canvas
+  const ac = document.getElementById('access-canvas');
+  const ctx = ac.getContext('2d');
+  ac.width = window.innerWidth;
+  ac.height = window.innerHeight;
+  const cols2 = Math.floor(ac.width/12);
+  const drops2 = Array(cols2).fill(1);
+  const binAnim = setInterval(()=>{
+    ctx.fillStyle='rgba(0,0,0,0.1)';
+    ctx.fillRect(0,0,ac.width,ac.height);
+    ctx.fillStyle='#00ff41';
+    ctx.font='12px Share Tech Mono';
+    drops2.forEach((y,i)=>{
+      ctx.fillText(Math.floor(Math.random()*2), i*12, y*12);
+      if(y*12>ac.height && Math.random()>0.97) drops2[i]=0;
+      drops2[i]++;
+    });
+  },25);
+
+  let p2 = 0;
+  const fast = setInterval(()=>{
+    p2 += Math.random() * 30 + 15;
+    if(p2 > 100) p2 = 100;
+    bar.style.width = p2 + '%';
+    pct.textContent = Math.floor(p2) + '%';
+    if(p2 >= 100){
+      clearInterval(fast);
+      clearInterval(binAnim);
+      label.style.display = 'none';
+      wrap.style.display = 'none';
+      granted.style.display = 'block';
+      setTimeout(()=>{
+        screen.style.transition = 'opacity 0.4s';
+        screen.style.opacity = '0';
+        setTimeout(()=>{
+          screen.style.display = 'none';
+          screen.style.transition = '';
+          showPage(name);
+          if(name === 'session') loadSessions();
+          if(name === 'panel') loadPanel();
+          if(name === 'pairing') checkPairingStatus();
+        }, 400);
+      }, 600);
+    }
+  }, 40);
+}
+
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  currentPage = name;
+}
+
+function goHome(){
+  showPage('home');
+}
+
+/* ══════════════════════════════════════
+   SERVICES STARTUP
+══════════════════════════════════════ */
+function startServices(){
+  // Update time
+  setInterval(()=>{
+    const el = document.getElementById('sys-time');
+    if(el) el.textContent = new Date().toUTCString().slice(17,25) + ' UTC';
+  }, 1000);
+  document.getElementById('sys-time') && (document.getElementById('sys-time').textContent = new Date().toUTCString().slice(17,25)+' UTC');
+
+  // Ping services
+  pingService('/health', ok=>{
+    document.getElementById('svc-wa').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('svc-api').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('p-state').innerHTML = ok ? '<span class="ok">✅ Operational</span>' : '<span class="fail">❌ Degraded</span>';
+    document.getElementById('p-status').innerHTML = ok ? '<span class="ok">Online</span>' : '<span class="fail">Offline</span>';
+    document.getElementById('p-deploy').innerHTML = ok ? '<span class="ok">Healthy</span>' : '<span class="fail">Unknown</span>';
+    document.getElementById('p-avail').textContent = ok ? '99.98%' : '—';
+    document.getElementById('wa-status-icon').textContent = ok ? '✅' : '❌';
+    document.getElementById('wa-status-text').textContent = ok ? 'Online' : 'Offline';
+    document.getElementById('wa-status-icon').className = ok ? 'ok' : 'fail';
+    document.getElementById('st-redis').innerHTML = ok ? '<span class="ok">✅ Connected</span>' : '<span class="fail">❌ Disconnected</span>';
+    document.getElementById('st-sess').innerHTML = ok ? '<span class="ok">✅ Healthy</span>' : '<span class="fail">❌ Degraded</span>';
+    document.getElementById('st-critical').innerHTML = ok ? '<span class="ok">✅ OK</span>' : '<span class="fail">❌ ERR</span>';
+    document.getElementById('st-cache').innerHTML = ok ? '<span class="ok">✅ OK</span>' : '<span class="fail">❌ ERR</span>';
+    document.getElementById('sec-backup').innerHTML = ok ? '<span class="ok">✅ Verified</span>' : '<span class="fail">❌ Failed</span>';
+    document.getElementById('sys-uptime').innerHTML = ok ? '<span class="ok">Online</span>' : '<span class="fail">Unknown</span>';
+    document.getElementById('sys-state').innerHTML = ok ? '<span class="ok">Stable</span>' : '<span class="fail">Unknown</span>';
+  });
+
+  pingService('/api/redis/status', ok=>{
+    document.getElementById('svc-redis').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('redis-status-icon').textContent = ok ? '✅' : '❌';
+    document.getElementById('redis-status-text').textContent = ok ? 'Connected' : 'Offline';
+  });
+
+  pingService('/api/backup/status', ok=>{
+    document.getElementById('svc-backup').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('st-backup').innerHTML = ok ? '<span class="ok">✅ Active</span>' : '<span class="fail">❌ Inactive</span>';
+  });
+
+  // Performance
+  fetchData('/api/performance', d=>{
+    if(d){
+      document.getElementById('pf-ping').textContent = d.ping ? d.ping+'ms' : '—';
+      document.getElementById('pf-resp').textContent = d.avgResponse ? d.avgResponse+'s' : '—';
+      document.getElementById('pf-mem').textContent = d.memoryMB ? d.memoryMB+'MB' : '—';
+      document.getElementById('pf-cpu').textContent = d.cpu || '—';
+      document.getElementById('pf-eff').textContent = d.efficiency || '—';
+    }
+  });
+
+  // Health extended
+  fetchData('/health', d=>{
+    if(d){
+      if(d.uptime) document.getElementById('sys-uptime').innerHTML = '<span class="ok">'+d.uptime+'</span>';
+      if(d.lastRestart) document.getElementById('sys-restart').textContent = d.lastRestart;
+      if(d.activeSessions) document.getElementById('n-active').textContent = d.activeSessions;
+      if(d.registeredSessions) document.getElementById('n-reg').textContent = d.registeredSessions;
+      if(d.sessionsOnline) document.getElementById('n-pct').textContent = d.sessionsOnline;
+      if(d.totalGroups) document.getElementById('n-groups').textContent = d.totalGroups;
+      if(d.totalContacts) document.getElementById('n-contacts').textContent = d.totalContacts;
+      if(d.activeRegions) document.getElementById('n-regions').textContent = d.activeRegions;
+    }
+  });
+}
+
+async function pingService(path, cb){
+  try{
+    const r = await fetch(BOT_URL + path, { signal: AbortSignal.timeout(7000) });
+    cb(r.ok);
+  } catch { cb(false); }
+}
+
+async function fetchData(path, cb){
+  try{
+    const r = await fetch(BOT_URL + path, { signal: AbortSignal.timeout(7000) });
+    if(r.ok) cb(await r.json());
+    else cb(null);
+  } catch { cb(null); }
+}
+
+/* ══════════════════════════════════════
+   PAIRING
+══════════════════════════════════════ */
+function checkPairingStatus(){
+  pingService('/health', ok=>{
+    document.getElementById('wa-status-icon').textContent = ok ? '✅' : '❌';
+    document.getElementById('wa-status-text').textContent = ok ? 'Online' : 'Offline';
+  });
+  pingService('/api/redis/status', ok=>{
+    document.getElementById('redis-status-icon').textContent = ok ? '✅' : '❌';
+    document.getElementById('redis-status-text').textContent = ok ? 'Connected' : 'Offline';
+  });
+}
+
+async function requestPairCode(){
+  const phone = document.getElementById('phone-input').value.trim().replace(/\D/g,'');
+  const btn = document.getElementById('pair-btn');
+  const status = document.getElementById('pair-status');
+  const display = document.getElementById('pair-code-display');
+
+  if(!phone || phone.length < 10){
+    status.innerHTML = '<span class="fail">⚠ Enter a valid phone number with country code</span>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⟳ GENERATING...';
+  status.innerHTML = '<span class="warn">⟳ Requesting pairing code from CYBER X server...</span>';
+  display.style.display = 'none';
+
+  try {
+    const r = await fetch(BOT_URL + '/pair?phone=' + phone, { signal: AbortSignal.timeout(30000) });
+    const data = await r.json();
+    if(data.code || data.pairingCode){
+      const code = data.code || data.pairingCode;
+      display.textContent = code;
+      display.style.display = 'block';
+      status.innerHTML = '<span class="ok">✅ Code generated! Enter it in WhatsApp within 60 seconds.</span>';
+    } else if(data.message) {
+      status.innerHTML = '<span class="fail">❌ ' + data.message + '</span>';
+    } else {
+      status.innerHTML = '<span class="fail">❌ Could not generate code. Try again.</span>';
+    }
+  } catch(e) {
+    status.innerHTML = '<span class="fail">❌ Connection failed: ' + (e.message||'Timeout') + '</span>';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ GENERATE PAIRING CODE';
+}
+
+/* ══════════════════════════════════════
+   SESSIONS
+══════════════════════════════════════ */
+const SESSIONS = ['2348011111111','2348022222222','2348033333333'];
+
+async function loadSessions(){
+  const wrap = document.getElementById('session-cards');
+  wrap.innerHTML = '<div style="text-align:center;padding:20px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⟳ CONNECTING TO SESSIONS...</div>';
+
+  const results = await Promise.all(SESSIONS.map(async phone=>{
+    try{
+      const r = await fetch(BOT_URL+'/api/session/'+phone,{signal:AbortSignal.timeout(8000)});
+      if(r.ok) return {phone, data: await r.json(), error:null};
+      return {phone, data:null, error:'HTTP '+r.status};
+    } catch(e){ return {phone, data:null, error: e.message||'Timeout'}; }
+  }));
+
+  wrap.innerHTML = results.map(({phone, data:d, error})=>`
+    <div class="info-card" style="margin-bottom:10px;">
+      <div class="info-card-title">💾 SESSION: ${phone}</div>
+      <div class="info-row"><span class="info-label">Connected</span><span class="info-val">${d?.connected ? '<span class="ok">✅ Yes</span>' : '<span class="fail">❌ No</span>'}</span></div>
+      <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${d?.phone || phone}</span></div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val">${d?.status ? '<span class="ok">'+d.status+'</span>' : (error ? '<span class="fail">'+error+'</span>' : '—')}</span></div>
+      <div class="info-row"><span class="info-label">Last Seen</span><span class="info-val">${d?.lastSeen || '—'}</span></div>
+      <div class="info-row"><span class="info-label">Redis Backup</span><span class="info-val">${d?.redisBackup ? '<span class="ok">✅ Active</span>' : '<span class="fail">❌ None</span>'}</span></div>
+      ${error ? '<div style="color:var(--red);font-size:10px;margin-top:6px;letter-spacing:1px;">⚠ '+error+'</div>' : ''}
+    </div>
+  `).join('');
+}
+
+/* ══════════════════════════════════════
+   PANEL TABS
+══════════════════════════════════════ */
+function switchPTab(btn, contentId){
+  document.querySelectorAll('.ptab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ptab-content').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(contentId).classList.add('active');
+}
+
+function loadPanel(){
+  // Already loaded by startServices(), just refresh
+  pingService('/health', ok=>{
+    document.getElementById('svc-wa').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('svc-api').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+    document.getElementById('p-state').innerHTML = ok ? '<span class="ok">✅ Operational</span>' : '<span class="fail">❌ Degraded</span>';
+  });
+  pingService('/api/redis/status', ok=>{
+    document.getElementById('svc-redis').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+  });
+  pingService('/api/backup/status', ok=>{
+    document.getElementById('svc-backup').innerHTML = ok ? '<span class="ok">✅ Online</span>' : '<span class="fail">❌ Offline</span>';
+  });
+}
+
+/* ══════════════════════════════════════
+   AI CHAT — GEMINI via /api/ai/chat
+══════════════════════════════════════ */
+const SYSTEM_PROMPT = `You are CYBER X AI — the official intelligent assistant for CYBER X, an enterprise WhatsApp bot infrastructure built by Charles Chukwu (also known as charlescoding300).
+
+ABOUT CYBER X:
+- CYBER X is a powerful multi-session WhatsApp bot built with Node.js and the Baileys library (@whiskeysockets/baileys)
+- Hosted on Render's cloud platform at https://cyber-x-y8yv.onrender.com
+- Uses Upstash Redis for session persistence and backups
+- Features include: multi-session management, AI responses (Gemini), antilink protection, welcome/goodbye messages, music/video download, Pokémon card game, slot machine, admin commands, and much more
+- Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
+
+YOUR JOB:
+- Help users understand CYBER X and its features
+- Guide users through pairing their WhatsApp to CYBER X
+- Answer questions about commands, features, and how the bot works
+- Be helpful, knowledgeable, and professional — but also friendly
+- You can share links like https://cyber-x-y8yv.onrender.com for users to access the panel
+- Keep responses concise but informative
+
+PERSONALITY: You are intelligent, precise, and speak with the confidence of a premium enterprise system. You represent Charles Chukwu's vision for next-generation WhatsApp infrastructure.`;
+
+let chatHistory = [];
+let aiThinking = false;
+
+function handleAIKey(e){
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendAIMessage(); }
+}
+
+async function sendAIMessage(){
+  if(aiThinking) return;
+  const input = document.getElementById('ai-input');
+  const text = input.value.trim();
+  if(!text) return;
+
+  input.value = '';
+  appendMsg('user', text);
+  chatHistory.push({ role:'user', content: text });
+
+  aiThinking = true;
+  document.getElementById('ai-send').disabled = true;
+  document.getElementById('typing').classList.add('show');
+  scrollChat();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const r = await fetch('/api/ai/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text, history: chatHistory.slice(-10), systemPrompt: SYSTEM_PROMPT }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    const data = await r.json();
+    const reply = data.reply || data.response || data.text || 'System error. Please try again.';
+    chatHistory.push({ role:'assistant', content: reply });
+    document.getElementById('typing').classList.remove('show');
+    appendMsg('bot', reply);
+  } catch(e) {
+    document.getElementById('typing').classList.remove('show');
+    appendMsg('bot', '❌ Connection error: ' + (e.message||'Timeout') + '\n\nMake sure the CYBER X server is running.');
+  }
+
+  aiThinking = false;
+  document.getElementById('ai-send').disabled = false;
+  scrollChat();
+}
+
+function appendMsg(role, text){
+  const wrap = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = (role==='bot' ? '<div class="msg-label">◈ SHIVAN AI</div>' : '<div class="msg-label">YOU</div>') +
+    text.replace(/\n/g,'<br>').replace(/https?:\/\/[^\s<]+/g, url=>`<a href="${url}" target="_blank" style="color:var(--cyan)">${url}</a>`);
+  wrap.appendChild(div);
+  scrollChat();
+}
+
+function scrollChat(){
+  const wrap = document.getElementById('chat-messages');
+  setTimeout(()=>{ wrap.scrollTop = wrap.scrollHeight; }, 50);
+}
+
+/* ── end of existing script ── */
+</script>
+
+<!-- HIDDEN YOUTUBE AUDIO PLAYER -->
+<div id="yt-player-wrap">
+  <div id="yt-player"></div>
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════════
-// BOOT SEQUENCE
-// ══════════════════════════════════════════════════════════════
-const bootSteps = [
-  {pct:2,  status:'Establishing secure channel…',      log:'[INIT]  loading kernel modules…'},
-  {pct:8,  status:'Bypassing firewall layer 1…',       log:'[NET]   scanning open ports 22/80/443…'},
-  {pct:15, status:'Injecting authentication bypass…',  log:'[CRYPT] AES-256 cipher loaded'},
-  {pct:22, status:'Spoofing MAC address…',             log:'[ARP]   cache poisoned: 192.168.1.1'},
-  {pct:30, status:'Decrypting target payload…',        log:'[KERN]  zero-day exploit deployed'},
-  {pct:38, status:'Establishing encrypted tunnel…',    log:'[TUN]   VPN layer 3 active'},
-  {pct:45, status:'Authenticating node cluster…',      log:'[AUTH]  RSA key exchange complete'},
-  {pct:53, status:'Loading session registry…',         log:'[SESS]  restoring linked devices…'},
-  {pct:61, status:'Compiling command modules…',        log:'[CMD]   142 commands loaded'},
-  {pct:70, status:'Injecting WhatsApp payload…',       log:'[WA]    baileys socket initialised'},
-  {pct:78, status:'Bypassing rate limiter…',           log:'[RATE]  token bucket spoofed'},
-  {pct:85, status:'Synchronising presence layer…',     log:'[PRES]  autoTyping module armed'},
-  {pct:91, status:'Verifying owner credentials…',      log:'[AUTH]  10-layer check passed ✔'},
-  {pct:97, status:'Finalising deployment…',            log:'[SYS]   CYBER X v4.2 ready'},
-  {pct:100,status:'ACCESS GRANTED',                    log:'[ROOT]  ██ SYSTEM COMPROMISED ██'},
-]
+/* ══════════════════════════════════════
+   CRIMINAL PHONK — YouTube Audio Player
+   Video ID: wUQAlBR7-K4
+══════════════════════════════════════ */
+var ytPlayer;
+var musicReady = false;
+var hasUnmuted = false;
+var YT_VIDEO_ID = 'wUQAlBR7-K4';
 
-const codeLines = [
-  'import java.time.LocalDate;','import java.time.LocalDateTime;',
-  'import java.time.format.DateTimeFormatter;','import java.util.*;',
-  'import java.util.stream.Collectors;','import java.io.*;',
-  'abstract class Person {','  protected String id;',
-  '  protected String firstName;','  protected String lastName;',
-  '  protected String email;','  protected LocalDate dob;',
-  '  public Person() {}','  public String getFullName() {',
-  '    return firstName + " " + lastName;','}',
-  'class Exploit extends Payload {','  private static final int PORT = 4444;',
-  '  String target = "192.168.0.1";','  void inject() throws Exception {',
-  '    Socket s = new Socket(target, PORT);','    Runtime.exec("/bin/sh");',
-  '}','void bypassFirewall(String ip) {',
-  '  iptables.flush();','  nat.redirect(ip, 8080);',
-  '}','String decrypt(byte[] data) {',
-  '  Cipher c = Cipher.getInstance("AES/GCM");','  return new String(c.doFinal(data));',
-  '}','// kernel privilege escalation',
-  'void escalate() {','  setuid(0); setgid(0);',
-  '  exec("/bin/bash -i");','}',
-]
+(function(){
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+})();
 
-const bootCodeEl = document.getElementById('bootCode')
-const bootLogEl  = document.getElementById('bootLog')
-const barEl      = document.getElementById('bar')
-const barPctEl   = document.getElementById('barPct')
-const hackStatus = document.getElementById('hackStatus')
-const hackTitle  = document.getElementById('hackTitle')
-const hackBoxEl  = document.getElementById('hackBox')
-
-// Fill scrolling code background
-bootCodeEl.textContent = Array(12).fill(codeLines.join('\n')).join('\n')
-
-function addBootLog(text) {
-  const d = document.createElement('div')
-  d.className = 'bl'
-  d.textContent = text
-  bootLogEl.appendChild(d)
-  // keep only last 6 lines
-  while(bootLogEl.children.length > 6) bootLogEl.removeChild(bootLogEl.firstChild)
-}
-
-async function runBoot() {
-  for(let i = 0; i < bootSteps.length; i++) {
-    const step = bootSteps[i]
-    await new Promise(r => setTimeout(r, i === bootSteps.length-1 ? 600 : 220 + Math.random()*180))
-    barEl.style.width = step.pct + '%'
-    barPctEl.textContent = step.pct + '%'
-    hackStatus.textContent = step.status
-    addBootLog(step.log)
-    if(step.pct === 100) {
-      hackTitle.textContent = '⚡ ACCESS GRANTED'
-      hackBoxEl.classList.add('flashing')
+function onYouTubeIframeAPIReady() {
+  ytPlayer = new YT.Player('yt-player', {
+    height: '1', width: '1',
+    videoId: YT_VIDEO_ID,
+    playerVars: {
+      autoplay: 1, loop: 1, playlist: YT_VIDEO_ID,
+      controls: 0, disablekb: 1, mute: 1,
+      playsinline: 1, modestbranding: 1, rel: 0
+    },
+    events: {
+      onReady: function(e) {
+        musicReady = true;
+        e.target.mute();
+        e.target.playVideo();
+      },
+      onStateChange: function(e) {
+        if(e.data === YT.PlayerState.ENDED) ytPlayer.playVideo();
+      }
     }
+  });
+}
+
+// Unmute automatically on first tap/click anywhere on the page
+document.addEventListener('click', function unmutOnce(){
+  if(musicReady && !hasUnmuted && ytPlayer) {
+    ytPlayer.unMute();
+    ytPlayer.setVolume(70);
+    hasUnmuted = true;
   }
-  // hold then fade
-  await new Promise(r => setTimeout(r, 900))
-  document.getElementById('boot').classList.add('done')
-  document.getElementById('mainWrap').classList.add('visible')
-  setTimeout(()=> document.getElementById('boot').remove(), 900)
-  startMiniHack()
-}
-runBoot()
-
-// ══════════════════════════════════════════════════════════════
-// MINI HACK PROGRESS (inside sentinel)
-// ══════════════════════════════════════════════════════════════
-const miniStatuses = [
-  'HACKING IN PROGRESS','BYPASSING ENCRYPTION','INJECTING PAYLOAD',
-  'ESCALATING PRIVILEGES','EXTRACTING DATA','COVERING TRACKS',
-  'DEPLOYING BACKDOOR','ESTABLISHING ROOT',
-]
-function startMiniHack() {
-  const miniBar  = document.getElementById('miniBar')
-  const miniPct  = document.getElementById('miniPct')
-  const miniTitle= document.getElementById('miniHackTitle')
-  let pct = 0
-  function tick() {
-    pct = (pct + Math.random()*3 + 0.5)
-    if(pct >= 100) pct = 0
-    miniBar.style.width = Math.min(pct,100).toFixed(1)+'%'
-    miniPct.textContent = Math.min(Math.floor(pct),100)+'%'
-    if(Math.random() > 0.96) miniTitle.textContent = miniStatuses[Math.floor(Math.random()*miniStatuses.length)]
-    setTimeout(tick, 80 + Math.random()*60)
+  if(musicReady && ytPlayer) {
+    var state = ytPlayer.getPlayerState();
+    if(state !== 1) ytPlayer.playVideo();
   }
-  tick()
-  // Animate fake IPs in the trace widget
-  animateIPTrace()
-}
-
-// ══════════════════════════════════════════════════════════════
-// IP TRACE WIDGET
-// ══════════════════════════════════════════════════════════════
-const fakeIPs   = ['192.168.4.21','10.0.0.137','172.16.45.3','185.220.101.45','94.23.18.7','46.101.58.203']
-const fakeLocs  = ['Lagos, NG','London, UK','Berlin, DE','Moscow, RU','New York, US','Tokyo, JP']
-function animateIPTrace() {
-  const ipVal  = document.getElementById('ipVal')
-  const locVal = document.getElementById('locVal')
-  function scramble(el, final, chars='0123456789.') {
-    let i = 0, t
-    t = setInterval(()=>{
-      el.textContent = final.split('').map((c,idx) => idx < i ? c : (chars[Math.floor(Math.random()*chars.length)]||'.')).join('')
-      if(++i > final.length){ clearInterval(t); el.textContent = final }
-    }, 40)
-  }
-  function next() {
-    const idx = Math.floor(Math.random()*fakeIPs.length)
-    scramble(ipVal,  fakeIPs[idx])
-    scramble(locVal, fakeLocs[idx], 'ABCDEFGHIJKLMNOPQRSTUVWXYZ, ')
-    setTimeout(next, 3500 + Math.random()*2000)
-  }
-  next()
-}
-
-// ══════════════════════════════════════════════════════════════
-// MATRIX
-// ══════════════════════════════════════════════════════════════
-const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-const canvas = document.getElementById('matrix')
-const ctx    = canvas.getContext('2d')
-let cols, drops
-function resize(){
-  canvas.width = window.innerWidth; canvas.height = window.innerHeight
-  cols = Math.floor(canvas.width/16)
-  drops = Array(cols).fill(0).map(()=>Math.random()*-100)
-}
-resize(); window.addEventListener('resize', resize)
-function drawMatrix(){
-  ctx.fillStyle='rgba(0,0,0,0.08)'; ctx.fillRect(0,0,canvas.width,canvas.height)
-  ctx.font='16px Share Tech Mono,monospace'
-  for(let i=0;i<cols;i++){
-    const ch=Math.random()>.5?'1':'0', x=i*16, y=drops[i]*16, f=Math.random()
-    ctx.fillStyle=f>.95?'#afffcf':(f>.7?'#00ff41':'#0a4329')
-    ctx.fillText(ch,x,y)
-    if(y>canvas.height&&Math.random()>.975) drops[i]=0
-    drops[i]++
-  }
-}
-if(!reduceMotion) setInterval(drawMatrix,45)
-
-// ══════════════════════════════════════════════════════════════
-// SENTINEL CANVAS
-// ══════════════════════════════════════════════════════════════
-const sCanvas=document.getElementById('sentinelCanvas'), sCtx=sCanvas.getContext('2d')
-let sCols,sDrops,sW,sH
-function resizeSentinel(){
-  const r=sCanvas.parentElement.getBoundingClientRect()
-  sW=sCanvas.width=r.width; sH=sCanvas.height=r.height
-  sCols=Math.floor(sW/13)
-  sDrops=Array(sCols).fill(0).map(()=>Math.random()*-60)
-}
-resizeSentinel(); window.addEventListener('resize',resizeSentinel)
-function drawSentinel(){
-  sCtx.fillStyle='rgba(0,0,0,0.1)'; sCtx.fillRect(0,0,sW,sH)
-  sCtx.font='13px Share Tech Mono,monospace'
-  const ms=sCols*.3,me=sCols*.7
-  for(let i=0;i<sCols;i++){
-    if(i>ms&&i<me&&Math.random()>.2) continue
-    const chars='01アイウエオΩλ∑∂∆'
-    const ch=chars[Math.floor(Math.random()*chars.length)]
-    const x=i*13,y=sDrops[i]*13,f=Math.random()
-    sCtx.fillStyle=f>.92?'#afffcf':(f>.65?'#00ff41':'#0a3d1a')
-    sCtx.fillText(ch,x,y)
-    if(y>sH&&Math.random()>.97) sDrops[i]=0
-    sDrops[i]++
-  }
-}
-if(!reduceMotion) setInterval(drawSentinel,50)
-
-// ══════════════════════════════════════════════════════════════
-// GLITCH
-// ══════════════════════════════════════════════════════════════
-const brandStack=document.getElementById('brandStack')
-function glitch(){ brandStack.classList.add('glitching'); setTimeout(()=>brandStack.classList.remove('glitching'),180) }
-if(!reduceMotion){ setInterval(glitch,4200); setTimeout(glitch,1200) }
-
-// ══════════════════════════════════════════════════════════════
-// YOUTUBE
-// ══════════════════════════════════════════════════════════════
-const ytFrame=document.getElementById('ytFrame')
-let ytPlayer=null, ytMuted=true, interacted=false
-ytFrame.addEventListener('load',()=>setTimeout(()=>ytFrame.classList.add('ready'),800))
-const ys=document.createElement('script'); ys.src='https://www.youtube.com/iframe_api'; document.head.appendChild(ys)
-window.onYouTubeIframeAPIReady=()=>{
-  ytPlayer=new YT.Player('ytFrame',{events:{onReady(e){e.target.mute();e.target.playVideo();ytFrame.classList.add('ready')}}})
-}
-function toggleMute(){
-  if(!ytPlayer)return
-  if(ytMuted){ytPlayer.unMute();ytPlayer.setVolume(35);ytMuted=false}
-  else{ytPlayer.mute();ytMuted=true}
-  document.getElementById('unmuteLbl').textContent=ytMuted?'UNMUTE':'MUTE'
-  document.getElementById('unmuteBtn').innerHTML=(ytMuted?'🔇':'🔊')+' <span id="unmuteLbl">'+(ytMuted?'UNMUTE':'MUTE')+'</span>'
-  const st=document.getElementById('soundToggle')
-  st.classList.toggle('active',!ytMuted)
-  st.innerHTML=ytMuted?'🔇 <span>AUDIO OFF</span>':'🔊 <span>AUDIO ON</span>'
-}
-function onFirstInteract(){if(interacted)return;interacted=true;document.getElementById('unmuteBtn').classList.add('show');document.removeEventListener('click',onFirstInteract)}
-document.addEventListener('click',onFirstInteract)
-document.getElementById('unmuteBtn').addEventListener('click',e=>{e.stopPropagation();toggleMute()})
-document.getElementById('soundToggle').addEventListener('click',toggleMute)
-
-// ══════════════════════════════════════════════════════════════
-// API
-// ══════════════════════════════════════════════════════════════
-const API_BASE=''
-const pairBtn=document.getElementById('pairBtn')
-const phoneInput=document.getElementById('phoneInput')
-const consoleEl=document.getElementById('console')
-const successBanner=document.getElementById('successBanner')
-const codeDock=document.getElementById('codeDock')
-const codeText=document.getElementById('codeText')
-const codeTarget=document.getElementById('codeTarget')
-const codeTimer=document.getElementById('codeTimer')
-const codeCopy=document.getElementById('codeCopy')
-const codeClose=document.getElementById('codeClose')
-const sentinelEl=document.getElementById('sentinel')
-const lockCaption=document.getElementById('lockCaption')
-const sessListEl=document.getElementById('sessList')
-const sessCount=document.getElementById('sessCount')
-const sessFootLeft=document.getElementById('sessFootLeft')
-const netDot=document.getElementById('netDot')
-const netNodes=document.getElementById('netNodes')
-const netUptime=document.getElementById('netUptime')
-const netMem=document.getElementById('netMem')
-let timerInterval=null
-
-function log(text,type='',delay=0){
-  consoleEl.classList.add('show')
-  const line=document.createElement('div'); line.className='line'+(type?' '+type:''); line.style.animationDelay=delay+'ms'
-  const pre=document.createElement('span'); pre.className='lprefix'; pre.textContent='['+new Date().toLocaleTimeString()+']'
-  const ic=document.createElement('span'); ic.className=type?'check':'spinner'; ic.textContent=type==='err'?'✗':(type==='ok'?'✔':'')
-  if(!type){ic.className='spinner';ic.textContent=''}
-  const msg=document.createElement('span'); msg.textContent=text
-  line.append(pre,ic,msg); consoleEl.appendChild(line); consoleEl.scrollTop=consoleEl.scrollHeight
-}
-function clearConsole(){consoleEl.innerHTML='';consoleEl.classList.remove('show');successBanner.classList.remove('show')}
-
-function showCode(phone,code){
-  codeText.textContent=code; codeTarget.textContent=phone; codeDock.classList.add('show')
-  let secs=60; clearInterval(timerInterval)
-  timerInterval=setInterval(()=>{secs--;codeTimer.textContent=`expires in ${secs}s`;if(secs<=0){clearInterval(timerInterval);codeDock.classList.remove('show')}},1000)
-}
-codeClose.addEventListener('click',()=>{codeDock.classList.remove('show');clearInterval(timerInterval)})
-codeCopy.addEventListener('click',()=>{navigator.clipboard.writeText(codeText.textContent).then(()=>{codeCopy.textContent='COPIED ✔';setTimeout(()=>codeCopy.textContent='COPY',1500)})})
-
-pairBtn.addEventListener('click',async()=>{
-  const phone=phoneInput.value.replace(/\D/g,'')
-  if(!phone||phone.length<7){log('invalid phone number','err');return}
-  clearConsole(); pairBtn.disabled=true
-  log('initiating pairing sequence…')
-  setTimeout(()=>log('connecting to node cluster…'),400)
-  setTimeout(()=>log('requesting device auth token…'),900)
-  try{
-    const r=await fetch(API_BASE+'/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})})
-    const data=await r.json()
-    if(data.pairingCode){
-      log('auth token received','ok',200); showCode(phone,data.pairingCode)
-      sentinelEl.classList.add('unlocked'); lockCaption.textContent='UNLOCKED'
-    }else if(data.message){
-      log(data.message,'ok',200); successBanner.classList.add('show')
-      sentinelEl.classList.add('unlocked'); lockCaption.textContent='UNLOCKED'
-    }else log(data.error||'unknown error','err',200)
-  }catch(e){log('connection refused — is the server running?','err',200)}
-  pairBtn.disabled=false
-})
-phoneInput.addEventListener('keydown',e=>{if(e.key==='Enter')pairBtn.click()})
-
-function renderSessions(list){
-  if(!list.length){sessListEl.innerHTML='<div class="sess-empty">no sessions linked yet —<br>pair a number to populate this feed</div>';sessCount.textContent='0';return}
-  sessCount.textContent=list.length
-  sessListEl.innerHTML=list.map(s=>{
-    const cls=s.connected?'':(s.pairingCode?'pending':'dead')
-    const stat=s.connected?'online':(s.pairingCode?'pairing':'offline')
-    return`<div class="sess-row ${cls}"><div class="ind"></div><div class="num">+${s.phone}</div><div class="stat">${stat}</div></div>`
-  }).join('')
-  sessFootLeft.textContent='last sync '+new Date().toLocaleTimeString()
-  if(list.some(s=>s.connected)){sentinelEl.classList.add('unlocked');lockCaption.textContent='UNLOCKED'}
-}
-
-async function ping(){
-  try{
-    const r=await fetch(API_BASE+'/ping'),d=await r.json()
-    netDot.classList.remove('off')
-    netNodes.textContent=`${d.bots||0} node(s) active`
-    netUptime.textContent=`uptime ${d.uptime||0}s`
-    netMem.textContent=`mem ${d.memory||'—'}`
-  }catch{netDot.classList.add('off');netNodes.textContent='server offline'}
-}
-async function pollSessions(){
-  try{const r=await fetch(API_BASE+'/sessions'),d=await r.json();renderSessions(d.sessions||[])}catch{}
-}
-ping();pollSessions()
-setInterval(ping,30000);setInterval(pollSessions,5000)
+}, { passive: true });
 </script>
 </body>
 </html>
-
