@@ -35,7 +35,7 @@ module.exports = {
   pattern:  'promote',
   desc:     'Promote a member to admin',
   usage:    '.promote @user  OR  reply to message + .promote',
-  category: 'admin',
+  category: 'group',
 
   run: async ({ sock, from, msg, sender, isOwner, isAdmin, isBotAdmin }) => {
 

@@ -21,6 +21,7 @@
     "jimp": "*",
     "mongoose": "^9.7.0",
     "node-cache": "*",
+    "node-fetch": "^3.3.2",
     "node-webpmux": "^3.2.1",
     "pino": "*",
     "qrcode": "^1.5.4",
