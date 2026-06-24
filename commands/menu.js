@@ -7,6 +7,8 @@
 //  ✅ No manual menu edits ever needed again
 //  ✅ Instant 🤖 reaction on trigger
 //  ✅ Quoted reply + rotating image
+//  ✅ Header card style — Run/Mode/Prefix/RAM/Time/User/Pair/Owner fields
+//  ✅ ├◈ bullet category boxes
 // ════════════════════════════════════════════════════════════════════
 
 const IMAGES = [
@@ -17,8 +19,8 @@ const rotator = new Map()
 
 // Commands to hide from menu entirely
 const HIDDEN = new Set([
-  'slot','pokedex','buy','mycard','active','battle',
-  'accept','forfeit','pokemon','pikachu',
+  'slot', 'pokedex', 'buy', 'mycard', 'active', 'battle',
+  'accept', 'forfeit', 'pokemon', 'pikachu',
 ])
 
 // Category display order + labels
@@ -34,26 +36,23 @@ const CATEGORY_ORDER = [
 ]
 
 const CATEGORY_LABELS = {
-  general:  '🌐 GENERAL',
-  owner:    '👑 OWNER',
-  group:    '👥 GROUP',
-  media:    '🎵 MEDIA',
-  fun:      '🎮 FUN',
-  ai:       '🤖 AI',
-  utility:  '🛠️ UTILITY',
+  general: '🌐 GENERAL',
+  owner:   '👑 OWNER',
+  group:   '👥 GROUP',
+  media:   '🎵 MEDIA',
+  fun:     '🎮 FUN',
+  ai:      '🤖 AI',
+  utility: '🛠️ UTILITY',
 }
 
-function bar(pct, len = 12) {
-  const f = Math.round((pct / 100) * len)
-  return '▰'.repeat(f) + '▱'.repeat(len - f) + `  ${pct}%`
-}
+const PAIR_URL = process.env.PAIR_URL || 'https://cyber-x-y8yv.onrender.com/pair'
 
 function formatUp(sec) {
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  return `${m}m ${s}s`
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+  return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
 module.exports = {
@@ -62,7 +61,7 @@ module.exports = {
   desc:     'CYBER X command menu',
   usage:    '.menu',
 
-  run: async ({ sock, from, msg, sender, commands, cmdDetails, settings }) => {
+  run: async ({ sock, from, msg, sender, commands, cmdDetails, settings, isOwner }) => {
 
     // ── 1. React instantly ─────────────────────────────────────────
     sock.sendMessage(from, {
@@ -70,23 +69,18 @@ module.exports = {
     }).catch(() => {})
 
     const prefix  = settings?.prefix  || '.'
-    const botName = settings?.botName || '𝕮𝖄𝕭𝕰𝕽 𝖃'
-    const user    = (sender || '').replace(/@.+/, '')
+    const botName = settings?.botName || 'CYBER X'
+    const mode     = (settings?.mode || 'public').toUpperCase()
 
     const now  = new Date()
-    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-    const date = now.toLocaleDateString('en-US',  { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
-    const upSec  = Math.floor(process.uptime())
-    const upPct  = Math.min(100, Math.round((upSec / 86400) * 100))
-    const mem    = process.memoryUsage()
-    const ramMB  = (mem.heapUsed  / 1024 / 1024).toFixed(1)
-    const totMB  = (mem.heapTotal / 1024 / 1024).toFixed(1)
-    const ramPct = Math.min(100, Math.round((mem.heapUsed / mem.heapTotal) * 100))
+    const upSec = Math.floor(process.uptime())
+    const mem   = process.memoryUsage()
+    const ramUsedGB  = (mem.heapUsed  / 1024 / 1024 / 1024).toFixed(2)
+    const ramTotalGB = (mem.heapTotal / 1024 / 1024 / 1024).toFixed(2)
 
     // ── 2. Group commands by category ──────────────────────────────
-    // Use cmdDetails (array of {pattern, category}) if available,
-    // otherwise fall back to commands Map with no category info.
     const grouped = new Map()   // category -> [commandName, ...]
     let totalCmds = 0
 
@@ -100,7 +94,6 @@ module.exports = {
         totalCmds++
       }
     } else if (commands instanceof Map) {
-      // fallback — no category info, dump everything under general
       for (const [key] of commands) {
         if (HIDDEN.has(key)) continue
         if (!grouped.has('general')) grouped.set('general', [])
@@ -109,46 +102,45 @@ module.exports = {
       }
     }
 
-    // Sort each category's commands alphabetically
     for (const [, cmds] of grouped) cmds.sort()
 
-    // Build ordered list of categories — known order first, then any extras
     const allCats = [...new Set([
       ...CATEGORY_ORDER.filter(c => grouped.has(c)),
       ...[...grouped.keys()].filter(c => !CATEGORY_ORDER.includes(c)).sort(),
     ])]
 
-    // ── 3. Build category sections ─────────────────────────────────
+    // ── 3. Build category sections — ├◈ bullet box style ────────────
     const sections = allCats.map(cat => {
-      const label = CATEGORY_LABELS[cat] || `📁 ${cat.toUpperCase()}`
+      const label = CATEGORY_LABELS[cat] || cat.toUpperCase()
       const cmds  = grouped.get(cat) || []
-      const lines = cmds.map(c => `║  ◈ *${prefix}${c}*`).join('\n')
-      return `╠══〔 ${label} 〕══╣\n${lines}`
-    }).join('\n')
+      const lines = cmds.map((c, i) => {
+        const isLast = i === cmds.length - 1
+        return ` *${isLast ? '┕' : '├'}◈ ${c}*`
+      }).join('\n')
+      return ` *╭────❒ ${label} ❒*\n${lines}\n *┕──────────────────❒*`
+    }).join('\n\n')
 
-    // ── 4. Build full caption ──────────────────────────────────────
+    // ── 4. Build header card ────────────────────────────────────────
+    const header =
+`*╭══ ✕-${botName} ⚡*
+*┃🌸 ʀᴜɴ     :* ${formatUp(upSec)}
+*┃🛡️ ᴍᴏᴅᴇ    :* ${mode}
+*┃👀 ᴘʀᴇғɪx  :* ${prefix}
+*┃🚀 ʀᴀᴍ     :* ${ramUsedGB} / ${ramTotalGB} GB
+*┃🌨️ ᴛɪᴍᴇ    :* ${time}
+*┃🫂 ᴜsᴇʀ    :* ${botName}
+*┃🕊️ ᴘᴀɪʀ   :* ${PAIR_URL}
+*┃🛡️ ᴏᴡɴᴇʀ   :* ${isOwner ? 'You' : '1'}
+*╰═════════════════⊷*`
+
     const caption =
-`╔══════════════════════════╗
-║   ⚡ *${botName}* ⚡
-║   𝘾𝙔𝘽𝙀𝙍 𝙓 — *𝑩𝑶𝑻 𝑴𝑬𝑵𝑼*
-╠══════════════════════════╣
-║  👤  *User*   »  @${user}
-║  🕐  *Time*   »  ${time}
-║  📅  *Date*   »  ${date}
-║  🔑  *Prefix* »  [ ${prefix} ]
-╠══〔 📊 *SYSTEM* 〕══╣
-║  ⏱️  *Uptime*
-║  ${bar(upPct)}
-║  ╰─ ${formatUp(upSec)}
-║  🧠  *RAM*
-║  ${bar(ramPct)}
-║  ╰─ ${ramMB} MB / ${totMB} MB
+`${header}
+
+*♡︎•━━━━━${botName}━━━━━•♡*
+
 ${sections}
-╠══════════════════════════╣
-║  💡 *Type* ${prefix}*command* *to use*
-║  📌 *Total:* ${totalCmds} commands
-╚══════════════════════════╝
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™* *All rights reserved*`
+
+*~_${botName} — every command, one menu_~*`
 
     // ── 5. Rotate image ────────────────────────────────────────────
     const idx = (rotator.get(from) ?? 0) % IMAGES.length
@@ -160,12 +152,10 @@ ${sections}
         image:    { url: IMAGES[idx] },
         caption,
         mimetype: 'image/jpeg',
-        mentions: [sender],
       }, { quoted: msg })
     } catch {
       await sock.sendMessage(from, {
-        text:     caption,
-        mentions: [sender],
+        text: caption,
       }, { quoted: msg })
     }
   },
