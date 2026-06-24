@@ -21,6 +21,10 @@
 //   Detection uses lib/isAdmin.js for BOTH checks:
 //     - is the BOT an admin? (required to delete/kick at all)
 //     - is the SENDER an admin? (admins are exempt from badword action)
+//
+//   NEW: Before ANY action (delete / kick / warn) is taken, the bot first
+//   reacts 🫢 on the offending message itself. This fires for every mode,
+//   since delete always happens first regardless of the configured action.
 // ─────────────────────────────────────────────────────────────────────────────
 
 let db
@@ -234,12 +238,18 @@ async function handleBadword(sock, msg, extractBody) {
 
   const ownerPhone = sock.user?.id?.split(':')[0]?.split('@')[0] || 'default'
   const cfg = getGroupConfig(ownerPhone, from)
+
+  // DEBUG — remove once confirmed working
+  console.log('[ABW]', { from, enabled: cfg.enabled, action: cfg.action })
+
   if (!cfg.enabled) return
 
   const body = extractBody(msg)
+  console.log('[ABW] body:', body)
   if (!body || !containsBadWord(body)) return
 
   const sender = msg.key.participant || from
+  const senderAlt = msg.key.participantPn || null
 
   // ── Bot must be admin to take action ────────────────────────────────────────
   let isBotAdmin = false
@@ -250,7 +260,7 @@ async function handleBadword(sock, msg, extractBody) {
       const meta = await sock.groupMetadata(from)
       const groupCache = { [from]: meta }
       isBotAdmin    = isAdminLib.isBotAdmin(groupCache, from, sock)
-      isSenderAdmin = isAdminLib.isAdmin(groupCache, from, sender, sock)
+      isSenderAdmin = isAdminLib.isAdmin(groupCache, from, sender, sock, null, senderAlt)
     } catch (e) {
       console.error('[ANTIBADWORD] isAdmin check failed:', e.message)
       return
@@ -272,6 +282,15 @@ async function handleBadword(sock, msg, extractBody) {
 
   if (!isBotAdmin) return        // can't enforce without admin rights
   if (isSenderAdmin) return      // admins are exempt
+
+  // ── React 🫢 on the offending message BEFORE taking any action ──────────────
+  // Fires for every mode (delete / kick / warn) since delete always
+  // happens first regardless of the configured action.
+  try {
+    await sock.sendMessage(from, { react: { text: '🫢', key: msg.key } })
+  } catch (e) {
+    console.error('[ANTIBADWORD] react failed:', e.message)
+  }
 
   // ── Delete the offending message ─────────────────────────────────────────────
   try {
@@ -328,3 +347,4 @@ async function handleBadword(sock, msg, extractBody) {
 }
 
 module.exports.handleBadword = handleBadword
+
