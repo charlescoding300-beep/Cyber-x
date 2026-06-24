@@ -13,6 +13,7 @@ const {
 const isAdminLib  = require("./lib/isAdmin")
 const settingsLib = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
+const greetListener = require("./lib/greetListener")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -496,15 +497,15 @@ async function startBot(phone) {
       )
     }
 
-    // Welcome/goodbye — wired through lib like handleBadword/handleAntilink.
-    // Exported as handleGreetEvent (not handleGroupUpdate) to avoid a name
-    // collision with groupParticipants.js/goodbye.js on the shared lib
-    // bucket — see the note at the top of lib/greetListener.js.
-    if (typeof lib.handleGreetEvent === "function") {
-      lib.handleGreetEvent(sock, update).catch(e =>
-        console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
-      )
-    }
+    // Welcome/goodbye — called directly, no lib bucket, no merge, no
+    // typeof check. Straight require() at the top of this file, called
+    // here by name every time. This is intentional: it cannot be silently
+    // overwritten by another lib/ file exporting a same-named function,
+    // and it cannot silently no-op the way lib.handleX checks can if the
+    // auto-loader's merge order ever changes.
+    greetListener.handleGreetEvent(sock, update).catch(e =>
+      console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
+    )
   })
 
   if (!authState.creds.registered) {
@@ -665,3 +666,4 @@ function listBots() {
 }
 
 module.exports = { init, addSession, removeSession, listBots }
+
