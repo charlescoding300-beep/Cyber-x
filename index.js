@@ -461,7 +461,6 @@ async function startBot(phone) {
   })
 
   state.sock = sock
-  require("./lib/greetListener").register(sock)
 
   if (state.presenceTimer) clearInterval(state.presenceTimer)
   state.presenceTimer = setInterval(() => {
@@ -494,6 +493,16 @@ async function startBot(phone) {
     if (typeof lib.handleGroupUpdate === "function") {
       lib.handleGroupUpdate(sock, update).catch(e =>
         console.error(`[${phone}] handleGroupUpdate ERR:`, e.message)
+      )
+    }
+
+    // Welcome/goodbye — wired through lib like handleBadword/handleAntilink.
+    // Exported as handleGreetEvent (not handleGroupUpdate) to avoid a name
+    // collision with groupParticipants.js/goodbye.js on the shared lib
+    // bucket — see the note at the top of lib/greetListener.js.
+    if (typeof lib.handleGreetEvent === "function") {
+      lib.handleGreetEvent(sock, update).catch(e =>
+        console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
       )
     }
   })
