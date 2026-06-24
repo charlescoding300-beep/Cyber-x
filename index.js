@@ -542,11 +542,20 @@ async function startBot(phone) {
       }
 
       if (!m.key.fromMe) {
-        if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleMemory        === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleAntilink      === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleBadword       === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+        if (typeof lib.storeMessage === "function") lib.storeMessage(sock, m).catch(() => {})
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
+    }
+  })
+
+  sock.ev.on("messages.update", async (updates) => {
+    if (typeof lib.handleMessageRevocation === "function") {
+      lib.handleMessageRevocation(sock, updates).catch(e =>
+        console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
+      )
     }
   })
 
@@ -598,6 +607,18 @@ async function init() {
   })
   if (restoredCount > 0) console.log(`[INIT] ✔ Restored ${restoredCount} session(s) from backup`)
 
+  // ── Restore per-user/group settings (antilink, antibadword, welcome,
+  // goodbye, warns, etc) from Upstash Redis — same backend, same pattern
+  // as session backup above. MUST run before any session starts handling
+  // messages, otherwise a message could arrive and read stale/default
+  // settings before the real saved state has loaded in.
+  console.log("[INIT] 🔄 Restoring user/group settings from backup...")
+  const dbRestoredCount = await lib.userDb?.restoreAllFromRedis?.().catch(e => {
+    console.error("[INIT] ✗ User DB restore failed:", e.message)
+    return 0
+  })
+  if (dbRestoredCount > 0) console.log(`[INIT] ✔ Restored ${dbRestoredCount} user record(s) from backup`)
+
   const onDisk = fs.existsSync(SESS_ROOT)
     ? fs.readdirSync(SESS_ROOT).filter(f => {
         const full = path.join(SESS_ROOT, f)
@@ -607,6 +628,7 @@ async function init() {
 
   const fromMeta = loadMetaPhones()
   const allPhones = [...new Set([...onDisk, ...fromMeta])]
+
 
   console.log(`[INIT] ▶ Starting ${allPhones.length} session(s): ${allPhones.join(", ") || "(none)"}`)
 
@@ -666,4 +688,3 @@ function listBots() {
 }
 
 module.exports = { init, addSession, removeSession, listBots }
-
