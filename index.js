@@ -135,11 +135,37 @@ const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
 const isValidCmd = m => m && typeof m.pattern === "string" && typeof m.run === "function"
 const toKey      = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
+// Keys that belong to the command-module "shape" itself — never treated as
+// extra handler exports to merge onto `lib`, even though they may be
+// functions (e.g. `run`).
+const CMD_RESERVED_KEYS = new Set(["run", "pattern", "alias", "desc", "usage", "category"])
+
 function loadFile(file) {
   const full = path.join(CMD_DIR, file)
   try {
     delete require.cache[require.resolve(full)]
     const mod = require(full)
+
+    // ── FIX: merge extra handler exports onto `lib` ───────────────────────
+    // Some command files (antilink, antibadword, antibot, etc) export
+    // additional handler functions alongside the command itself — e.g.
+    //   module.exports.handleBadword = handleBadword
+    // The messages.upsert listener in startBot() calls these as
+    // lib.handleBadword(...), lib.handleAntilink(...), etc. Previously
+    // loadFile() only ever did registry.map.set(key, mod) — it never
+    // copied mod's other exported functions onto the shared `lib` bucket
+    // the way loadDir() does for lib/ and utils/. That meant lib.handleBadword
+    // (and any other command-exported handler) was ALWAYS undefined, so the
+    // `typeof lib.handleBadword === "function"` check in messages.upsert
+    // silently no-op'd on every single message, forever — with no error,
+    // no log, nothing. This merges those exports in, same pattern as loadDir.
+    if (mod && typeof mod === "object") {
+      for (const k of Object.keys(mod)) {
+        if (CMD_RESERVED_KEYS.has(k)) continue
+        if (typeof mod[k] === "function") lib[k] = mod[k]
+      }
+    }
+
     if (!isValidCmd(mod)) return false
     const key = toKey(mod.pattern)
     registry.map.set(key, mod)
