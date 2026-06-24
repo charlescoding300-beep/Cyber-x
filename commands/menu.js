@@ -28,7 +28,7 @@ const HIDDEN = new Set([
 const CATEGORY_ORDER = [
   'general',
   'owner',
-  'group',
+  'group/admin',
   'media',
   'fun',
   'ai',
@@ -38,7 +38,7 @@ const CATEGORY_ORDER = [
 const CATEGORY_LABELS = {
   general: '🌐 GENERAL',
   owner:   '👑 OWNER',
-  group:   '👥 GROUP',
+  group:   '👥 GROUP/ADMIN👮',
   media:   '🎵 MEDIA',
   fun:     '🎮 FUN',
   ai:      '🤖 AI',

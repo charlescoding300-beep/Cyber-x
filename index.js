@@ -10,10 +10,17 @@ const {
   makeCacheableSignalKeyStore,
 } = require("@whiskeysockets/baileys")
 
-const isAdminLib  = require("./lib/isAdmin")
-const settingsLib = require("./lib/settings")
+const isAdminLib    = require("./lib/isAdmin")
+const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
 const greetListener = require("./lib/greetListener")
+
+// ── ANTIDELETE: required directly so storeMessage/handleMessageRevocation
+// always use the SAME module instance and the SAME messageStore Map,
+// regardless of how many sessions are running or how many times loadFile()
+// reloads commands. Bypasses the shared `lib` bucket entirely so a hot-
+// reload of another command file can never overwrite these references.
+const antidelete = require("./commands/antidelete")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -66,13 +73,13 @@ function loadDir(dir, bucket, label) {
 
 function loadAllSupportDirs() {
   loadDir(LIB_DIR,    lib,    "LIB")
-  loadDir(UTILS_DIR,  lib,    "UTILS")     // utils merge into the same `lib` bucket commands already expect
+  loadDir(UTILS_DIR,  lib,    "UTILS")
   loadDir(API_DIR,    api,    "API")
   loadDir(CONFIG_DIR, config, "CONFIG")
 }
 loadAllSupportDirs()
 
-// Hot-reload lib/utils/api/config on file change — same debounce pattern as commands/
+// Hot-reload lib/utils/api/config on file change
 let supportWatchStarted = false
 function watchSupportDirs() {
   if (supportWatchStarted) return
@@ -92,9 +99,7 @@ function watchSupportDirs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEMP FILE CLEANUP — prevents ENOSPC / disk overflow on hosted panels
-// (same pattern used by Knight Bot). Wipes anything older than maxAgeMs
-// from temp/ on an interval, and once on boot to clear crash leftovers.
+// TEMP FILE CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
 function cleanupTempDir(maxAgeMs = 30 * 60 * 1000) {
   if (!fs.existsSync(TEMP_DIR)) return
@@ -113,10 +118,10 @@ function cleanupTempDir(maxAgeMs = 30 * 60 * 1000) {
   }
   if (cleaned > 0) console.log(`[CLEANUP] 🧹 Removed ${cleaned} stale temp item(s)`)
 }
-cleanupTempDir()                              // once on boot — clear crash leftovers
-setInterval(cleanupTempDir, 15 * 60 * 1000)    // then every 15 min
+cleanupTempDir()
+setInterval(cleanupTempDir, 15 * 60 * 1000)
 
-// ── Memory guard — same idea as Knight Bot's RAM watchdog ─────────────────────
+// ── Memory guard ──────────────────────────────────────────────────────────────
 setInterval(() => {
   if (global.gc) global.gc()
 }, 60_000)
@@ -125,7 +130,7 @@ setInterval(() => {
   const usedMB = process.memoryUsage().rss / 1024 / 1024
   if (usedMB > (parseInt(process.env.MAX_RAM_MB || "450", 10))) {
     console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB) — exiting for clean restart`)
-    process.exit(1)   // Render's restart policy brings it back; sessions restore via sessionBackup
+    process.exit(1)
   }
 }, 30_000)
 
@@ -136,9 +141,7 @@ const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
 const isValidCmd = m => m && typeof m.pattern === "string" && typeof m.run === "function"
 const toKey      = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
-// Keys that belong to the command-module "shape" itself — never treated as
-// extra handler exports to merge onto `lib`, even though they may be
-// functions (e.g. `run`).
+// Keys that belong to the command-module shape — never merged onto lib
 const CMD_RESERVED_KEYS = new Set(["run", "pattern", "alias", "desc", "usage", "category"])
 
 function loadFile(file) {
@@ -147,22 +150,14 @@ function loadFile(file) {
     delete require.cache[require.resolve(full)]
     const mod = require(full)
 
-    // ── FIX: merge extra handler exports onto `lib` ───────────────────────
-    // Some command files (antilink, antibadword, antibot, etc) export
-    // additional handler functions alongside the command itself — e.g.
-    //   module.exports.handleBadword = handleBadword
-    // The messages.upsert listener in startBot() calls these as
-    // lib.handleBadword(...), lib.handleAntilink(...), etc. Previously
-    // loadFile() only ever did registry.map.set(key, mod) — it never
-    // copied mod's other exported functions onto the shared `lib` bucket
-    // the way loadDir() does for lib/ and utils/. That meant lib.handleBadword
-    // (and any other command-exported handler) was ALWAYS undefined, so the
-    // `typeof lib.handleBadword === "function"` check in messages.upsert
-    // silently no-op'd on every single message, forever — with no error,
-    // no log, nothing. This merges those exports in, same pattern as loadDir.
+    // Merge extra handler exports onto lib (handleBadword, handleAntilink, etc)
+    // but SKIP storeMessage and handleMessageRevocation — those are owned by
+    // the top-level `antidelete` require above and must never be overwritten
+    // by the shared lib bucket.
     if (mod && typeof mod === "object") {
       for (const k of Object.keys(mod)) {
         if (CMD_RESERVED_KEYS.has(k)) continue
+        if (k === "storeMessage" || k === "handleMessageRevocation") continue
         if (typeof mod[k] === "function") lib[k] = mod[k]
       }
     }
@@ -175,6 +170,7 @@ function loadFile(file) {
     return true
   } catch (e) { console.error(`[CMD] ✗ ${file}: ${e.message}`); return false }
 }
+
 function rebuildLists() {
   const mods = [...registry.map.values()]
   registry.list    = mods.map(c => c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`).sort()
@@ -184,6 +180,7 @@ function rebuildLists() {
     category: c.category || "general", alias: c.alias || [],
   })).sort((a, b) => a.pattern.localeCompare(b.pattern))
 }
+
 async function loadCommands() {
   if (!fs.existsSync(CMD_DIR)) return
   registry.map.clear(); registry.aliases.clear()
@@ -193,6 +190,7 @@ async function loadCommands() {
   rebuildLists()
   console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped`)
 }
+
 let watchStarted = false
 function watchCommands() {
   if (watchStarted || !fs.existsSync(CMD_DIR)) return
@@ -213,7 +211,7 @@ function normalizeNum(raw = "") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10-LAYER OWNER / ADMIN RECOGNITION
+// OWNER / ADMIN RECOGNITION
 // ─────────────────────────────────────────────────────────────────────────────
 function checkIsOwner(state, sender, senderAlt, fromMe) {
   if (fromMe === true) return true
@@ -338,7 +336,7 @@ function loadMetaPhones() {
   return []
 }
 
-// ─── Ordinary (non-command) message side effects ─────────────────────────
+// ─── Ordinary (non-command) message side effects ──────────────────────────────
 async function handleOrdinaryMessage(state, sock, msg, from) {
   const s = state.settings
   if (s.get("autoTyping")) {
@@ -434,7 +432,7 @@ async function handleMessage(state, sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BOT START — creates/restores a single session by phone number
+// BOT START
 // ─────────────────────────────────────────────────────────────────────────────
 async function startBot(phone) {
   let state = sessions.get(phone)
@@ -472,7 +470,7 @@ async function startBot(phone) {
 
   sock.ev.on("creds.update", async () => {
     await saveCreds()
-    sessionBackup.schedulePush(phone)   // every creds change → backup gets scheduled (debounced)
+    sessionBackup.schedulePush(phone)
   })
 
   sock.ev.on("groups.upsert", gs => {
@@ -482,10 +480,6 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
-  // ── FIX #1: this listener now ALSO calls lib.handleGroupUpdate ──────────────
-  // Previously it only refreshed the group metadata cache — it never
-  // actually invoked the welcome/goodbye handler, so joins/leaves were
-  // silently doing nothing beyond the cache update.
   sock.ev.on("group-participants.update", async (update) => {
     try {
       state.groupCache[update.id] = { ...(await sock.groupMetadata(update.id)), _cachedAt: Date.now() }
@@ -497,12 +491,6 @@ async function startBot(phone) {
       )
     }
 
-    // Welcome/goodbye — called directly, no lib bucket, no merge, no
-    // typeof check. Straight require() at the top of this file, called
-    // here by name every time. This is intentional: it cannot be silently
-    // overwritten by another lib/ file exporting a same-named function,
-    // and it cannot silently no-op the way lib.handleX checks can if the
-    // auto-loader's merge order ever changes.
     greetListener.handleGreetEvent(sock, update).catch(e =>
       console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
     )
@@ -522,12 +510,6 @@ async function startBot(phone) {
   if (typeof lib.setSocket      === "function") lib.setSocket(sock)
   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
 
-  // ── FIX #2: setStore now correctly targets lib/groupParticipants.js ─────────
-  // Previously this called require("./lib/welcome").setStore(...) — but
-  // welcome/goodbye logic lives in lib/groupParticipants.js now, so that
-  // call was either hitting a stale file or a function that didn't exist
-  // there. Using the already-loaded `lib` bucket avoids a second require()
-  // entirely and points at the file that's actually wired up above.
   try { lib.groupParticipants?.setStore?.({ groupMetadata: state.groupCache }) } catch {}
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
@@ -541,25 +523,33 @@ async function startBot(phone) {
         continue
       }
 
+      // ── ANTIDELETE: store ALL messages (fromMe included) via direct module
+      // reference so the Map is always the same instance across sessions.
+      // Errors are logged, not swallowed — media download failures surface here.
+      antidelete.storeMessage(sock, m).catch(e =>
+        console.error(`[${phone}] storeMessage ERR:`, e.message)
+      )
+
       if (!m.key.fromMe) {
-        if (typeof lib.handleMemory        === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntilink      === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleBadword       === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-        if (typeof lib.storeMessage === "function") lib.storeMessage(sock, m).catch(() => {})
+        if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
       }
+
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
   })
 
+  // ── ANTIDELETE: revocation handled via same direct module reference.
+  // Ephemeral-wrapped deletes, correct owner JID, TTL expiry all handled
+  // inside antidelete.js itself.
   sock.ev.on("messages.update", async (updates) => {
-    if (typeof lib.handleMessageRevocation === "function") {
-      lib.handleMessageRevocation(sock, updates).catch(e =>
-        console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
-      )
-    }
+    antidelete.handleMessageRevocation(sock, updates).catch(e =>
+      console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
+    )
   })
 
-  // ── Connection lifecycle ─────────────────────────────────────────────────
+  // ── Connection lifecycle ──────────────────────────────────────────────────
   sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
     if (connection === "open") {
       state.connected   = true
@@ -594,7 +584,6 @@ async function startBot(phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC API — used by server.js
 // ─────────────────────────────────────────────────────────────────────────────
-
 async function init() {
   await loadCommands()
   watchCommands()
@@ -607,11 +596,6 @@ async function init() {
   })
   if (restoredCount > 0) console.log(`[INIT] ✔ Restored ${restoredCount} session(s) from backup`)
 
-  // ── Restore per-user/group settings (antilink, antibadword, welcome,
-  // goodbye, warns, etc) from Upstash Redis — same backend, same pattern
-  // as session backup above. MUST run before any session starts handling
-  // messages, otherwise a message could arrive and read stale/default
-  // settings before the real saved state has loaded in.
   console.log("[INIT] 🔄 Restoring user/group settings from backup...")
   const dbRestoredCount = await lib.userDb?.restoreAllFromRedis?.().catch(e => {
     console.error("[INIT] ✗ User DB restore failed:", e.message)
@@ -626,9 +610,8 @@ async function init() {
       })
     : []
 
-  const fromMeta = loadMetaPhones()
+  const fromMeta  = loadMetaPhones()
   const allPhones = [...new Set([...onDisk, ...fromMeta])]
-
 
   console.log(`[INIT] ▶ Starting ${allPhones.length} session(s): ${allPhones.join(", ") || "(none)"}`)
 
@@ -653,9 +636,9 @@ async function addSession(phone) {
   }
 
   return {
-    phone: clean,
+    phone:       clean,
     pairingCode: state.pairingCode,
-    connected: state.connected,
+    connected:   state.connected,
   }
 }
 
