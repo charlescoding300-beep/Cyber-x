@@ -647,20 +647,19 @@ async function sendAIMessage(){
   scrollChat();
 
   try{
-    const messages=chatHistory.slice(-12).map(m=>({role:m.role,content:m.content}));
-    const r=await fetch('https://api.anthropic.com/v1/messages',{
+    const messages=chatHistory.slice(-10).map(m=>({role:m.role,content:m.content}));
+    const r=await fetch('/api/ai/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:1000,
-        system:SYSTEM_PROMPT,
-        messages:messages
+        message:text,
+        history:messages,
+        systemPrompt:SYSTEM_PROMPT
       }),
       signal:AbortSignal.timeout(30000)
     });
     const data=await r.json();
-    const reply=data.content?.[0]?.text||'System error. Please try again.';
+    const reply=data.reply||data.response||'System error. Please try again.';
     chatHistory.push({role:'assistant',content:reply});
     document.getElementById('typing').classList.remove('show');
     appendMsg('bot',reply);
