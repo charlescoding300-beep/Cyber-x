@@ -8,19 +8,14 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  downloadMediaMessage,
+  proto: WAProto,
 } = require("@whiskeysockets/baileys")
 
 const isAdminLib    = require("./lib/isAdmin")
 const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
 const greetListener = require("./lib/greetListener")
-
-// ── ANTIDELETE: required directly so storeMessage/handleMessageRevocation
-// always use the SAME module instance and the SAME messageStore Map,
-// regardless of how many sessions are running or how many times loadFile()
-// reloads commands. Bypasses the shared `lib` bucket entirely so a hot-
-// reload of another command file can never overwrite these references.
-const antidelete = require("./commands/antidelete")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -49,9 +44,7 @@ for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, API_DIR, CONFIG_DIR, TEMP_DIR, SES
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTO LOADER — lib/, utils/, api/, config/ all auto-load and hot-reload.
-// Same pattern for every dir: require every .js file, merge its exports
-// onto `lib` (or its own bucket), log success/failure per file.
+// AUTO LOADER
 // ─────────────────────────────────────────────────────────────────────────────
 const lib    = {}
 const api    = {}
@@ -79,7 +72,6 @@ function loadAllSupportDirs() {
 }
 loadAllSupportDirs()
 
-// Hot-reload lib/utils/api/config on file change
 let supportWatchStarted = false
 function watchSupportDirs() {
   if (supportWatchStarted) return
@@ -141,7 +133,6 @@ const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
 const isValidCmd = m => m && typeof m.pattern === "string" && typeof m.run === "function"
 const toKey      = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
-// Keys that belong to the command-module shape — never merged onto lib
 const CMD_RESERVED_KEYS = new Set(["run", "pattern", "alias", "desc", "usage", "category"])
 
 function loadFile(file) {
@@ -150,10 +141,6 @@ function loadFile(file) {
     delete require.cache[require.resolve(full)]
     const mod = require(full)
 
-    // Merge extra handler exports onto lib (handleBadword, handleAntilink, etc)
-    // but SKIP storeMessage and handleMessageRevocation — those are owned by
-    // the top-level `antidelete` require above and must never be overwritten
-    // by the shared lib bucket.
     if (mod && typeof mod === "object") {
       for (const k of Object.keys(mod)) {
         if (CMD_RESERVED_KEYS.has(k)) continue
@@ -188,6 +175,7 @@ async function loadCommands() {
   let ok = 0, fail = 0
   for (const f of files) { if (loadFile(f)) ok++; else fail++ }
   rebuildLists()
+  global.__commandCount = ok
   console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped`)
 }
 
@@ -367,6 +355,254 @@ async function handleStatus(state, sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ANTIDELETE — written directly here, no separate file/require. Runs as
+// part of the same process loop as everything else in startBot().
+//
+// ONE GLOBAL TOGGLE PER SESSION: each linked WhatsApp account (each
+// "phone" session) has its own antidelete on/off switch, stored via
+// userDb under that session's own phone. When enabled for a session, it
+// applies automatically to EVERY DM and EVERY group THAT session's bot
+// is in. Reports go to that session's own owner DM (state.phone), so in
+// a multi-session setup each linked account's deletions get reported to
+// that account's own owner, not a single hardcoded number.
+//
+// DETECTION: WhatsApp/Baileys represents "delete for everyone" as a
+// protocolMessage with type REVOKE, carrying the ORIGINAL message's key.
+// This can arrive via messages.upsert (as a new message whose content IS
+// the revoke marker) and/or via messages.update — both are handled below
+// since which one fires can vary. By the time either fires, the original
+// message is already gone from WhatsApp's servers, so recovery only
+// works if the message was cached the moment it first arrived — that's
+// what storeMessage() does on every incoming message, BEFORE any chance
+// of deletion.
+//
+// MEMORY SAFETY: cache is in-memory only, capped at ANTIDELETE_MAX_ENTRIES
+// total and auto-expired after ANTIDELETE_MAX_AGE_MS, swept periodically.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ANTIDELETE_MAX_ENTRIES = 500
+const ANTIDELETE_MAX_AGE_MS  = 15 * 60 * 1000   // 15 minutes
+
+const antideleteCache = new Map()
+const antideleteOrder  = []
+
+function antideleteEvictIfNeeded() {
+  while (antideleteOrder.length > ANTIDELETE_MAX_ENTRIES) {
+    const oldestId = antideleteOrder.shift()
+    antideleteCache.delete(oldestId)
+  }
+}
+
+function antideleteSweepExpired() {
+  const now = Date.now()
+  let removed = 0
+  for (const id of [...antideleteOrder]) {
+    const entry = antideleteCache.get(id)
+    if (!entry || now - entry.cachedAt > ANTIDELETE_MAX_AGE_MS) {
+      antideleteCache.delete(id)
+      const idx = antideleteOrder.indexOf(id)
+      if (idx !== -1) antideleteOrder.splice(idx, 1)
+      removed++
+    }
+  }
+  if (removed > 0) console.log(`[ANTIDELETE] 🧹 expired ${removed} cached message(s)`)
+}
+setInterval(antideleteSweepExpired, 5 * 60 * 1000)
+
+function antideleteGetEnabled(phone) {
+  try {
+    if (typeof lib.userDb?.getSection === "function") {
+      const section = lib.userDb.getSection(phone, "antidelete")
+      return !!section?.enabled
+    }
+  } catch {}
+  return false
+}
+
+function antideleteSetEnabled(phone, enabled) {
+  try {
+    if (typeof lib.userDb?.setSection === "function") {
+      lib.userDb.setSection(phone, "antidelete", { enabled })
+    }
+  } catch (e) {
+    console.error("[ANTIDELETE] setEnabled error:", e.message)
+  }
+}
+
+async function antideleteDownloadSafe(msg, sock) {
+  try {
+    return await downloadMediaMessage(msg, "buffer", {}, { logger: Pino({ level: "silent" }), reuploadRequest: sock.updateMediaMessage })
+  } catch (e) {
+    console.error("[ANTIDELETE] media download failed:", e.message)
+    return null
+  }
+}
+
+async function storeMessage(sock, msg) {
+  if (!msg?.message || !msg.key?.id) return
+  if (msg.key.fromMe) return
+
+  const m = msg.message
+  if (m.protocolMessage) return
+
+  const inner = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m
+
+  const jid       = msg.key.remoteJid
+  const sender    = msg.key.participant || jid
+  const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
+  const timestamp = Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000)
+
+  let type = "text", text = "", mediaBuffer = null, mimetype = null, caption = "", ptt = false, gifPlayback = false
+
+  try {
+    if (inner.conversation) {
+      type = "text"; text = inner.conversation
+    } else if (inner.extendedTextMessage?.text) {
+      type = "text"; text = inner.extendedTextMessage.text
+    } else if (inner.imageMessage) {
+      type = "image"
+      caption  = inner.imageMessage.caption || ""
+      mimetype = inner.imageMessage.mimetype || "image/jpeg"
+      mediaBuffer = await antideleteDownloadSafe(msg, sock)
+    } else if (inner.videoMessage) {
+      gifPlayback = !!inner.videoMessage.gifPlayback
+      type = gifPlayback ? "gif" : "video"
+      caption  = inner.videoMessage.caption || ""
+      mimetype = inner.videoMessage.mimetype || "video/mp4"
+      mediaBuffer = await antideleteDownloadSafe(msg, sock)
+    } else if (inner.stickerMessage) {
+      type = "sticker"
+      mimetype = inner.stickerMessage.mimetype || "image/webp"
+      mediaBuffer = await antideleteDownloadSafe(msg, sock)
+    } else if (inner.audioMessage) {
+      ptt = !!inner.audioMessage.ptt
+      type = ptt ? "voice" : "audio"
+      mimetype = inner.audioMessage.mimetype || "audio/ogg"
+      mediaBuffer = await antideleteDownloadSafe(msg, sock)
+    } else {
+      type = "other"
+    }
+  } catch (e) {
+    console.error("[ANTIDELETE] storeMessage error:", e.message)
+  }
+
+  antideleteCache.set(msg.key.id, {
+    jid, sender, senderAlt, timestamp, type, text, caption,
+    mediaBuffer, mimetype, ptt, gifPlayback,
+    cachedAt: Date.now(),
+  })
+  antideleteOrder.push(msg.key.id)
+  antideleteEvictIfNeeded()
+}
+
+function antideleteIsRevoke(proto) {
+  if (!proto) return false
+  if (proto.type === "REVOKE") return true
+
+  try {
+    const REVOKE_VALUE = WAProto?.Message?.ProtocolMessage?.Type?.REVOKE
+    if (REVOKE_VALUE !== undefined && proto.type === REVOKE_VALUE) return true
+  } catch {}
+
+  if (proto.key?.id && proto.editedMessage === undefined && proto.type === undefined) return true
+
+  return false
+}
+
+async function antideleteReport(sock, phone, proto, deleterKey) {
+  if (!antideleteGetEnabled(phone)) return
+
+  const deletedId = proto.key?.id
+  if (!deletedId) return
+
+  const cached = antideleteCache.get(deletedId)
+  if (!cached) return
+
+  const deleterJid = deleterKey.participant || deleterKey.remoteJid
+  const deleterNum = (deleterJid || "").split("@")[0]
+  const chatJid     = deleterKey.remoteJid
+  const isGroup     = chatJid.endsWith("@g.us")
+
+  let chatLabel = "a private DM"
+  if (isGroup) {
+    try {
+      const meta = await sock.groupMetadata(chatJid)
+      chatLabel = `${meta.subject || chatJid} (group)`
+    } catch {
+      chatLabel = `${chatJid} (group)`
+    }
+  }
+
+  const ownerJid = `${phone}@s.whatsapp.net`
+  const when = new Date(cached.timestamp * 1000).toLocaleString()
+
+  const headerText =
+    `🗑️ *Antidelete*\n\n` +
+    `*Deleted by:* @${deleterNum}\n` +
+    `*Where:* ${chatLabel}\n` +
+    `*When sent:* ${when}`
+
+  try {
+    if (cached.type === "text") {
+      await sock.sendMessage(ownerJid, {
+        text: `${headerText}\n\n*Message:*\n${cached.text || "(empty)"}`,
+        mentions: [deleterJid],
+      })
+    } else if (cached.mediaBuffer && cached.type === "image") {
+      await sock.sendMessage(ownerJid, {
+        image: cached.mediaBuffer,
+        caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`,
+        mentions: [deleterJid],
+      })
+    } else if (cached.mediaBuffer && (cached.type === "video" || cached.type === "gif")) {
+      await sock.sendMessage(ownerJid, {
+        video: cached.mediaBuffer,
+        gifPlayback: cached.gifPlayback,
+        caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`,
+        mentions: [deleterJid],
+      })
+    } else if (cached.mediaBuffer && cached.type === "sticker") {
+      await sock.sendMessage(ownerJid, { sticker: cached.mediaBuffer })
+      await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
+    } else if (cached.mediaBuffer && (cached.type === "voice" || cached.type === "audio")) {
+      await sock.sendMessage(ownerJid, {
+        audio: cached.mediaBuffer,
+        ptt: cached.ptt,
+        mimetype: cached.mimetype || "audio/ogg",
+      })
+      await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
+    } else {
+      await sock.sendMessage(ownerJid, {
+        text: `${headerText}\n\n_Content type: ${cached.type} — could not recover media content._`,
+        mentions: [deleterJid],
+      })
+    }
+  } catch (e) {
+    console.error("[ANTIDELETE] failed to report deletion to owner:", e.message)
+  }
+
+  antideleteCache.delete(deletedId)
+  const idx = antideleteOrder.indexOf(deletedId)
+  if (idx !== -1) antideleteOrder.splice(idx, 1)
+}
+
+async function handleMessageRevocation(sock, phone, payload, source) {
+  if (source === "upsert") {
+    const msg = payload
+    const proto = msg?.message?.protocolMessage
+    if (!antideleteIsRevoke(proto)) return
+    await antideleteReport(sock, phone, proto, msg.key)
+  } else if (source === "update") {
+    const updates = payload
+    for (const u of updates) {
+      const proto = u.update?.message?.protocolMessage || u.update?.protocolMessage
+      if (!antideleteIsRevoke(proto)) continue
+      await antideleteReport(sock, phone, proto, u.key)
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MESSAGE HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
 async function handleMessage(state, sock, msg) {
@@ -424,6 +660,8 @@ async function handleMessage(state, sock, msg) {
       extractBody, groupCache: state.groupCache,
       checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
       checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
+      antideleteGetEnabled: () => antideleteGetEnabled(state.phone),
+      antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
     })
   } catch (e) {
     console.error(`[${state.phone}] RUN ERR ${rawCmd}: ${e.message}`)
@@ -523,11 +761,13 @@ async function startBot(phone) {
         continue
       }
 
-      // ── ANTIDELETE: store ALL messages (fromMe included) via direct module
-      // reference so the Map is always the same instance across sessions.
-      // Errors are logged, not swallowed — media download failures surface here.
-      antidelete.storeMessage(sock, m).catch(e =>
+      // Antidelete: cache this message in case it gets deleted later,
+      // AND check if this message itself IS a delete notice.
+      storeMessage(sock, m).catch(e =>
         console.error(`[${phone}] storeMessage ERR:`, e.message)
+      )
+      handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
+        console.error(`[${phone}] antideleteUpsert ERR:`, e.message)
       )
 
       if (!m.key.fromMe) {
@@ -540,16 +780,12 @@ async function startBot(phone) {
     }
   })
 
-  // ── ANTIDELETE: revocation handled via same direct module reference.
-  // Ephemeral-wrapped deletes, correct owner JID, TTL expiry all handled
-  // inside antidelete.js itself.
   sock.ev.on("messages.update", async (updates) => {
-    antidelete.handleMessageRevocation(sock, updates).catch(e =>
+    handleMessageRevocation(sock, phone, updates, "update").catch(e =>
       console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
     )
   })
 
-  // ── Connection lifecycle ──────────────────────────────────────────────────
   sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
     if (connection === "open") {
       state.connected   = true
@@ -588,6 +824,16 @@ async function init() {
   await loadCommands()
   watchCommands()
   watchSupportDirs()
+
+  // ── Universal data persistence — restore ALL group/bot data from Redis ────
+  try {
+    const persist = require("./lib/persist")
+    await persist.restoreAllData()
+    persist.startAutoSave(60 * 1000)
+    console.log("[PERSIST] 💾 Persistence engine active")
+  } catch (e) {
+    console.warn("[PERSIST] ⚠ lib/persist.js not found — skipping data restore:", e.message)
+  }
 
   console.log("[INIT] 🔄 Restoring sessions from backup...")
   const restoredCount = await sessionBackup.restoreAll().catch(e => {
