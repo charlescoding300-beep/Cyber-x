@@ -4,7 +4,7 @@ const https = require("https")
 const fs    = require("fs")
 const path  = require("path")
 
-const { init, addSession, removeSession, listBots } = require("./index")
+const { init, addSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY } = require("./index")
 const sessionBackup = require("./lib/sessionBackup")
 
 const PORT       = process.env.PORT || 3000
@@ -156,10 +156,49 @@ const server = http.createServer(async (req, res) => {
     return res.end("⚡ CYBER X MULTI-BOT ONLINE")
   }
 
+  // ── /pair/:slot — pair directly into a specific server slot ───────────────
+  // If that slot is full, auto-redirect to the next available one instead
+  // of failing outright. Slot is passed through via ?slot=N once the page
+  // loads, so the pairing JS knows which slot to request.
+  const slotPairMatch = url.match(/^\/pair\/(\d+)$/)
+  if (slotPairMatch && method === "GET") {
+    const requestedSlot = parseInt(slotPairMatch[1], 10)
+
+    if (requestedSlot < 1 || requestedSlot > SLOT_COUNT) {
+      res.writeHead(302, { Location: "/pair" })
+      return res.end()
+    }
+
+    const summary = getSlotsSummary()
+    const target  = summary.find(s => s.slot === requestedSlot)
+
+    if (target && target.full) {
+      const nextSlot = getNextAvailableSlot()
+      if (nextSlot) {
+        res.writeHead(302, { Location: `/pair/${nextSlot}?redirected=1&from=${requestedSlot}` })
+        return res.end()
+      }
+      // every slot full — fall through and still serve the page, so the
+      // user sees the "all servers full" state instead of a dead end
+    }
+
+    return servePublicFile(res, "pair.html", "text/html")
+  }
+
+  // ── /api/slots — live status of all 10 server slots ───────────────────────
+  if (url === "/api/slots" && method === "GET") {
+    return json(res, {
+      slots:     getSlotsSummary(),
+      slotCount: SLOT_COUNT,
+      capacity:  SLOT_CAPACITY,
+    })
+  }
+
   // ── /pair — serves HTML page OR returns pairing code JSON ─────────────────
   if ((url === "/pair" || url === "/pair.html") && method === "GET") {
     const params     = new URL(req.url, "http://internal").searchParams
     const phoneParam = params.get("phone")
+    const slotParam  = params.get("slot") ? parseInt(params.get("slot"), 10) : null
 
     if (phoneParam) {
       // Phone param present → generate pairing code and return JSON
@@ -168,7 +207,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, { status: false, error: "Invalid phone number — include country code" }, 400)
       }
       try {
-        const result = await addSession(cleanPhone)
+        const result = await addSession(cleanPhone, slotParam)
         return json(res, {
           status:      true,
           code:        result.code || result.pairingCode || result.pairing_code,
@@ -187,10 +226,10 @@ const server = http.createServer(async (req, res) => {
 
   // ── /pair POST (legacy support) ───────────────────────────────────────────
   if (url === "/pair" && method === "POST") {
-    const { phone } = await readBody(req)
+    const { phone, slot } = await readBody(req)
     if (!phone) return json(res, { error: "phone required" }, 400)
     try {
-      const result = await addSession(phone)
+      const result = await addSession(phone, slot || null)
       return json(res, { status: true, ...result })
     } catch (e) {
       return json(res, { status: false, error: e.message }, 500)
@@ -393,9 +432,9 @@ const server = http.createServer(async (req, res) => {
       const { message, history = [], systemPrompt } = await readBody(req)
       if (!message) return json(res, { error: "message required" }, 400)
 
-      const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the official AI assistant for CYBER X, an enterprise WhatsApp bot infrastructure built by Charles Chukwu (also known as charlescoding300 / Charles Tech).
+      const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the AI assistant built into CYBER X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
 
-ABOUT CYBER X:
+ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated chat):
 - Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys)
 - Hosted on Render cloud platform at https://cyber-x-y8yv.onrender.com
 - Uses Upstash Redis for session persistence and automatic backups
@@ -404,14 +443,13 @@ ABOUT CYBER X:
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
 
 YOUR JOB:
-- Help users understand CYBER X and its features
-- Guide users through pairing their WhatsApp number to CYBER X
-- Answer questions about commands, features, and how the bot works
-- Be helpful, knowledgeable, and professional but also friendly
-- Direct users to https://cyber-x-y8yv.onrender.com/pair for pairing
-- Keep responses concise but informative
+- You are a GENERAL-PURPOSE conversational assistant, not limited to CYBER X topics. People can chat with you about anything — news, advice, explanations, casual conversation, general knowledge — the same way they'd talk to any helpful AI assistant.
+- When someone asks specifically about CYBER X, pairing, or its commands, answer using the details above and point them to https://cyber-x-y8yv.onrender.com/pair for pairing.
+- For everything else, just be a genuinely helpful, knowledgeable conversational AI. Don't force CYBER X branding into answers that have nothing to do with it.
+- Be honest about uncertainty rather than making things up, especially for anything time-sensitive (you don't have live internet access through this chat).
+- Keep responses conversational and appropriately concise — match the length to what the question actually needs.
 
-PERSONALITY: Intelligent, precise, and speaks with the confidence of a premium enterprise system. You represent Charles Chukwu's vision for next-generation WhatsApp infrastructure.`
+PERSONALITY: Friendly, sharp, and easy to talk to. Confident but not robotic — like a knowledgeable friend who also happens to know everything about CYBER X if asked.`
 
       const messages = history.slice(-10).map(h => ({
         role:    h.role === "assistant" ? "assistant" : "user",
@@ -477,6 +515,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] ⚡ CYBER X Multi-Bot listening on port ${PORT}`)
   console.log(`[WEB] 🌐 URL: ${SELF_URL}`)
   console.log(`[WEB] 🔗 Pairing site: ${SELF_URL}/pair`)
+  console.log(`[WEB] 🖥️  Server slots: ${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity each`)
   console.log(`[WEB] 💾 Session backup: ${sessionBackup.enabled ? "ENABLED (" + process.env.GITHUB_BACKUP_REPO + ")" : "DISABLED"}`)
   console.log(`[WEB] 📁 Auto static: ${PUBLIC_DIR} — drop any HTML/CSS/JS/image and it's live instantly`)
   console.log(`[WEB] 🤖 Shivan AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq llama3-8b-8192)" : "DISABLED — set GROQ_API_KEY"}`)

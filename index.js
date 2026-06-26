@@ -34,6 +34,9 @@ const SESS_ROOT  = path.join(__dirname, "sessions")
 const META_FILE  = path.join(SESS_ROOT, "_meta.json")
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
 
+const SETTINGS_ROOT = path.join(__dirname, "data", "settings")
+if (!fs.existsSync(SETTINGS_ROOT)) fs.mkdirSync(SETTINGS_ROOT, { recursive: true })
+
 const OWNER_NUMBERS = (process.env.OWNER_NUMBER || "")
   .split(",").map(n => n.replace(/\D/g, "").trim()).filter(Boolean)
 
@@ -42,6 +45,275 @@ const SUDO_NUMBERS = (process.env.SUDO_NUMBERS || "")
 
 for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, API_DIR, CONFIG_DIR, TEMP_DIR, SESS_ROOT])
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSISTENT SESSION SETTINGS ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+const sessionSettingsCache = new Map()
+
+function getSettingsFile(phone) {
+  return path.join(SETTINGS_ROOT, `${phone}.json`)
+}
+
+function loadSessionSettings(phone) {
+  if (sessionSettingsCache.has(phone)) return sessionSettingsCache.get(phone)
+  const file = getSettingsFile(phone)
+  let data = {}
+  try {
+    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch (e) {
+    console.error(`[SETTINGS] ✗ Load failed for ${phone}:`, e.message)
+  }
+  sessionSettingsCache.set(phone, data)
+  return data
+}
+
+function saveSessionSettings(phone) {
+  const data = sessionSettingsCache.get(phone) || {}
+  const file = getSettingsFile(phone)
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[SETTINGS] ✗ Save failed for ${phone}:`, e.message)
+  }
+}
+
+function makeSessionSettings(phone) {
+  const data = loadSessionSettings(phone)
+  return {
+    get(key)      { return data[key] },
+    set(key, val) {
+      data[key] = val
+      sessionSettingsCache.set(phone, data)
+      saveSessionSettings(phone)
+      console.log(`[SETTINGS:${phone}] ✔ ${key} = ${JSON.stringify(val)}`)
+    },
+    delete(key) {
+      delete data[key]
+      sessionSettingsCache.set(phone, data)
+      saveSessionSettings(phone)
+    },
+    getAll() { return { ...data } },
+    reset()  {
+      sessionSettingsCache.set(phone, {})
+      saveSessionSettings(phone)
+    },
+    merge(obj) {
+      Object.assign(data, obj)
+      sessionSettingsCache.set(phone, data)
+      saveSessionSettings(phone)
+      console.log(`[SETTINGS:${phone}] ✔ merged ${Object.keys(obj).join(", ")}`)
+    },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVER SLOTS
+// ─────────────────────────────────────────────────────────────────────────────
+const SLOT_COUNT    = 10
+const SLOT_CAPACITY = parseInt(process.env.SLOT_CAPACITY || "50", 10)
+const SLOTS_FILE    = path.join(__dirname, "data", "slots.json")
+
+let slotAssignments = {}
+
+function loadSlotAssignments() {
+  try {
+    if (fs.existsSync(SLOTS_FILE)) {
+      slotAssignments = JSON.parse(fs.readFileSync(SLOTS_FILE, "utf8"))
+    }
+  } catch (e) {
+    console.error("[SLOTS] load error:", e.message)
+    slotAssignments = {}
+  }
+}
+loadSlotAssignments()
+
+function saveSlotAssignments() {
+  try {
+    fs.mkdirSync(path.dirname(SLOTS_FILE), { recursive: true })
+    fs.writeFileSync(SLOTS_FILE, JSON.stringify(slotAssignments, null, 2))
+  } catch (e) {
+    console.error("[SLOTS] save error:", e.message)
+  }
+}
+
+function getSlotCounts() {
+  const counts = {}
+  for (let i = 1; i <= SLOT_COUNT; i++) counts[i] = 0
+  for (const phone of Object.keys(slotAssignments)) {
+    const slot = slotAssignments[phone]
+    if (sessions.has(phone) && counts[slot] !== undefined) counts[slot]++
+  }
+  return counts
+}
+
+function getNextAvailableSlot() {
+  const counts = getSlotCounts()
+  for (let i = 1; i <= SLOT_COUNT; i++) {
+    if (counts[i] < SLOT_CAPACITY) return i
+  }
+  return null
+}
+
+function assignToSlot(phone, preferredSlot = null) {
+  if (slotAssignments[phone]) return slotAssignments[phone]
+  const counts = getSlotCounts()
+  let slot = null
+  if (preferredSlot && preferredSlot >= 1 && preferredSlot <= SLOT_COUNT && counts[preferredSlot] < SLOT_CAPACITY) {
+    slot = preferredSlot
+  } else {
+    slot = getNextAvailableSlot()
+  }
+  if (slot === null) return null
+  slotAssignments[phone] = slot
+  saveSlotAssignments()
+  return slot
+}
+
+function getSlotsSummary() {
+  const counts = getSlotCounts()
+  const result = []
+  for (let i = 1; i <= SLOT_COUNT; i++) {
+    const phonesInSlot = Object.keys(slotAssignments).filter(p => slotAssignments[p] === i && sessions.has(p))
+    const onlineCount  = phonesInSlot.filter(p => sessions.get(p)?.connected).length
+    result.push({
+      slot:      i,
+      connected: phonesInSlot.length,
+      capacity:  SLOT_CAPACITY,
+      online:    onlineCount > 0,
+      full:      phonesInSlot.length >= SLOT_CAPACITY,
+    })
+  }
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WELCOME / GOODBYE — inline, same pattern as antidelete
+// Persistent per group per session: data/greet/<phone>/<groupId>.json
+// Commands (.welcome / .goodbye) read/write via greetGet / greetSet
+// This listener fires automatically on every group join/leave event
+// ─────────────────────────────────────────────────────────────────────────────
+const GREET_ROOT = path.join(__dirname, "data", "greet")
+if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
+
+const GREET_DEFAULT_WELCOME = "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.\n\n_{desc}_"
+const GREET_DEFAULT_GOODBYE = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
+
+function greetFile(phone, groupId) {
+  const dir = path.join(GREET_ROOT, phone)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return path.join(dir, groupId.replace(/[^a-z0-9]/gi, "_") + ".json")
+}
+
+function greetLoad(phone, groupId) {
+  try {
+    const f = greetFile(phone, groupId)
+    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, "utf8"))
+  } catch {}
+  return {}
+}
+
+function greetSave(phone, groupId, data) {
+  try {
+    fs.writeFileSync(greetFile(phone, groupId), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[GREET] save error ${phone}/${groupId}:`, e.message)
+  }
+}
+
+function greetGet(phone, groupId, type) {
+  return greetLoad(phone, groupId)?.[type] || null
+}
+
+function greetSet(phone, groupId, type, settings) {
+  const data = greetLoad(phone, groupId)
+  data[type] = { ...data[type], ...settings, updatedAt: Date.now() }
+  greetSave(phone, groupId, data)
+  console.log(`[GREET:${phone}] ✔ ${type} updated for ${groupId}`)
+}
+
+function greetFill(template, { name, group, desc, members, tag }) {
+  return template
+    .replace(/{name}/g,    name    || "Friend")
+    .replace(/{group}/g,   group   || "this group")
+    .replace(/{desc}/g,    desc    || "")
+    .replace(/{members}/g, String(members || ""))
+    .replace(/{tag}/g,     tag     || "")
+}
+
+// expose on global so welcome.js / goodbye.js commands can access
+global.__greetGet            = greetGet
+global.__greetSet            = greetSet
+global.__greetFill           = greetFill
+global.__GREET_DEFAULT_WELCOME = GREET_DEFAULT_WELCOME
+global.__GREET_DEFAULT_GOODBYE = GREET_DEFAULT_GOODBYE
+
+async function handleGreetEvent(sock, phone, update) {
+  const { id: groupId, participants, action } = update
+  if (!groupId?.endsWith("@g.us")) return
+  if (!["add", "remove"].includes(action)) return
+
+  let meta
+  try { meta = await sock.groupMetadata(groupId) } catch { return }
+
+  const groupName   = meta.subject || "the group"
+  const groupDesc   = meta.desc    || ""
+  const memberCount = (meta.participants || []).length
+
+  for (const participantJid of participants) {
+    const memberPhone = participantJid
+      .replace("@s.whatsapp.net", "")
+      .replace(/:\d+$/, "")
+
+    // try to get push name from group metadata
+    let pushName = ""
+    try {
+      const contact = meta.participants?.find(p =>
+        p.id === participantJid || p.id?.startsWith(memberPhone)
+      )
+      pushName = contact?.notify || contact?.name || ""
+    } catch {}
+
+    const displayName = pushName || memberPhone
+    const type        = action === "add" ? "welcome" : "goodbye"
+    const settings    = greetGet(phone, groupId, type)
+
+    if (!settings?.enabled) continue
+
+    const defaultMsg = type === "welcome" ? GREET_DEFAULT_WELCOME : GREET_DEFAULT_GOODBYE
+    const template   = settings.message || defaultMsg
+
+    const text = greetFill(template, {
+      name:    displayName,
+      group:   groupName,
+      desc:    groupDesc,
+      members: memberCount,
+      tag:     memberPhone,
+    })
+
+    // try to fetch profile picture — fallback to text only
+    let ppUrl = null
+    try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
+
+    try {
+      if (ppUrl) {
+        await sock.sendMessage(groupId, {
+          image:    { url: ppUrl },
+          caption:  text,
+          mentions: [participantJid],
+        })
+      } else {
+        await sock.sendMessage(groupId, {
+          text,
+          mentions: [participantJid],
+        })
+      }
+      console.log(`[GREET:${phone}] ${type === "welcome" ? "👋 Welcomed" : "👣 Goodbye"} ${memberPhone} in ${groupName}`)
+    } catch (e) {
+      console.error(`[GREET:${phone}] send error:`, e.message)
+    }
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTO LOADER
@@ -114,9 +386,7 @@ cleanupTempDir()
 setInterval(cleanupTempDir, 15 * 60 * 1000)
 
 // ── Memory guard ──────────────────────────────────────────────────────────────
-setInterval(() => {
-  if (global.gc) global.gc()
-}, 60_000)
+setInterval(() => { if (global.gc) global.gc() }, 60_000)
 
 setInterval(() => {
   const usedMB = process.memoryUsage().rss / 1024 / 1024
@@ -140,7 +410,6 @@ function loadFile(file) {
   try {
     delete require.cache[require.resolve(full)]
     const mod = require(full)
-
     if (mod && typeof mod === "object") {
       for (const k of Object.keys(mod)) {
         if (CMD_RESERVED_KEYS.has(k)) continue
@@ -148,7 +417,6 @@ function loadFile(file) {
         if (typeof mod[k] === "function") lib[k] = mod[k]
       }
     }
-
     if (!isValidCmd(mod)) return false
     const key = toKey(mod.pattern)
     registry.map.set(key, mod)
@@ -168,6 +436,32 @@ function rebuildLists() {
   })).sort((a, b) => a.pattern.localeCompare(b.pattern))
 }
 
+function logCommandTable() {
+  const cmds = [...registry.map.values()]
+  if (!cmds.length) return
+  const groups = {}
+  for (const c of cmds) {
+    const cat = (c.category || "GENERAL").toUpperCase()
+    if (!groups[cat]) groups[cat] = []
+    groups[cat].push(c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`)
+  }
+  console.log("\n╔══════════════════════════════════════════════╗")
+  console.log("║         ⚡ CYBER X — COMMAND REGISTRY        ║")
+  console.log("╠══════════════════════════════════════════════╣")
+  const cats = Object.keys(groups).sort()
+  for (const cat of cats) {
+    const cmdsInCat = groups[cat].sort()
+    console.log(`║  【 ${cat} 】`)
+    for (let i = 0; i < cmdsInCat.length; i += 3) {
+      const row = cmdsInCat.slice(i, i + 3).map(c => c.padEnd(18)).join(" ")
+      console.log(`║    ${row}`)
+    }
+  }
+  console.log("╠══════════════════════════════════════════════╣")
+  console.log(`║  Total: ${cmds.length} commands across ${cats.length} categories`.padEnd(47) + "║")
+  console.log("╚══════════════════════════════════════════════╝\n")
+}
+
 async function loadCommands() {
   if (!fs.existsSync(CMD_DIR)) return
   registry.map.clear(); registry.aliases.clear()
@@ -177,6 +471,7 @@ async function loadCommands() {
   rebuildLists()
   global.__commandCount = ok
   console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped`)
+  logCommandTable()
 }
 
 let watchStarted = false
@@ -187,7 +482,10 @@ function watchCommands() {
   fs.watch(CMD_DIR, { persistent: false }, (_, f) => {
     if (!f?.endsWith(".js")) return
     clearTimeout(debounce)
-    debounce = setTimeout(() => { loadFile(f); rebuildLists(); console.log(`[CMD] ↺ ${f}`) }, 100)
+    debounce = setTimeout(() => {
+      loadFile(f); rebuildLists(); logCommandTable()
+      console.log(`[CMD] ↺ ${f}`)
+    }, 100)
   })
 }
 
@@ -204,50 +502,39 @@ function normalizeNum(raw = "") {
 function checkIsOwner(state, sender, senderAlt, fromMe) {
   if (fromMe === true) return true
   const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
-
   const sessionPhone = normalizeNum(state.phone)
   if (sessionPhone && candidates.some(n => n === sessionPhone)) return true
-
   if (OWNER_NUMBERS.length && candidates.some(n => OWNER_NUMBERS.includes(n))) return true
-
   if ([sender, senderAlt].filter(Boolean).some(j => {
     try { return isAdminLib.isOwner(j) } catch { return false }
   })) return true
-
   try {
     const dynamicOwners = settingsLib.get?.("owners") || []
     if (Array.isArray(dynamicOwners) && candidates.some(n => dynamicOwners.map(normalizeNum).includes(n)))
       return true
   } catch {}
-
   return false
 }
 
 async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner) {
   if (isOwner) return { isAdmin: true, isBotAdmin: true }
   const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
-
   let meta = state.groupCache[from]
   if (!meta || (Date.now() - (meta._cachedAt || 0)) > 5 * 60 * 1000) {
     try { meta = await sock.groupMetadata(from); state.groupCache[from] = { ...meta, _cachedAt: Date.now() } } catch {}
   }
-
   let isBotAdmin = false
   try { isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock) } catch {}
-
   if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n)))
     return { isAdmin: true, isBotAdmin }
-
   let isAdmin = false
   try { isAdmin = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt) } catch {}
-
   if (!isAdmin && meta?.participants) {
     const adminSet = new Set(
       meta.participants.filter(p => p.admin === "admin" || p.admin === "superadmin").map(p => normalizeNum(p.id))
     )
     isAdmin = candidates.some(n => adminSet.has(n))
   }
-
   return { isAdmin, isBotAdmin }
 }
 
@@ -300,7 +587,7 @@ function makeSessionState(phone) {
   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })
   return {
     phone, sessDir,
-    settings:      settingsLib.forUser(phone),
+    settings:      makeSessionSettings(phone),
     groupCache:    {},
     retries:       0,
     sock:          null,
@@ -355,33 +642,10 @@ async function handleStatus(state, sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANTIDELETE — written directly here, no separate file/require. Runs as
-// part of the same process loop as everything else in startBot().
-//
-// ONE GLOBAL TOGGLE PER SESSION: each linked WhatsApp account (each
-// "phone" session) has its own antidelete on/off switch, stored via
-// userDb under that session's own phone. When enabled for a session, it
-// applies automatically to EVERY DM and EVERY group THAT session's bot
-// is in. Reports go to that session's own owner DM (state.phone), so in
-// a multi-session setup each linked account's deletions get reported to
-// that account's own owner, not a single hardcoded number.
-//
-// DETECTION: WhatsApp/Baileys represents "delete for everyone" as a
-// protocolMessage with type REVOKE, carrying the ORIGINAL message's key.
-// This can arrive via messages.upsert (as a new message whose content IS
-// the revoke marker) and/or via messages.update — both are handled below
-// since which one fires can vary. By the time either fires, the original
-// message is already gone from WhatsApp's servers, so recovery only
-// works if the message was cached the moment it first arrived — that's
-// what storeMessage() does on every incoming message, BEFORE any chance
-// of deletion.
-//
-// MEMORY SAFETY: cache is in-memory only, capped at ANTIDELETE_MAX_ENTRIES
-// total and auto-expired after ANTIDELETE_MAX_AGE_MS, swept periodically.
+// ANTIDELETE
 // ─────────────────────────────────────────────────────────────────────────────
-
 const ANTIDELETE_MAX_ENTRIES = 500
-const ANTIDELETE_MAX_AGE_MS  = 15 * 60 * 1000   // 15 minutes
+const ANTIDELETE_MAX_AGE_MS  = 15 * 60 * 1000
 
 const antideleteCache = new Map()
 const antideleteOrder  = []
@@ -441,55 +705,38 @@ async function antideleteDownloadSafe(msg, sock) {
 async function storeMessage(sock, msg) {
   if (!msg?.message || !msg.key?.id) return
   if (msg.key.fromMe) return
-
   const m = msg.message
   if (m.protocolMessage) return
-
   const inner = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m
-
   const jid       = msg.key.remoteJid
   const sender    = msg.key.participant || jid
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const timestamp = Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000)
-
   let type = "text", text = "", mediaBuffer = null, mimetype = null, caption = "", ptt = false, gifPlayback = false
-
   try {
     if (inner.conversation) {
       type = "text"; text = inner.conversation
     } else if (inner.extendedTextMessage?.text) {
       type = "text"; text = inner.extendedTextMessage.text
     } else if (inner.imageMessage) {
-      type = "image"
-      caption  = inner.imageMessage.caption || ""
-      mimetype = inner.imageMessage.mimetype || "image/jpeg"
+      type = "image"; caption = inner.imageMessage.caption || ""; mimetype = inner.imageMessage.mimetype || "image/jpeg"
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else if (inner.videoMessage) {
-      gifPlayback = !!inner.videoMessage.gifPlayback
-      type = gifPlayback ? "gif" : "video"
-      caption  = inner.videoMessage.caption || ""
-      mimetype = inner.videoMessage.mimetype || "video/mp4"
+      gifPlayback = !!inner.videoMessage.gifPlayback; type = gifPlayback ? "gif" : "video"
+      caption = inner.videoMessage.caption || ""; mimetype = inner.videoMessage.mimetype || "video/mp4"
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else if (inner.stickerMessage) {
-      type = "sticker"
-      mimetype = inner.stickerMessage.mimetype || "image/webp"
+      type = "sticker"; mimetype = inner.stickerMessage.mimetype || "image/webp"
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else if (inner.audioMessage) {
-      ptt = !!inner.audioMessage.ptt
-      type = ptt ? "voice" : "audio"
+      ptt = !!inner.audioMessage.ptt; type = ptt ? "voice" : "audio"
       mimetype = inner.audioMessage.mimetype || "audio/ogg"
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
-    } else {
-      type = "other"
-    }
-  } catch (e) {
-    console.error("[ANTIDELETE] storeMessage error:", e.message)
-  }
-
+    } else { type = "other" }
+  } catch (e) { console.error("[ANTIDELETE] storeMessage error:", e.message) }
   antideleteCache.set(msg.key.id, {
     jid, sender, senderAlt, timestamp, type, text, caption,
-    mediaBuffer, mimetype, ptt, gifPlayback,
-    cachedAt: Date.now(),
+    mediaBuffer, mimetype, ptt, gifPlayback, cachedAt: Date.now(),
   })
   antideleteOrder.push(msg.key.id)
   antideleteEvictIfNeeded()
@@ -498,89 +745,51 @@ async function storeMessage(sock, msg) {
 function antideleteIsRevoke(proto) {
   if (!proto) return false
   if (proto.type === "REVOKE") return true
-
   try {
     const REVOKE_VALUE = WAProto?.Message?.ProtocolMessage?.Type?.REVOKE
     if (REVOKE_VALUE !== undefined && proto.type === REVOKE_VALUE) return true
   } catch {}
-
   if (proto.key?.id && proto.editedMessage === undefined && proto.type === undefined) return true
-
   return false
 }
 
 async function antideleteReport(sock, phone, proto, deleterKey) {
   if (!antideleteGetEnabled(phone)) return
-
   const deletedId = proto.key?.id
   if (!deletedId) return
-
   const cached = antideleteCache.get(deletedId)
   if (!cached) return
-
   const deleterJid = deleterKey.participant || deleterKey.remoteJid
   const deleterNum = (deleterJid || "").split("@")[0]
-  const chatJid     = deleterKey.remoteJid
-  const isGroup     = chatJid.endsWith("@g.us")
-
+  const chatJid    = deleterKey.remoteJid
+  const isGroup    = chatJid.endsWith("@g.us")
   let chatLabel = "a private DM"
   if (isGroup) {
     try {
       const meta = await sock.groupMetadata(chatJid)
       chatLabel = `${meta.subject || chatJid} (group)`
-    } catch {
-      chatLabel = `${chatJid} (group)`
-    }
+    } catch { chatLabel = `${chatJid} (group)` }
   }
-
-  const ownerJid = `${phone}@s.whatsapp.net`
-  const when = new Date(cached.timestamp * 1000).toLocaleString()
-
-  const headerText =
-    `🗑️ *Antidelete*\n\n` +
-    `*Deleted by:* @${deleterNum}\n` +
-    `*Where:* ${chatLabel}\n` +
-    `*When sent:* ${when}`
-
+  const ownerJid   = `${phone}@s.whatsapp.net`
+  const when       = new Date(cached.timestamp * 1000).toLocaleString()
+  const headerText = `🗑️ *Antidelete*\n\n*Deleted by:* @${deleterNum}\n*Where:* ${chatLabel}\n*When sent:* ${when}`
   try {
     if (cached.type === "text") {
-      await sock.sendMessage(ownerJid, {
-        text: `${headerText}\n\n*Message:*\n${cached.text || "(empty)"}`,
-        mentions: [deleterJid],
-      })
+      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n*Message:*\n${cached.text || "(empty)"}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && cached.type === "image") {
-      await sock.sendMessage(ownerJid, {
-        image: cached.mediaBuffer,
-        caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`,
-        mentions: [deleterJid],
-      })
+      await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && (cached.type === "video" || cached.type === "gif")) {
-      await sock.sendMessage(ownerJid, {
-        video: cached.mediaBuffer,
-        gifPlayback: cached.gifPlayback,
-        caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`,
-        mentions: [deleterJid],
-      })
+      await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && cached.type === "sticker") {
       await sock.sendMessage(ownerJid, { sticker: cached.mediaBuffer })
       await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && (cached.type === "voice" || cached.type === "audio")) {
-      await sock.sendMessage(ownerJid, {
-        audio: cached.mediaBuffer,
-        ptt: cached.ptt,
-        mimetype: cached.mimetype || "audio/ogg",
-      })
+      await sock.sendMessage(ownerJid, { audio: cached.mediaBuffer, ptt: cached.ptt, mimetype: cached.mimetype || "audio/ogg" })
       await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
     } else {
-      await sock.sendMessage(ownerJid, {
-        text: `${headerText}\n\n_Content type: ${cached.type} — could not recover media content._`,
-        mentions: [deleterJid],
-      })
+      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n_Content type: ${cached.type} — could not recover media content._`, mentions: [deleterJid] })
     }
-  } catch (e) {
-    console.error("[ANTIDELETE] failed to report deletion to owner:", e.message)
-  }
-
+  } catch (e) { console.error("[ANTIDELETE] failed to report deletion to owner:", e.message) }
   antideleteCache.delete(deletedId)
   const idx = antideleteOrder.indexOf(deletedId)
   if (idx !== -1) antideleteOrder.splice(idx, 1)
@@ -610,46 +819,35 @@ async function handleMessage(state, sock, msg) {
   if (msg.key.remoteJid === "status@broadcast") return
   const body = extractBody(msg)
   if (!body) return
-
   const from      = msg.key.remoteJid
   const sender    = msg.key.participant || from
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
-
   if (!fromMe && state.settings.get("autoRead")) {
     sock.readMessages([msg.key]).catch(() => {})
   }
-
   const prefix = state.settings.get("prefix") || BOT_PREFIX
-
   if (!body.startsWith(prefix)) {
     if (!fromMe) handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
     return
   }
-
   const isOwner = checkIsOwner(state, sender, senderAlt, fromMe)
   const mode = state.settings.get("mode") || "public"
   if (mode === "private" && !isOwner && !fromMe) return
-
   const isGroup = from.endsWith("@g.us")
   if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
   if (state.settings.get("dmOnly") && isGroup && !isOwner) return
-
   const slice    = body.slice(prefix.length).trimStart()
   const spaceIdx = slice.indexOf(" ")
   const rawCmd   = (spaceIdx === -1 ? slice : slice.slice(0, spaceIdx)).toLowerCase()
   const rest     = spaceIdx === -1 ? "" : slice.slice(spaceIdx + 1).trim()
   const args     = rest ? rest.split(/\s+/) : []
-
   const canonical = registry.aliases.get(rawCmd) || rawCmd
   const command   = registry.map.get(canonical)
   if (!command) return
-
   let isAdmin = false, isBotAdmin = false
   if (isGroup) { ({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner)) }
-
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
-
   try {
     await command.run({
       sock, from, msg, sender, args,
@@ -714,22 +912,27 @@ async function startBot(phone) {
   sock.ev.on("groups.upsert", gs => {
     for (const g of gs) state.groupCache[g.id] = { ...g, _cachedAt: Date.now() }
   })
+
   sock.ev.on("groups.update", us => {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
+  // ── group-participants.update — handles welcome, goodbye, antilink, etc ────
   sock.ev.on("group-participants.update", async (update) => {
+    // always refresh group cache first
     try {
       state.groupCache[update.id] = { ...(await sock.groupMetadata(update.id)), _cachedAt: Date.now() }
     } catch {}
 
+    // existing group update handler (antilink etc)
     if (typeof lib.handleGroupUpdate === "function") {
       lib.handleGroupUpdate(sock, update).catch(e =>
         console.error(`[${phone}] handleGroupUpdate ERR:`, e.message)
       )
     }
 
-    greetListener.handleGreetEvent(sock, update).catch(e =>
+    // ✨ welcome / goodbye — inline, no external file needed
+    handleGreetEvent(sock, phone, update).catch(e =>
       console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
     )
   })
@@ -755,27 +958,19 @@ async function startBot(phone) {
     for (const m of messages) {
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
-
       if (m.key.remoteJid === "status@broadcast") {
         handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
         continue
       }
-
-      // Antidelete: cache this message in case it gets deleted later,
-      // AND check if this message itself IS a delete notice.
-      storeMessage(sock, m).catch(e =>
-        console.error(`[${phone}] storeMessage ERR:`, e.message)
-      )
+      storeMessage(sock, m).catch(e => console.error(`[${phone}] storeMessage ERR:`, e.message))
       handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
         console.error(`[${phone}] antideleteUpsert ERR:`, e.message)
       )
-
       if (!m.key.fromMe) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
       }
-
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
   })
@@ -792,6 +987,13 @@ async function startBot(phone) {
       state.retries     = 0
       state.pairingCode = null
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"}`)
+      const allSettings = state.settings.getAll()
+      const settingKeys = Object.keys(allSettings)
+      if (settingKeys.length > 0) {
+        console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => `${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
+      } else {
+        console.log(`[${phone}] 💾 No saved settings — using defaults`)
+      }
       saveMeta()
       sessionBackup.pushImmediate(phone).catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
     }
@@ -800,13 +1002,11 @@ async function startBot(phone) {
       state.connected = false
       const statusCode = lastDisconnect?.error?.output?.statusCode
       const loggedOut  = statusCode === DisconnectReason.loggedOut
-
       if (loggedOut) {
         console.log(`[${phone}] ✗ Logged out — removing session`)
         await removeSession(phone)
         return
       }
-
       state.retries++
       const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
       console.log(`[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode})`)
@@ -818,14 +1018,13 @@ async function startBot(phone) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC API — used by server.js
+// PUBLIC API
 // ─────────────────────────────────────────────────────────────────────────────
 async function init() {
   await loadCommands()
   watchCommands()
   watchSupportDirs()
 
-  // ── Universal data persistence — restore ALL group/bot data from Redis ────
   try {
     const persist = require("./lib/persist")
     await persist.restoreAllData()
@@ -849,6 +1048,13 @@ async function init() {
   })
   if (dbRestoredCount > 0) console.log(`[INIT] ✔ Restored ${dbRestoredCount} user record(s) from backup`)
 
+  if (fs.existsSync(SETTINGS_ROOT)) {
+    const settingFiles = fs.readdirSync(SETTINGS_ROOT).filter(f => f.endsWith(".json"))
+    if (settingFiles.length > 0) {
+      console.log(`[SETTINGS] 💾 Found ${settingFiles.length} saved session setting(s): ${settingFiles.map(f => f.replace(".json","")).join(", ")}`)
+    }
+  }
+
   const onDisk = fs.existsSync(SESS_ROOT)
     ? fs.readdirSync(SESS_ROOT).filter(f => {
         const full = path.join(SESS_ROOT, f)
@@ -869,40 +1075,32 @@ async function init() {
   saveMeta()
 }
 
-async function addSession(phone) {
+async function addSession(phone, preferredSlot = null) {
   const clean = phone.replace(/\D/g, "")
   if (!clean) throw new Error("Invalid phone number")
-
+  const slot = assignToSlot(clean, preferredSlot)
+  if (slot === null) throw new Error("All server slots are full. Please try again later.")
   await startBot(clean)
   saveMeta()
-
   const state = sessions.get(clean)
   for (let i = 0; i < 15 && !state.pairingCode && !state.connected; i++) {
     await new Promise(r => setTimeout(r, 1000))
   }
-
-  return {
-    phone:       clean,
-    pairingCode: state.pairingCode,
-    connected:   state.connected,
-  }
+  return { phone: clean, pairingCode: state.pairingCode, connected: state.connected, slot }
 }
 
 async function removeSession(phone) {
   const clean = phone.replace(/\D/g, "")
   const state = sessions.get(clean)
-
   if (state) {
     if (state.presenceTimer) clearInterval(state.presenceTimer)
     try { state.sock?.end(undefined) } catch {}
     sessions.delete(clean)
   }
-
   try {
     const sessDir = path.join(SESS_ROOT, clean)
     fs.rmSync(sessDir, { recursive: true, force: true })
   } catch (e) { console.error(`[REMOVE] ✗ ${clean}:`, e.message) }
-
   saveMeta()
   sessionBackup.schedulePush(clean)
 }
@@ -910,10 +1108,15 @@ async function removeSession(phone) {
 function listBots() {
   return [...sessions.entries()].map(([phone, state]) => ({
     phone,
-    connected:   state.connected,
-    pairingCode: state.pairingCode,
-    groups:      Object.keys(state.groupCache || {}).length,
+    connected:     state.connected,
+    pairingCode:   state.pairingCode,
+    groups:        Object.keys(state.groupCache || {}).length,
+    savedSettings: Object.keys(state.settings.getAll()).length,
+    slot:          slotAssignments[phone] || null,
   }))
 }
 
-module.exports = { init, addSession, removeSession, listBots }
+module.exports = {
+  init, addSession, removeSession, listBots,
+  getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY,
+}
