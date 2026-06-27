@@ -132,6 +132,31 @@
   .server-box-status-text { font-size:9px;color:var(--ddg);letter-spacing:1px;text-transform:uppercase; }
   .waking-banner { display:none;border:1px solid var(--yellow);background:#0f0a00;padding:10px 14px;margin-bottom:10px;font-size:10px;color:var(--yellow);letter-spacing:1px;text-align:center; }
   .waking-banner.show { display:block; }
+
+  /* ══ GLOBAL CAPACITY COUNTER — top of page ══ */
+  .global-counter {
+    position:sticky;top:0;z-index:101;
+    background:#000;border-bottom:2px solid var(--g);
+    padding:8px 16px;text-align:center;
+    font-family:'Orbitron',monospace;
+  }
+  .global-counter-val {
+    font-size:clamp(18px,5vw,28px);font-weight:900;letter-spacing:4px;
+    color:var(--g);text-shadow:0 0 14px var(--g),0 0 28px var(--dg);
+  }
+  .global-counter-val.glitch-pulse {
+    animation: counterGlitch 0.18s steps(2,end) 1;
+  }
+  @keyframes counterGlitch {
+    0%   { transform:translateX(0); color:var(--g); text-shadow:0 0 14px var(--g); }
+    30%  { transform:translateX(-2px); color:var(--cyan); text-shadow:-2px 0 var(--red),2px 0 var(--cyan); }
+    60%  { transform:translateX(2px); color:var(--red); text-shadow:2px 0 var(--cyan),-2px 0 var(--red); }
+    100% { transform:translateX(0); color:var(--g); text-shadow:0 0 14px var(--g); }
+  }
+  .global-counter-label { font-size:8px;color:var(--ddg);letter-spacing:3px;text-transform:uppercase;margin-top:2px; }
+
+  /* ══ TYPEWRITER ══ */
+  .typewriter-cursor { display:inline-block;width:2px;background:var(--g);margin-left:2px;animation:blink 0.7s step-end infinite; }
 </style>
 </head>
 <body>
@@ -143,6 +168,10 @@
   <div class="access-granted-text" id="access-granted">ACCESS GRANTED</div>
 </div>
 <div id="app" style="display:none;">
+  <div class="global-counter">
+    <div class="global-counter-val" id="global-counter-val">— / —</div>
+    <div class="global-counter-label">TOTAL SESSIONS LINKED ACROSS ALL SERVERS</div>
+  </div>
   <div id="page-home" class="page active">
     <div class="topbar">
       <div class="topbar-left"><div class="topbar-brand">⬣ CYBER X</div><div class="topbar-sub">ENTERPRISE WHATSAPP INFRASTRUCTURE</div></div>
@@ -151,6 +180,9 @@
     <div class="hero">
       <div class="hero-title">CYBER X</div>
       <div class="hero-sub">Enterprise WhatsApp Infrastructure — Est. 2025</div>
+      <div style="margin-top:10px;font-family:'Share Tech Mono',monospace;font-size:clamp(11px,3vw,14px);color:var(--g);letter-spacing:1px;min-height:20px;">
+        <span id="typewriter-text"></span><span class="typewriter-cursor">&nbsp;</span>
+      </div>
       <div class="hero-divider"></div>
       <div class="hero-stats">
         <div class="hero-stat"><div class="hero-stat-val" id="stat-bots">—</div><div class="hero-stat-label">BOTS ONLINE</div></div>
@@ -346,7 +378,7 @@
     if(progress>=100){ clearInterval(interval);clearInterval(anim);
       setTimeout(()=>{ label.style.display='none';document.querySelector('.access-bar-wrap').style.display='none';granted.style.display='block';
         setTimeout(()=>{ screen.style.transition='opacity 0.5s';screen.style.opacity='0';
-          setTimeout(()=>{ screen.style.display='none';document.getElementById('app').style.display='block';startServices();handleDeepLink(); },500); },800); },200); }
+          setTimeout(()=>{ screen.style.display='none';document.getElementById('app').style.display='block';startServices();handleDeepLink();startTypewriter();startGlobalCounter(); },500); },800); },200); }
   },60);
 })();
 
@@ -397,9 +429,14 @@ function handleDeepLink(){
 
 let hasWokenUp = false;
 async function pingService(path,cb,timeoutMs=8000){
+  // Never throws/surfaces to caller — always resolves via cb(bool).
   try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});cb(r.ok); }catch{cb(false);}
 }
 async function fetchData(path,cb,timeoutMs=8000){
+  // Silently degrades on any failure — callers should treat a null
+  // payload as "show a neutral placeholder", never raise a visible
+  // error to the visitor. Ordinary users should never see a stack
+  // trace or fetch error; only an internal owner/dev needs that.
   try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});if(r.ok)cb(await r.json());else cb(null); }catch{cb(null);}
 }
 async function warmUpServer(){
@@ -409,6 +446,58 @@ async function warmUpServer(){
   catch{ hasWokenUp=false; }
   if(banner) banner.classList.remove('show');
   return hasWokenUp;
+}
+
+/* ══ TYPEWRITER — "Welcome to CYBER X dashboard" ══ */
+function startTypewriter(){
+  const el = document.getElementById('typewriter-text');
+  if(!el) return;
+  const text = 'Welcome to CYBER X dashboard';
+  let i = 0;
+  el.textContent = '';
+  const speed = 55;
+  function tick(){
+    if(i <= text.length){
+      el.textContent = text.slice(0, i);
+      i++;
+      setTimeout(tick, speed);
+    } else {
+      // brief pause, then restart for a looping terminal feel
+      setTimeout(()=>{ i=0; tick(); }, 3000);
+    }
+  }
+  tick();
+}
+
+/* ══ GLOBAL SESSION COUNTER — X / (slotCount * capacity), glitch pulse ══ */
+async function startGlobalCounter(){
+  await updateGlobalCounter();
+  setInterval(updateGlobalCounter, 10000);
+  // periodic glitch flicker on the number itself, independent of when
+  // the value actually changes — purely a visual hacker-terminal effect
+  setInterval(()=>{
+    const el = document.getElementById('global-counter-val');
+    if(!el) return;
+    el.classList.remove('glitch-pulse');
+    // restart animation
+    void el.offsetWidth;
+    el.classList.add('glitch-pulse');
+  }, 2600);
+}
+async function updateGlobalCounter(){
+  fetchData('/api/slots', d => {
+    const el = document.getElementById('global-counter-val');
+    if(!el) return;
+    if(!d || !Array.isArray(d.slots)){
+      // Never show an error to the visitor — just hold the last known
+      // value, or a neutral placeholder if we have nothing yet.
+      if(el.textContent.trim() === '' || el.textContent.includes('—')) el.textContent = '— / —';
+      return;
+    }
+    const totalConnected = d.slots.reduce((sum, s) => sum + (s.connected || 0), 0);
+    const totalCapacity  = (d.capacity || 50) * (d.slotCount || d.slots.length);
+    el.textContent = totalConnected + ' / ' + totalCapacity;
+  });
 }
 
 async function startServices(){
@@ -540,7 +629,7 @@ async function loadSessions(){
       </div>`;
     }).join('');
   }catch(e){
-    wrap.innerHTML=`<div class="info-card"><div style="color:var(--red);font-size:11px;letter-spacing:1px;">❌ Could not load sessions: ${e.message}<br><br><span style="color:var(--ddg)">Make sure your server has a /api/sessions endpoint.</span></div></div>`;
+    wrap.innerHTML='<div class="info-card"><div style="text-align:center;padding:10px;color:var(--ddg);font-size:11px;letter-spacing:1px;">⟳ Session data temporarily unavailable — retrying shortly.</div></div>';
   }
 }
 
@@ -570,7 +659,7 @@ async function loadServers(){
       </div>`;
     }).join('');
   }catch(e){
-    wrap.innerHTML=`<div style="grid-column:1/-1;" class="info-card"><div style="color:var(--red);font-size:11px;letter-spacing:1px;">❌ Could not load servers: ${e.message}</div></div>`;
+    wrap.innerHTML='<div style="grid-column:1/-1;" class="info-card"><div style="text-align:center;padding:10px;color:var(--ddg);font-size:11px;letter-spacing:1px;">⟳ Server data temporarily unavailable — retrying shortly.</div></div>';
   }
 }
 function goToServer(slotNum){ window.location.href='/pair/'+slotNum; }
@@ -608,15 +697,30 @@ ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated 
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria
 
 YOUR JOB:
-- You are a GENERAL-PURPOSE conversational assistant, not limited to CYBER X topics. Chat about anything.
+- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics. Chat about anything — jokes, advice, random questions, whatever.
 - When asked specifically about CYBER X or pairing, answer using the details above.
+- You remember earlier parts of this conversation across visits — use that naturally, like a friend who remembers, without making a big deal of it.
 - Be honest about uncertainty, especially for time-sensitive things — you don't have live internet access.
-- Keep responses conversational and appropriately concise.
+- Match response length to what's actually needed — quick banter gets a quick reply.
 
-PERSONALITY: Friendly, sharp, easy to talk to. Confident but not robotic.`;
+PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who happens to know everything about CYBER X.`;
 
 let chatHistory=[];
 let aiThinking=false;
+
+// ══ PERSISTENT BROWSER ID — used as the memory key server-side ══
+// No phone number required to chat with Shivan; a random ID stored in
+// localStorage gives the same person continuity across separate visits
+// without forcing any identity info out of them.
+function getBrowserId(){
+  let id = localStorage.getItem('cyberx_browser_id');
+  if(!id){
+    id = 'b_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+    try{ localStorage.setItem('cyberx_browser_id', id); }catch{}
+  }
+  return id;
+}
+
 function handleAIKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIMessage();} }
 async function sendAIMessage(){
   if(aiThinking)return;
@@ -634,7 +738,7 @@ async function sendAIMessage(){
     const messages=chatHistory.slice(-10).map(m=>({role:m.role,content:m.content}));
     const r=await fetch('/api/ai/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:text,history:messages,systemPrompt:SYSTEM_PROMPT}),
+      body:JSON.stringify({message:text,history:messages,systemPrompt:SYSTEM_PROMPT,browserId:getBrowserId()}),
       signal:AbortSignal.timeout(40000)
     });
     const data=await r.json();
@@ -644,7 +748,7 @@ async function sendAIMessage(){
     appendMsg('bot',reply);
   }catch(e){
     document.getElementById('typing').classList.remove('show');
-    appendMsg('bot','❌ AI connection error: '+(e.message||'Timeout')+'\n\nPlease try again.');
+    appendMsg('bot','⚠ Shivan is having trouble connecting right now. Please try again in a moment.');
   }
   aiThinking=false;
   document.getElementById('ai-send').disabled=false;

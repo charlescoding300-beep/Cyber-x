@@ -99,6 +99,82 @@ const MIME_TYPES = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SHIVAN AI MEMORY — per-browser-ID conversation history, stored in the
+// same Upstash Redis account already used for sessions. Reuses the exact
+// REST API pattern from lib/sessionBackup.js (same env vars, same
+// https-based single-command request, same per-key isolation — one
+// browser's history failing to load/save never affects anyone else's).
+//
+// IDENTITY: the AI chat page never asks for a phone number, so a random
+// persistent browser ID (generated client-side, stored in localStorage)
+// is the memory key instead. Same continuity benefit across visits
+// without forcing a phone number just to chat with Shivan.
+//
+// Key format: ai:memory:<browserId> — a JSON array of {role, content}
+// messages, capped at AI_MEMORY_MAX_MESSAGES so one chatty visitor's
+// history can't grow unbounded in Redis.
+// ─────────────────────────────────────────────────────────────────────────────
+const AI_MEMORY_MAX_MESSAGES = 40   // ~20 back-and-forth turns kept per visitor
+
+const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
+const aiMemoryEnabled = !!(UPSTASH_URL && UPSTASH_TOKEN)
+
+if (!aiMemoryEnabled) {
+  console.warn("[AI MEMORY] ⚠ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — Shivan won't remember conversations across visits")
+}
+
+function aiMemoryUpstashRequest(command, args) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify([command, ...args])
+    const url  = new URL(UPSTASH_URL)
+    const req = https.request({
+      hostname: url.hostname,
+      path:     url.pathname || "/",
+      method:   "POST",
+      headers: {
+        "Authorization": `Bearer ${UPSTASH_TOKEN}`,
+        "Content-Type":  "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, res => {
+      let chunks = ""
+      res.on("data", c => { chunks += c })
+      res.on("end", () => {
+        try { resolve(JSON.parse(chunks)) }
+        catch (e) { reject(new Error("Upstash response parse failed: " + chunks.slice(0, 100))) }
+      })
+    })
+    req.on("error", reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+async function loadAiMemory(browserId) {
+  if (!aiMemoryEnabled || !browserId) return []
+  try {
+    const res = await aiMemoryUpstashRequest("GET", [`ai:memory:${browserId}`])
+    if (!res.result) return []
+    const parsed = JSON.parse(res.result)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (e) {
+    console.error("[AI MEMORY] load error:", e.message)
+    return []
+  }
+}
+
+async function saveAiMemory(browserId, messages) {
+  if (!aiMemoryEnabled || !browserId) return
+  try {
+    const trimmed = messages.slice(-AI_MEMORY_MAX_MESSAGES)
+    await aiMemoryUpstashRequest("SET", [`ai:memory:${browserId}`, JSON.stringify(trimmed)])
+  } catch (e) {
+    console.error("[AI MEMORY] save error:", e.message)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GROQ AI HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 async function callGroq(messages, systemPrompt) {
@@ -106,7 +182,14 @@ async function callGroq(messages, systemPrompt) {
   if (!GROQ_KEY) return "⚠ Shivan AI is offline — GROQ_API_KEY not set on server."
 
   const body = JSON.stringify({
-    model: "llama3-8b-8192",
+    // FIX: llama3-8b-8192 was deprecated by Groq in 2025 in favor of
+    // llama-3.1-8b-instant, which was ITSELF deprecated on June 17, 2026
+    // in favor of openai/gpt-oss-20b. The old model ID returns a 400
+    // error JSON body (not a thrown exception), so the original code's
+    // `data?.choices?.[0]?.message?.content || fallback` silently fell
+    // through to the generic fallback text instead of surfacing the real
+    // "model_decommissioned" error — that's exactly what was happening.
+    model: "openai/gpt-oss-20b",
     messages: [
       { role: "system", content: systemPrompt },
       ...messages.slice(-10)
@@ -128,7 +211,12 @@ async function callGroq(messages, systemPrompt) {
     }, res => {
       let d = ""
       res.on("data", c => d += c)
-      res.on("end",  () => { try { resolve(JSON.parse(d)) } catch { resolve(null) } })
+      res.on("end",  () => {
+        // DEBUG: log the raw Groq response so we can see exactly what
+        // came back when the shape doesn't match what's expected.
+        console.log("[GROQ DEBUG] status:", res.statusCode, "body:", d.slice(0, 500))
+        try { resolve(JSON.parse(d)) } catch { resolve(null) }
+      })
     })
     req.on("error", reject)
     req.setTimeout(20000, () => req.destroy())
@@ -136,7 +224,18 @@ async function callGroq(messages, systemPrompt) {
     req.end()
   })
 
-  return data?.choices?.[0]?.message?.content || "Shivan here — I couldn't process that. Try again."
+  if (data?.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content
+  }
+  // Surface the real reason instead of a silent generic fallback —
+  // this is exactly the gap that hid the model-decommissioned error
+  // earlier. If Groq ever changes/deprecates the model again, this will
+  // show up clearly in the chat instead of a useless "couldn't process".
+  if (data?.error?.message) {
+    console.error("[GROQ] API error:", data.error.message)
+    return `⚠ Shivan hit an AI provider error: ${data.error.message}`
+  }
+  return "Shivan here — I couldn't process that. Try again."
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,14 +521,14 @@ const server = http.createServer(async (req, res) => {
       library:      "@whiskeysockets/baileys",
       platform:     "Render Free Tier",
       aiName:       "Shivan",
-      aiPoweredBy:  "Groq (llama3-8b-8192)",
+      aiPoweredBy:  "Groq (openai/gpt-oss-20b)",
     })
   }
 
-  // ── /api/ai/chat — Shivan AI powered by Groq ─────────────────────────────
+  // ── /api/ai/chat — Shivan AI powered by Groq, with persistent memory ─────
   if (url === "/api/ai/chat" && method === "POST") {
     try {
-      const { message, history = [], systemPrompt } = await readBody(req)
+      const { message, history = [], systemPrompt, browserId } = await readBody(req)
       if (!message) return json(res, { error: "message required" }, 400)
 
       const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the AI assistant built into CYBER X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
@@ -438,27 +537,44 @@ ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated 
 - Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys)
 - Hosted on Render cloud platform at https://cyber-x-y8yv.onrender.com
 - Uses Upstash Redis for session persistence and automatic backups
-- Features: multi-session management, AI responses (Shivan), antilink protection, welcome/goodbye messages, music download (.song), video download (.video), Pokémon card game, slot machine, admin commands (.promote/.demote), sticker maker (.sticker), auto-typing, auto-recording, anti-bad-word filter, group mode control, and 50+ commands
+- Features: multi-session management, AI responses (Shivan), antilink protection, welcome/goodbye messages, music download (.song), video download (.video), Pokémon card game, slot machine, admin commands (.promote/.demote), sticker maker (.sticker), auto-typing, auto-recording, anti-bad-word filter, antidelete, dynamic multi-server slot system, and 50+ commands
 - Prefix: . (dot)
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
 
 YOUR JOB:
-- You are a GENERAL-PURPOSE conversational assistant, not limited to CYBER X topics. People can chat with you about anything — news, advice, explanations, casual conversation, general knowledge — the same way they'd talk to any helpful AI assistant.
+- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics. People can chat with you about literally anything — jokes, advice, random questions, deep conversations, whatever's on their mind.
 - When someone asks specifically about CYBER X, pairing, or its commands, answer using the details above and point them to https://cyber-x-y8yv.onrender.com/pair for pairing.
-- For everything else, just be a genuinely helpful, knowledgeable conversational AI. Don't force CYBER X branding into answers that have nothing to do with it.
-- Be honest about uncertainty rather than making things up, especially for anything time-sensitive (you don't have live internet access through this chat).
-- Keep responses conversational and appropriately concise — match the length to what the question actually needs.
+- You remember earlier parts of this conversation across visits (the history you're given includes past sessions, not just this one) — use that naturally, like a friend who remembers what you talked about last time, without making a big deal out of "recalling memory."
+- Be honest about uncertainty rather than making things up, especially anything time-sensitive — you don't have live internet access through this chat.
+- Match response length to what the question needs — quick banter gets a quick reply, a real question gets a real answer.
 
-PERSONALITY: Friendly, sharp, and easy to talk to. Confident but not robotic — like a knowledgeable friend who also happens to know everything about CYBER X if asked.`
+PERSONALITY: Playful, warm, a little witty — like texting a clever friend who happens to know everything about CYBER X. Not stiff, not corporate, not over-explaining. Comfortable joking around, but switches to genuinely helpful and clear the moment someone needs real help.`
 
-      const messages = history.slice(-10).map(h => ({
+      // Load this browser's saved memory (if any) and prepend it ahead of
+      // whatever history the client sent for the current page session —
+      // this is what gives Shivan continuity across separate visits,
+      // not just within one open tab.
+      const savedMemory = await loadAiMemory(browserId)
+
+      const clientHistory = history.slice(-10).map(h => ({
         role:    h.role === "assistant" ? "assistant" : "user",
         content: h.content,
       }))
+
+      // Merge: saved memory first (older), then whatever the client has
+      // for this page load, deduplicated by simple recency trim below —
+      // Groq only sees the combined tail, so cost/latency stay bounded.
+      const combined = [...savedMemory, ...clientHistory]
+      const messages = combined.slice(-20)
       messages.push({ role: "user", content: message })
 
       const reply = await callGroq(messages, SHIVAN_SYSTEM)
-      return json(res, { reply, ai: "Shivan", model: "llama3-8b-8192 (Groq)" })
+
+      // Persist updated memory for next time, including this exchange.
+      const updatedMemory = [...combined, { role: "user", content: message }, { role: "assistant", content: reply }]
+      saveAiMemory(browserId, updatedMemory).catch(() => {})
+
+      return json(res, { reply, ai: "Shivan", model: "openai/gpt-oss-20b (Groq)" })
 
     } catch (e) {
       return json(res, { reply: "⚠ Shivan encountered an error: " + e.message })
@@ -518,7 +634,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] 🖥️  Server slots: ${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity each`)
   console.log(`[WEB] 💾 Session backup: ${sessionBackup.enabled ? "ENABLED (" + process.env.GITHUB_BACKUP_REPO + ")" : "DISABLED"}`)
   console.log(`[WEB] 📁 Auto static: ${PUBLIC_DIR} — drop any HTML/CSS/JS/image and it's live instantly`)
-  console.log(`[WEB] 🤖 Shivan AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq llama3-8b-8192)" : "DISABLED — set GROQ_API_KEY"}`)
+  console.log(`[WEB] 🤖 Shivan AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq openai/gpt-oss-20b)" : "DISABLED — set GROQ_API_KEY"}`)
 
   try {
     await init()
