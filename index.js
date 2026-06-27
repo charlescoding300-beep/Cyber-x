@@ -189,9 +189,6 @@ function getSlotsSummary() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WELCOME / GOODBYE ENGINE
-// Persistent per-session per-group: data/greet/<phone>/<groupId>.json
-// Each session has fully independent settings per group.
-// Commands (.welcome / .goodbye) read/write via global.__greetGet / __greetSet
 // ─────────────────────────────────────────────────────────────────────────────
 const GREET_ROOT = path.join(__dirname, "data", "greet")
 if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
@@ -199,7 +196,6 @@ if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
 const GREET_DEFAULT_WELCOME = "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.\n\n_{desc}_"
 const GREET_DEFAULT_GOODBYE = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
 
-// ── In-memory cache: greetCache[phone][groupId] = { welcome:{...}, goodbye:{...} }
 const greetCache = {}
 
 function greetFile(phone, groupId) {
@@ -253,15 +249,12 @@ function greetFill(template, { name, group, desc, members, tag }) {
     .replace(/{tag}/g,     tag     || "")
 }
 
-// expose on global so commands/welcome.js and commands/goodbye.js can access
 global.__greetGet              = greetGet
 global.__greetSet              = greetSet
 global.__greetFill             = greetFill
 global.__GREET_DEFAULT_WELCOME = GREET_DEFAULT_WELCOME
 global.__GREET_DEFAULT_GOODBYE = GREET_DEFAULT_GOODBYE
 
-// Pre-load ALL saved greet files from disk into RAM on startup
-// so every session's groups survive Render restarts instantly
 function greetRestoreAllFromDisk() {
   try {
     if (!fs.existsSync(GREET_ROOT)) return
@@ -290,7 +283,6 @@ function greetRestoreAllFromDisk() {
 }
 greetRestoreAllFromDisk()
 
-// Watchdog: flush all in-memory greet cache to disk every 5 minutes
 setInterval(() => {
   let flushed = 0
   for (const phone of Object.keys(greetCache)) {
@@ -318,7 +310,6 @@ async function handleGreetEvent(sock, phone, update) {
       .replace("@s.whatsapp.net", "")
       .replace(/:\d+$/, "")
 
-    // resolve push name from group participant list
     let pushName = ""
     try {
       const contact = meta.participants?.find(p =>
@@ -344,7 +335,6 @@ async function handleGreetEvent(sock, phone, update) {
       tag:     memberPhone,
     })
 
-    // try to fetch profile picture — graceful fallback to text only
     let ppUrl = null
     try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
 
@@ -970,21 +960,17 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
-  // ── group-participants.update — handles welcome, goodbye, antilink, etc ────
   sock.ev.on("group-participants.update", async (update) => {
-    // always refresh group cache first
     try {
       state.groupCache[update.id] = { ...(await sock.groupMetadata(update.id)), _cachedAt: Date.now() }
     } catch {}
 
-    // existing group update handler (antilink etc)
     if (typeof lib.handleGroupUpdate === "function") {
       lib.handleGroupUpdate(sock, update).catch(e =>
         console.error(`[${phone}] handleGroupUpdate ERR:`, e.message)
       )
     }
 
-    // ✨ welcome / goodbye — inline, no external file needed
     handleGreetEvent(sock, phone, update).catch(e =>
       console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
     )
@@ -1058,6 +1044,8 @@ async function startBot(phone) {
       if (loggedOut) {
         console.log(`[${phone}] ✗ Logged out — removing session`)
         await removeSession(phone)
+        // ✨ Also wipe from Redis immediately on logout so it never comes back
+        await sessionBackup.deleteSession(phone).catch(() => {})
         return
       }
       state.retries++
@@ -1068,6 +1056,77 @@ async function startBot(phone) {
   })
 
   return state
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✨ NEW — DEAD SESSION CLEANUP
+// Runs in background after startup. Gives every session 60 seconds to connect.
+// Any session still disconnected after 60s gets permanently removed from
+// bot memory, disk, Redis and slot assignments — no dead weight ever again.
+// ─────────────────────────────────────────────────────────────────────────────
+async function cleanupDeadSessions(waitMs = 60000) {
+  console.log(`[SESSION-GUARD] ⏳ Watching sessions — will remove any that fail to connect within ${waitMs / 1000}s...`)
+
+  await new Promise(r => setTimeout(r, waitMs))
+
+  const dead = []
+  for (const [phone, state] of sessions.entries()) {
+    if (!state.connected) dead.push(phone)
+  }
+
+  if (!dead.length) {
+    console.log("[SESSION-GUARD] ✅ All sessions connected successfully — nothing to remove")
+    return
+  }
+
+  console.log(`[SESSION-GUARD] 🧹 ${dead.length} session(s) failed after ${waitMs / 1000}s — permanently removing: ${dead.join(", ")}`)
+
+  for (const phone of dead) {
+    try {
+      // 1. Kill socket
+      const state = sessions.get(phone)
+      if (state) {
+        if (state.presenceTimer) clearInterval(state.presenceTimer)
+        try { state.sock?.end(undefined) } catch {}
+        sessions.delete(phone)
+        console.log(`[SESSION-GUARD] 🗑 Removed from bot memory: ${phone}`)
+      }
+
+      // 2. Remove session folder from disk
+      try {
+        const sessDir = path.join(SESS_ROOT, phone)
+        if (fs.existsSync(sessDir)) {
+          fs.rmSync(sessDir, { recursive: true, force: true })
+          console.log(`[SESSION-GUARD] 🗑 Removed from disk: ${phone}`)
+        }
+      } catch (e) {
+        console.error(`[SESSION-GUARD] ✗ Disk remove failed for ${phone}:`, e.message)
+      }
+
+      // 3. Wipe from Redis permanently
+      try {
+        await sessionBackup.deleteSession(phone)
+        console.log(`[SESSION-GUARD] 🗑 Wiped from Redis: ${phone}`)
+      } catch (e) {
+        console.error(`[SESSION-GUARD] ✗ Redis wipe failed for ${phone}:`, e.message)
+      }
+
+      // 4. Remove from slot assignments
+      if (slotAssignments[phone]) {
+        delete slotAssignments[phone]
+      }
+
+    } catch (e) {
+      console.error(`[SESSION-GUARD] ✗ Error cleaning up ${phone}:`, e.message)
+    }
+  }
+
+  // Save updated meta and slots after cleanup
+  saveMeta()
+  saveSlotAssignments()
+
+  const remaining = sessions.size
+  console.log(`[SESSION-GUARD] ✅ Cleanup done — removed ${dead.length} dead session(s). Active sessions: ${remaining}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1087,6 +1146,7 @@ async function init() {
     console.warn("[PERSIST] ⚠ lib/persist.js not found — skipping data restore:", e.message)
   }
 
+  // ✨ Step 1 — Restore ALL sessions from Redis (credentials + keys)
   console.log("[INIT] 🔄 Restoring sessions from backup...")
   const restoredCount = await sessionBackup.restoreAll().catch(e => {
     console.error("[INIT] ✗ Backup restore failed:", e.message)
@@ -1120,12 +1180,17 @@ async function init() {
 
   console.log(`[INIT] ▶ Starting ${allPhones.length} session(s): ${allPhones.join(", ") || "(none)"}`)
 
+  // ✨ Step 2 — Connect ALL sessions with full credentials from Redis
   for (const phone of allPhones) {
     try { await startBot(phone) }
     catch (e) { console.error(`[INIT] ✗ Failed to start ${phone}:`, e.message) }
   }
 
   saveMeta()
+
+  // ✨ Step 3 — Give 60 seconds to stabilize, then remove any that failed
+  // Runs in background — does NOT block the bot from serving requests
+  cleanupDeadSessions(60000).catch(e => console.error("[SESSION-GUARD] ✗", e.message))
 }
 
 async function addSession(phone, preferredSlot = null) {
