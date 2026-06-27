@@ -14,11 +14,11 @@ module.exports = {
     if (!isAdmin && !isOwner)
       return sock.sendMessage(from, { text: "🚫 Only admins can change welcome settings." }, { quoted: msg })
 
-    const phone = sock?.user?.id?.split("@")[0]?.replace(/:\d+$/, "") || ""
-    const greetGet  = global.__greetGet
-    const greetSet  = global.__greetSet
-    const defMsg    = global.__GREET_DEFAULT_WELCOME
-    const sub       = (args[0] || "").toLowerCase()
+    const phone    = sock?.user?.id?.split("@")[0]?.replace(/:\d+$/, "") || ""
+    const greetGet = global.__greetGet
+    const greetSet = global.__greetSet
+    const defMsg   = global.__GREET_DEFAULT_WELCOME
+    const sub      = (args[0] || "").toLowerCase()
 
     if (sub === "on") {
       greetSet(phone, from, "welcome", { enabled: true })

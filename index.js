@@ -188,10 +188,10 @@ function getSlotsSummary() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WELCOME / GOODBYE — inline, same pattern as antidelete
-// Persistent per group per session: data/greet/<phone>/<groupId>.json
-// Commands (.welcome / .goodbye) read/write via greetGet / greetSet
-// This listener fires automatically on every group join/leave event
+// WELCOME / GOODBYE ENGINE
+// Persistent per-session per-group: data/greet/<phone>/<groupId>.json
+// Each session has fully independent settings per group.
+// Commands (.welcome / .goodbye) read/write via global.__greetGet / __greetSet
 // ─────────────────────────────────────────────────────────────────────────────
 const GREET_ROOT = path.join(__dirname, "data", "greet")
 if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
@@ -199,13 +199,16 @@ if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
 const GREET_DEFAULT_WELCOME = "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.\n\n_{desc}_"
 const GREET_DEFAULT_GOODBYE = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
 
+// ── In-memory cache: greetCache[phone][groupId] = { welcome:{...}, goodbye:{...} }
+const greetCache = {}
+
 function greetFile(phone, groupId) {
   const dir = path.join(GREET_ROOT, phone)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return path.join(dir, groupId.replace(/[^a-z0-9]/gi, "_") + ".json")
 }
 
-function greetLoad(phone, groupId) {
+function greetLoadFromDisk(phone, groupId) {
   try {
     const f = greetFile(phone, groupId)
     if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, "utf8"))
@@ -213,8 +216,15 @@ function greetLoad(phone, groupId) {
   return {}
 }
 
-function greetSave(phone, groupId, data) {
+function greetLoad(phone, groupId) {
+  if (!greetCache[phone])          greetCache[phone] = {}
+  if (!greetCache[phone][groupId]) greetCache[phone][groupId] = greetLoadFromDisk(phone, groupId)
+  return greetCache[phone][groupId]
+}
+
+function greetSave(phone, groupId) {
   try {
+    const data = greetCache[phone]?.[groupId] || {}
     fs.writeFileSync(greetFile(phone, groupId), JSON.stringify(data, null, 2))
   } catch (e) {
     console.error(`[GREET] save error ${phone}/${groupId}:`, e.message)
@@ -228,7 +238,9 @@ function greetGet(phone, groupId, type) {
 function greetSet(phone, groupId, type, settings) {
   const data = greetLoad(phone, groupId)
   data[type] = { ...data[type], ...settings, updatedAt: Date.now() }
-  greetSave(phone, groupId, data)
+  if (!greetCache[phone])          greetCache[phone] = {}
+  greetCache[phone][groupId] = data
+  greetSave(phone, groupId)
   console.log(`[GREET:${phone}] ✔ ${type} updated for ${groupId}`)
 }
 
@@ -241,12 +253,53 @@ function greetFill(template, { name, group, desc, members, tag }) {
     .replace(/{tag}/g,     tag     || "")
 }
 
-// expose on global so welcome.js / goodbye.js commands can access
-global.__greetGet            = greetGet
-global.__greetSet            = greetSet
-global.__greetFill           = greetFill
+// expose on global so commands/welcome.js and commands/goodbye.js can access
+global.__greetGet              = greetGet
+global.__greetSet              = greetSet
+global.__greetFill             = greetFill
 global.__GREET_DEFAULT_WELCOME = GREET_DEFAULT_WELCOME
 global.__GREET_DEFAULT_GOODBYE = GREET_DEFAULT_GOODBYE
+
+// Pre-load ALL saved greet files from disk into RAM on startup
+// so every session's groups survive Render restarts instantly
+function greetRestoreAllFromDisk() {
+  try {
+    if (!fs.existsSync(GREET_ROOT)) return
+    const phones = fs.readdirSync(GREET_ROOT).filter(f =>
+      fs.statSync(path.join(GREET_ROOT, f)).isDirectory()
+    )
+    let total = 0
+    for (const phone of phones) {
+      const dir   = path.join(GREET_ROOT, phone)
+      const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"))
+      if (!greetCache[phone]) greetCache[phone] = {}
+      for (const file of files) {
+        try {
+          const raw      = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"))
+          const groupKey = file.replace(".json", "")
+          greetCache[phone][groupKey] = raw
+          total++
+        } catch {}
+      }
+    }
+    if (total > 0)
+      console.log(`[GREET] 💾 Restored ${total} greet config(s) from disk across ${phones.length} session(s)`)
+  } catch (e) {
+    console.error("[GREET] restore error:", e.message)
+  }
+}
+greetRestoreAllFromDisk()
+
+// Watchdog: flush all in-memory greet cache to disk every 5 minutes
+setInterval(() => {
+  let flushed = 0
+  for (const phone of Object.keys(greetCache)) {
+    for (const groupId of Object.keys(greetCache[phone] || {})) {
+      try { greetSave(phone, groupId); flushed++ } catch {}
+    }
+  }
+  if (flushed > 0) console.log(`[GREET] 🔄 Flushed ${flushed} greet config(s) to disk`)
+}, 5 * 60 * 1000)
 
 async function handleGreetEvent(sock, phone, update) {
   const { id: groupId, participants, action } = update
@@ -265,7 +318,7 @@ async function handleGreetEvent(sock, phone, update) {
       .replace("@s.whatsapp.net", "")
       .replace(/:\d+$/, "")
 
-    // try to get push name from group metadata
+    // resolve push name from group participant list
     let pushName = ""
     try {
       const contact = meta.participants?.find(p =>
@@ -291,7 +344,7 @@ async function handleGreetEvent(sock, phone, update) {
       tag:     memberPhone,
     })
 
-    // try to fetch profile picture — fallback to text only
+    // try to fetch profile picture — graceful fallback to text only
     let ppUrl = null
     try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
 

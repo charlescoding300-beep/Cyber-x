@@ -9,21 +9,21 @@ module.exports = {
 
   async run({ sock, from, msg, args, isAdmin, isOwner }) {
     if (!from.endsWith("@g.us"))
-      return sock.sendMessage(from, { text: "👣 .goodbye only works in groups!" }, { quoted: msg })
+      return sock.sendMessage(from, { text: "👋 .goodbye only works in groups!" }, { quoted: msg })
 
     if (!isAdmin && !isOwner)
       return sock.sendMessage(from, { text: "🚫 Only admins can change goodbye settings." }, { quoted: msg })
 
-    const phone = sock?.user?.id?.split("@")[0]?.replace(/:\d+$/, "") || ""
-    const greetGet  = global.__greetGet
-    const greetSet  = global.__greetSet
-    const defMsg    = global.__GREET_DEFAULT_GOODBYE
-    const sub       = (args[0] || "").toLowerCase()
+    const phone    = sock?.user?.id?.split("@")[0]?.replace(/:\d+$/, "") || ""
+    const greetGet = global.__greetGet
+    const greetSet = global.__greetSet
+    const defMsg   = global.__GREET_DEFAULT_GOODBYE
+    const sub      = (args[0] || "").toLowerCase()
 
     if (sub === "on") {
       greetSet(phone, from, "goodbye", { enabled: true })
       return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE ENABLED* 〕━━━╮\n┃\n┃ ✅ Goodbye messages are now *ON*\n┃ Members who leave get a farewell\n┃ with their profile picture!\n┃\n┃ *.goodbye set <msg>* to customize\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
+        text: `╭━━━〔 👣 *GOODBYE ENABLED* 〕━━━╮\n┃\n┃ ✅ Goodbye messages are now *ON*\n┃ Members leaving get a farewell\n┃ with their tag!\n┃\n┃ *.goodbye set <msg>* to customize\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
       }, { quoted: msg })
     }
 
@@ -52,7 +52,7 @@ module.exports = {
       const customMsg = args.slice(1).join(" ").trim()
       if (!customMsg) {
         return sock.sendMessage(from, {
-          text: `╭━━━〔 👣 *SET GOODBYE* 〕━━━╮\n┃\n┃ ⚠ Provide a message!\n┃\n┃ Example:\n┃ .goodbye set Bye {name}!\n┃ We'll miss you in {group} 😢\n┃ Now {members} members remain.\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯`
+          text: `╭━━━〔 👣 *SET GOODBYE* 〕━━━╮\n┃\n┃ ⚠ Provide a message!\n┃\n┃ Example:\n┃ .goodbye set Goodbye {name}! 👋\n┃ We'll miss you in {group}.\n┃ Now {members} members remain.\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯`
         }, { quoted: msg })
       }
       greetSet(phone, from, "goodbye", { message: customMsg, enabled: true })
@@ -61,6 +61,7 @@ module.exports = {
       }, { quoted: msg })
     }
 
+    // help
     return sock.sendMessage(from, {
       text: `╭━━━〔 👣 *GOODBYE HELP* 〕━━━╮\n┃\n┃ .goodbye on\n┃ .goodbye off\n┃ .goodbye set <message>\n┃ .goodbye reset\n┃ .goodbye view\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
     }, { quoted: msg })
