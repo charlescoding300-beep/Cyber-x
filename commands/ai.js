@@ -23,7 +23,7 @@ async function askGroq(jid, text, imageBase64 = null, imageMime = null) {
   // ── Use vision model if image, fast model if text only ──
   const model = imageBase64
     ? "meta-llama/llama-4-scout-17b-16e-instruct"
-    : "llama3-8b-8192"
+    : "llama-3.1-8b-instant"
 
   // ── Build current user message ──
   const userContent = imageBase64
@@ -47,24 +47,37 @@ async function askGroq(jid, text, imageBase64 = null, imageMime = null) {
     messages: [
       {
         role: "system",
-        content: `You are CYBER X AI — a powerful, smart, and friendly AI assistant built into the CYBER X WhatsApp bot by Charles Chukwu (Charles Tech) from Nigeria.
+        content: `You are CYBER X AI — a powerful, smart, witty and very friendly AI assistant built into the CYBER X WhatsApp bot by Charles Chukwu (Charles Tech) from Nigeria.
+
+Your personality:
+- You are warm, fun and conversational — like talking to a smart friend
+- You match the user's energy — if they're casual, you're casual. If they're serious, you're serious
+- You use light humour naturally without overdoing it
+- You show genuine interest in what the user is saying
+- You give helpful, clear responses but make them feel natural — not robotic
+- You occasionally use emojis where it fits naturally 😄
+- You remember context from earlier in the conversation and reference it naturally
+- When someone greets you, greet them back warmly and ask what you can help with
+- When someone is struggling, be encouraging and supportive
+- Never sound like a manual or a textbook — always sound like a person
 
 You can:
 - Answer any question on any topic
 - Write and explain code in any programming language
 - Analyze and describe images in full detail
-- Tell jokes, roast people, have casual conversations
+- Tell jokes, roast people (nicely), have casual conversations
 - Help with essays, stories, translations, math, science
 - Give advice, explain concepts, summarize things
-- Do absolutely anything a normal AI assistant would do
+- Do absolutely anything a helpful AI assistant would do
 
 Rules:
-- Be conversational and match the user energy
-- Keep responses concise unless detail is needed
-- For code always wrap in backticks with language name
+- Keep responses concise and natural unless the user needs detail
+- For code always wrap in backticks with the language name
 - Never refuse reasonable requests
-- If asked who you are say you are CYBER X AI by Charles Chukwu
-- If asked what model or AI you are say CYBER X AI powered by Groq`
+- If asked who you are say you are CYBER X AI by Charles Chukwu (Charles Tech)
+- If asked what model or AI you are say CYBER X AI powered by Groq
+- Never start your response with "I" — vary your openings
+- Never sound stiff or formal unless the situation calls for it`
       },
       // history for context
       ...history.slice(-10).slice(0, -1).map(h => ({
@@ -74,7 +87,7 @@ Rules:
       // current message with image if present
       { role: "user", content: userContent }
     ],
-    temperature: 0.85,
+    temperature: 0.9,
     max_tokens:  1500,
   })
 
@@ -122,7 +135,7 @@ module.exports = {
     if (text.trim().toLowerCase() === "reset") {
       clearHistory(from)
       return sock.sendMessage(from, {
-        text: "🧹 *Memory cleared!*\nStarting fresh conversation.\n\n> ⚡ *CYBER X AI* — Engineered by Charles Tech",
+        text: "🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n> ⚡ *CYBER X AI* — Engineered by Charles Tech",
         quoted: msg
       })
     }
@@ -141,26 +154,29 @@ module.exports = {
 ║  🤖 *CYBER X AI*          ║
 ╚═══════════════════════════╝
 
-*What I can do:*
-• Answer any question
-• Write & explain code
-• Analyze images in detail
-• Tell jokes & roast you 😂
-• Help with essays & stories
-• Math, science, advice — anything
+Hey! 👋 I'm CYBER X AI — your smart assistant right here in WhatsApp.
 
-*How to use:*
-• *.ai <question>* — Ask anything
-• *.ai reset* — Clear my memory
+*Here's what I can do for you:*
+• 💬 Answer any question on any topic
+• 💻 Write & explain code in any language
+• 🖼️ Analyze images in full detail
+• 😂 Tell jokes, roast you, casual chat
+• ✍️ Essays, stories, translations, math
+• 🧠 Advice, explanations, summaries
+
+*How to use me:*
+• *.ai <your question>* — Ask me anything
+• *.ai reset* — Clear our conversation
 • *.ask* | *.chat* | *.gpt* — Also works
-• *Reply to image + .ai* — Analyze image
+• *Reply to an image + .ai* — I'll analyze it
 
-💡 *Examples:*
-  _.ai explain black holes_
+💡 *Try these:*
+  _.ai explain black holes like I'm 10_
   _.ai write a snake game in JS_
-  _.ai roast me hard_
+  _.ai roast me hard_ 😂
   _.ai translate hello to Yoruba_
-  _.ai what is in this image_
+
+Just talk to me naturally — I got you! 🔥
 
 > ⚡ *CYBER X AI* — Engineered by Charles Tech`,
         quoted: msg
@@ -199,7 +215,7 @@ module.exports = {
         } catch (e) {
           console.warn("[AI] Image download failed:", e.message)
           await sock.sendMessage(from, {
-            text: "⚠️ *Could not download image.* Try sending it again.\n\n> ⚡ *CYBER X AI*",
+            text: "⚠️ *Could not download the image.* Try sending it again and I'll take a look! 👀\n\n> ⚡ *CYBER X AI*",
             quoted: msg
           })
           return
@@ -231,13 +247,13 @@ module.exports = {
         e.message.includes("API_KEY")
           ? "❌ *GROQ_API_KEY not set!*\nAdd it to your .env file."
         : e.message.includes("429") || e.message.includes("rate") || e.message.includes("quota")
-          ? "⚠️ *Too many requests.* Wait 30 seconds and try again."
+          ? "⚠️ *Too many requests.* Give me 30 seconds and try again! 😅"
         : e.message.includes("empty")
-          ? "⚠️ *AI returned nothing.* Try rephrasing your question."
+          ? "⚠️ *Hmm, I drew a blank on that one.* Try rephrasing your question?"
         : e.message.includes("timeout") || e.message.includes("destroyed")
-          ? "⚠️ *Request timed out.* Try again in a moment."
+          ? "⚠️ *That took too long and timed out.* Try again in a moment! ⏱️"
         : e.message.includes("vision") || e.message.includes("image")
-          ? "⚠️ *Image analysis failed.* Try sending the image again."
+          ? "⚠️ *Had trouble reading that image.* Try sending it again!"
           : `❌ *Error:* ${e.message}`
 
       await sock.sendMessage(from, {
