@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@hapi/boom": "*",
     "@whiskeysockets/baileys": "*",
     "axios": "^1.18.0",
