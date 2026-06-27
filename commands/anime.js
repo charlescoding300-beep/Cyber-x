@@ -1,238 +1,230 @@
 const axios = require('axios');
-const { exec } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const webp = require('node-webpmux');
-const crypto = require('crypto');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  CYBER X — ANIME REACTION COMMAND
 //  Usage: .anime <reaction>   (reply to someone OR solo)
-//  Anyone can use | Category: General
+//  Anyone can use | Category: Fun
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const REACTIONS = {
-    // ── some-random-api.com/animu ──
-    hug:         { emoji: '🤗', text: (a, b) => `${a} hugged ${b}`,        api: 'animu' },
-    kiss:        { emoji: '💋', text: (a, b) => `${a} kissed ${b}`,        api: 'animu' },
-    pat:         { emoji: '🫶', text: (a, b) => `${a} patted ${b}`,        api: 'animu' },
-    poke:        { emoji: '👉', text: (a, b) => `${a} poked ${b}`,         api: 'animu' },
-    cry:         { emoji: '😢', text: (a, b) => `${a} is crying`,          api: 'animu' },
-    wink:        { emoji: '😉', text: (a, b) => `${a} winked at ${b}`,     api: 'animu' },
-    nom:         { emoji: '😋', text: (a, b) => `${a} is nomming`,         api: 'animu' },
-    'face-palm': { emoji: '🤦', text: (a, b) => `${a} facepalmed`,         api: 'animu' },
+    // ── ❤️  AFFECTION ──────────────────────────────────────────
+    hug:       { emoji: '🤗', text: (a, b) => `${a} hugged ${b}`,             api: 'nekos' },
+    kiss:      { emoji: '💋', text: (a, b) => `${a} kissed ${b}`,             api: 'nekos' },
+    cuddle:    { emoji: '🥰', text: (a, b) => `${a} cuddled ${b}`,            api: 'nekos' },
+    pat:       { emoji: '🫶', text: (a, b) => `${a} patted ${b}`,             api: 'nekos' },
+    handhold:  { emoji: '🤝', text: (a, b) => `${a} held hands with ${b}`,    api: 'nekos' },
+    handshake: { emoji: '🫱', text: (a, b) => `${a} shook hands with ${b}`,   api: 'nekos' },
+    blowkiss:  { emoji: '💨💋', text: (a, b) => `${a} blew a kiss at ${b}`,   api: 'nekos' },
+    peck:      { emoji: '😚', text: (a, b) => `${a} gave ${b} a peck`,        api: 'nekos' },
+    carry:     { emoji: '🫂', text: (a, b) => `${a} is carrying ${b}`,        api: 'nekos' },
+    feed:      { emoji: '🍱', text: (a, b) => `${a} fed ${b}`,                api: 'nekos' },
+    lappillow: { emoji: '🛋️',  text: (a, b) => `${a} gave ${b} a lap pillow`, api: 'nekos' },
+    kabedon:   { emoji: '🧱', text: (a, b) => `${a} kabedon'd ${b}`,          api: 'nekos' },
 
-    // ── nekos.best ──
-    kick:        { emoji: '🦵🏻', text: (a, b) => `${a} kicked ${b}`,      api: 'nekos' },
-    slap:        { emoji: '🫲🏻', text: (a, b) => `${a} slapped ${b}`,     api: 'nekos' },
-    punch:       { emoji: '👊',  text: (a, b) => `${a} punched ${b}`,      api: 'nekos' },
-    bite:        { emoji: '😬',  text: (a, b) => `${a} bit ${b}`,          api: 'nekos' },
-    blush:       { emoji: '😳',  text: (a, b) => `${a} is blushing`,       api: 'nekos' },
-    bored:       { emoji: '😒',  text: (a, b) => `${a} is bored`,          api: 'nekos' },
-    cuddle:      { emoji: '🥰',  text: (a, b) => `${a} cuddled ${b}`,      api: 'nekos' },
-    dance:       { emoji: '💃',  text: (a, b) => `${a} is dancing`,        api: 'nekos' },
-    facepalm:    { emoji: '🤦',  text: (a, b) => `${a} facepalmed`,        api: 'nekos' },
-    feed:        { emoji: '🍱',  text: (a, b) => `${a} fed ${b}`,          api: 'nekos' },
-    handhold:    { emoji: '🤝',  text: (a, b) => `${a} held hands with ${b}`, api: 'nekos' },
-    happy:       { emoji: '😄',  text: (a, b) => `${a} is happy`,          api: 'nekos' },
-    highfive:    { emoji: '🙏',  text: (a, b) => `${a} high-fived ${b}`,   api: 'nekos' },
-    laugh:       { emoji: '😂',  text: (a, b) => `${a} is laughing`,       api: 'nekos' },
-    lick:        { emoji: '👅',  text: (a, b) => `${a} licked ${b}`,       api: 'nekos' },
-    nod:         { emoji: '🙂',  text: (a, b) => `${a} nodded at ${b}`,    api: 'nekos' },
-    nope:        { emoji: '🙅',  text: (a, b) => `${a} said nope`,         api: 'nekos' },
-    pout:        { emoji: '😤',  text: (a, b) => `${a} is pouting`,        api: 'nekos' },
-    run:         { emoji: '🏃',  text: (a, b) => `${a} ran away`,          api: 'nekos' },
-    sad:         { emoji: '😔',  text: (a, b) => `${a} is sad`,            api: 'nekos' },
-    shrug:       { emoji: '🤷',  text: (a, b) => `${a} shrugged`,          api: 'nekos' },
-    sleep:       { emoji: '😴',  text: (a, b) => `${a} fell asleep`,       api: 'nekos' },
-    smile:       { emoji: '😊',  text: (a, b) => `${a} smiled at ${b}`,    api: 'nekos' },
-    smug:        { emoji: '😏',  text: (a, b) => `${a} is smug`,           api: 'nekos' },
-    stare:       { emoji: '👀',  text: (a, b) => `${a} stared at ${b}`,    api: 'nekos' },
-    think:       { emoji: '🤔',  text: (a, b) => `${a} is thinking`,       api: 'nekos' },
-    thumbsup:    { emoji: '👍',  text: (a, b) => `${a} gave ${b} a thumbs up`, api: 'nekos' },
-    tickle:      { emoji: '🤣',  text: (a, b) => `${a} tickled ${b}`,      api: 'nekos' },
-    wave:        { emoji: '👋',  text: (a, b) => `${a} waved at ${b}`,     api: 'nekos' },
-    yawn:        { emoji: '🥱',  text: (a, b) => `${a} yawned`,            api: 'nekos' },
+    // ── 🥊  AGGRESSION ─────────────────────────────────────────
+    slap:      { emoji: '🫲🏻', text: (a, b) => `${a} slapped ${b}`,          api: 'nekos' },
+    kick:      { emoji: '🦵🏻', text: (a, b) => `${a} kicked ${b}`,           api: 'nekos' },
+    punch:     { emoji: '👊',   text: (a, b) => `${a} punched ${b}`,          api: 'nekos' },
+    bite:      { emoji: '😬',   text: (a, b) => `${a} bit ${b}`,              api: 'nekos' },
+    bonk:      { emoji: '🔨',   text: (a, b) => `${a} bonked ${b}`,           api: 'nekos' },
+    yeet:      { emoji: '🚀',   text: (a, b) => `${a} yeeted ${b}`,           api: 'nekos' },
+    baka:      { emoji: '😤',   text: (a, b) => `${a} called ${b} a baka!`,   api: 'nekos' },
+    shoot:     { emoji: '🔫',   text: (a, b) => `${a} shot at ${b}`,          api: 'nekos' },
+    tickle:    { emoji: '🤣',   text: (a, b) => `${a} tickled ${b}`,          api: 'nekos' },
+    poke:      { emoji: '👉',   text: (a, b) => `${a} poked ${b}`,            api: 'nekos' },
+
+    // ── 😂  REACTIONS ──────────────────────────────────────────
+    cry:       { emoji: '😢', text: (a, b) => `${a} is crying`,               api: 'nekos' },
+    laugh:     { emoji: '😂', text: (a, b) => `${a} is laughing`,             api: 'nekos' },
+    blush:     { emoji: '😳', text: (a, b) => `${a} is blushing`,             api: 'nekos' },
+    smile:     { emoji: '😊', text: (a, b) => `${a} smiled at ${b}`,          api: 'nekos' },
+    wink:      { emoji: '😉', text: (a, b) => `${a} winked at ${b}`,          api: 'nekos' },
+    smug:      { emoji: '😏', text: (a, b) => `${a} is being smug`,           api: 'nekos' },
+    pout:      { emoji: '😤', text: (a, b) => `${a} is pouting`,              api: 'nekos' },
+    angry:     { emoji: '😡', text: (a, b) => `${a} is angry at ${b}`,        api: 'nekos' },
+    shocked:   { emoji: '😱', text: (a, b) => `${a} is shocked`,              api: 'nekos' },
+    confused:  { emoji: '😕', text: (a, b) => `${a} is confused`,             api: 'nekos' },
+    happy:     { emoji: '😄', text: (a, b) => `${a} is happy`,                api: 'nekos' },
+    sad:       { emoji: '😔', text: (a, b) => `${a} is sad`,                  api: 'nekos' },
+    bored:     { emoji: '😒', text: (a, b) => `${a} is bored`,                api: 'nekos' },
+    teehee:    { emoji: '🙈', text: (a, b) => `${a} is being cheeky`,         api: 'nekos' },
+    bleh:      { emoji: '😛', text: (a, b) => `${a} goes bleh at ${b}`,       api: 'nekos' },
+    nya:       { emoji: '🐱', text: (a, b) => `${a} says nyaa~`,              api: 'nekos' },
+
+    // ── 🕺  ACTIONS ────────────────────────────────────────────
+    dance:     { emoji: '💃', text: (a, b) => `${a} is dancing`,              api: 'nekos' },
+    spin:      { emoji: '🌀', text: (a, b) => `${a} is spinning`,             api: 'nekos' },
+    run:       { emoji: '🏃', text: (a, b) => `${a} ran away`,                api: 'nekos' },
+    wave:      { emoji: '👋', text: (a, b) => `${a} waved at ${b}`,           api: 'nekos' },
+    clap:      { emoji: '👏', text: (a, b) => `${a} clapped at ${b}`,         api: 'nekos' },
+    highfive:  { emoji: '🙏', text: (a, b) => `${a} high-fived ${b}`,         api: 'nekos' },
+    salute:    { emoji: '🫡', text: (a, b) => `${a} saluted ${b}`,            api: 'nekos' },
+    thumbsup:  { emoji: '👍', text: (a, b) => `${a} gave ${b} a thumbs up`,   api: 'nekos' },
+    nod:       { emoji: '🙂', text: (a, b) => `${a} nodded at ${b}`,          api: 'nekos' },
+    nope:      { emoji: '🙅', text: (a, b) => `${a} said nope`,               api: 'nekos' },
+    shrug:     { emoji: '🤷', text: (a, b) => `${a} shrugged`,                api: 'nekos' },
+    stare:     { emoji: '👀', text: (a, b) => `${a} stared at ${b}`,          api: 'nekos' },
+    lick:      { emoji: '👅', text: (a, b) => `${a} licked ${b}`,             api: 'nekos' },
+    nom:       { emoji: '😋', text: (a, b) => `${a} is nomming`,              api: 'animu'  },
+    sip:       { emoji: '🍵', text: (a, b) => `${a} is sipping tea`,          api: 'nekos' },
+    lurk:      { emoji: '👁️',  text: (a, b) => `${a} is lurking`,             api: 'nekos' },
+    wag:       { emoji: '🐾', text: (a, b) => `${a} is wagging their tail`,   api: 'nekos' },
+    shake:     { emoji: '🤝', text: (a, b) => `${a} shook ${b}`,              api: 'nekos' },
+    tableflip: { emoji: '(╯°□°）╯︵ ┻━┻', text: (a, b) => `${a} flipped the table`, api: 'nekos' },
+
+    // ── 💤  CHILL ──────────────────────────────────────────────
+    sleep:     { emoji: '😴', text: (a, b) => `${a} fell asleep`,             api: 'nekos' },
+    yawn:      { emoji: '🥱', text: (a, b) => `${a} yawned`,                  api: 'nekos' },
+    think:     { emoji: '🤔', text: (a, b) => `${a} is thinking`,             api: 'nekos' },
+    facepalm:  { emoji: '🤦', text: (a, b) => `${a} facepalmed`,              api: 'nekos' },
+
+    // ── 🎌  ANIMU EXCLUSIVES (SRA only) ───────────────────────
+    'face-palm': { emoji: '🤦', text: (a, b) => `${a} facepalmed`,            api: 'animu' },
 };
 
 // ── GIF FETCHERS ─────────────────────────────────────────────
-async function fetchFromAnimu(type) {
-    const res = await axios.get(`https://api.some-random-api.com/animu/${type}`, { timeout: 10000 });
-    return res.data?.link || null;
-}
-
 async function fetchFromNekos(type) {
     const res = await axios.get(`https://nekos.best/api/v2/${type}`, { timeout: 10000 });
     return res.data?.results?.[0]?.url || null;
 }
 
+async function fetchFromAnimu(type) {
+    const res = await axios.get(`https://api.some-random-api.com/animu/${type}`, { timeout: 10000 });
+    return res.data?.link || null;
+}
+
+const ANIMU_EQUIVALENTS = new Set(['hug', 'kiss', 'pat', 'poke', 'cry', 'wink', 'nom']);
+
 async function getGifUrl(action, apiType) {
     try {
-        if (apiType === 'animu') return await fetchFromAnimu(action === 'facepalm' ? 'face-palm' : action);
         if (apiType === 'nekos') return await fetchFromNekos(action);
+        if (apiType === 'animu') return await fetchFromAnimu(action === 'facepalm' ? 'face-palm' : action);
     } catch {}
+    // Cross-fallback
     try {
+        if (apiType === 'nekos' && ANIMU_EQUIVALENTS.has(action)) return await fetchFromAnimu(action);
         if (apiType === 'animu') return await fetchFromNekos(action);
-        if (apiType === 'nekos') return await fetchFromAnimu(action === 'facepalm' ? 'face-palm' : action);
     } catch {}
     return null;
 }
 
-// ── GIF → ANIMATED STICKER ───────────────────────────────────
-async function convertToSticker(mediaBuffer, isAnimated) {
-    const tmpDir = path.join(process.cwd(), 'temp');
-    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-
-    const ext    = isAnimated ? 'gif' : 'jpg';
-    const input  = path.join(tmpDir, `anime_${Date.now()}.${ext}`);
-    const output = path.join(tmpDir, `anime_${Date.now()}.webp`);
-    fs.writeFileSync(input, mediaBuffer);
-
-    const cmd = isAnimated
-        ? `ffmpeg -y -i "${input}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000,fps=15" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 60 -compression_level 6 "${output}"`
-        : `ffmpeg -y -i "${input}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${output}"`;
-
-    await new Promise((res, rej) => exec(cmd, e => e ? rej(e) : res()));
-
-    const buf = fs.readFileSync(output);
-    const img = new webp.Image();
-    await img.load(buf);
-
-    const json = {
-        'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': 'CYBER X Anime',
-        'emojis': ['🎌']
+// ── HELP TEXT ─────────────────────────────────────────────────
+function buildHelp() {
+    const groups = {
+        '❤️  Affection':  ['hug','kiss','cuddle','pat','handhold','handshake','blowkiss','peck','carry','feed','lappillow','kabedon'],
+        '🥊  Aggression': ['slap','kick','punch','bite','bonk','yeet','baka','shoot','tickle','poke'],
+        '😂  Reactions':  ['cry','laugh','blush','smile','wink','smug','pout','angry','shocked','confused','happy','sad','bored','teehee','bleh','nya'],
+        '🕺  Actions':    ['dance','spin','run','wave','clap','highfive','salute','thumbsup','nod','nope','shrug','stare','lick','nom','sip','lurk','wag','shake','tableflip'],
+        '💤  Chill':      ['sleep','yawn','think','facepalm'],
     };
-    const exifAttr = Buffer.from([0x49,0x49,0x2A,0x00,0x08,0x00,0x00,0x00,0x01,0x00,0x41,0x57,0x07,0x00,0x00,0x00,0x00,0x00,0x16,0x00,0x00,0x00]);
-    const jsonBuf  = Buffer.from(JSON.stringify(json), 'utf8');
-    const exif     = Buffer.concat([exifAttr, jsonBuf]);
-    exif.writeUIntLE(jsonBuf.length, 14, 4);
-    img.exif = exif;
-
-    const final = await img.save(null);
-    try { fs.unlinkSync(input); } catch {}
-    try { fs.unlinkSync(output); } catch {}
-    return final;
+    const lines = [
+        '╔══════════════════════════════════════╗',
+        '║  🎌  *C Y B E R  X  —  A N I M E*   ║',
+        '╚══════════════════════════════════════╝',
+        '',
+        '📌 *Usage:*',
+        '  `.anime <action>`',
+        '  Reply to someone first for best effect!',
+        '',
+    ];
+    for (const [cat, cmds] of Object.entries(groups)) {
+        lines.push(`*${cat}*`);
+        lines.push(cmds.map(c => `\`${c}\``).join('  '));
+        lines.push('');
+    }
+    lines.push('🔥 *Examples:*');
+    lines.push('  `.anime hug`  `.anime bonk`  `.anime kabedon`');
+    lines.push('');
+    lines.push('> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™');
+    return lines.join('\n');
 }
 
 // ── MAIN COMMAND ─────────────────────────────────────────────
-async function animeCommand(sock, chatId, message, args) {
-    const action   = ((Array.isArray(args) ? args[0] : args) || '').toLowerCase().trim();
-    const reaction = REACTIONS[action];
-    const allActions = Object.keys(REACTIONS).join(', ');
+module.exports = {
+    pattern:  'anime',
+    alias:    ['reaction'],
+    desc:     'Send anime reaction GIFs',
+    usage:    '.anime <reaction>  (reply to someone for best effect)',
+    category: 'fun',
 
-    // ── No action ──
-    if (!action) {
-        await sock.sendMessage(chatId, {
-            text: [
-                '╔════════════════════════════╗',
-                '║  🎌  *C Y B E R  X  ANIME*  ║',
-                '╚════════════════════════════╝',
-                '',
-                '❌ *No reaction provided!*',
-                '',
-                '┌─────────────────────────────',
-                '│ 📌 *Usage:*',
-                '│  Reply to someone + `.anime <action>`',
-                '│  OR just `.anime <action>`',
-                '└─────────────────────────────',
-                '',
-                `🎯 *Available:*\n${allActions}`,
-                '',
-                '🔥 *Examples:*',
-                '  `.anime kick`',
-                '  `.anime hug`',
-                '  `.anime slap`',
-                '',
-                '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-            ].join('\n')
-        }, { quoted: message });
-        return;
-    }
+    async run({ sock, from, msg, args }) {
+        const action   = (args[0] || '').toLowerCase().trim();
+        const reaction = REACTIONS[action];
 
-    // ── Unknown action ──
-    if (!reaction) {
-        await sock.sendMessage(chatId, {
-            text: [
-                '╔════════════════════════════╗',
-                '║  🎌  *C Y B E R  X  ANIME*  ║',
-                '╚════════════════════════════╝',
-                '',
-                `❌ *Unknown reaction:* _"${action}"_`,
-                '',
-                `🎯 *Try one of:*\n${allActions}`,
-                '',
-                '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-            ].join('\n')
-        }, { quoted: message });
-        return;
-    }
+        // ── No action → categorised help ──
+        if (!action) {
+            await sock.sendMessage(from, { text: buildHelp() }, { quoted: msg });
+            return;
+        }
 
-    // ── Detect sender & target ──
-    const senderJid = message.key.participant || message.key.remoteJid;
-    const senderTag = `@${senderJid.split('@')[0]}`;
+        // ── Unknown action ──
+        if (!reaction) {
+            const all = Object.keys(REACTIONS).join(', ');
+            await sock.sendMessage(from, {
+                text: [
+                    '╔══════════════════════════════════════╗',
+                    '║  🎌  *C Y B E R  X  —  A N I M E*   ║',
+                    '╚══════════════════════════════════════╝',
+                    '',
+                    `❌ *Unknown reaction:* _"${action}"_`,
+                    '',
+                    `🎯 *Available:*\n${all}`,
+                    '',
+                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™',
+                ].join('\n'),
+            }, { quoted: msg });
+            return;
+        }
 
-    const quoted    = message.message?.extendedTextMessage?.contextInfo;
-    const targetJid = quoted?.participant || quoted?.remoteJid || null;
-    const targetTag = targetJid ? `@${targetJid.split('@')[0]}` : null;
+        // ── Detect sender & target ──
+        const senderJid = msg.key.participant || msg.key.remoteJid;
+        const senderTag = `@${senderJid.split('@')[0]}`;
 
-    const actionText = reaction.text(senderTag, targetTag || 'the air 🌬️');
+        const quoted    = msg.message?.extendedTextMessage?.contextInfo;
+        const targetJid = quoted?.participant || quoted?.remoteJid || null;
+        const targetTag = targetJid ? `@${targetJid.split('@')[0]}` : null;
 
-    // ── React with emoji ──
-    await sock.sendMessage(chatId, { react: { text: reaction.emoji, key: message.key } });
+        const actionText = reaction.text(senderTag, targetTag || 'the air 🌬️');
 
-    // ── Fetch GIF ──
-    const gifUrl = await getGifUrl(action, reaction.api);
+        // ── Emoji react ──
+        await sock.sendMessage(from, { react: { text: reaction.emoji, key: msg.key } });
 
-    // ── Mentions ──
-    const mentions = [senderJid];
-    if (targetJid) mentions.push(targetJid);
+        // ── Fetch GIF URL ──
+        const gifUrl = await getGifUrl(action, reaction.api);
 
-    // ── Caption — full line bold ──
-    const caption = [
-        `${reaction.emoji} *${actionText}*`,
-        '',
-        '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-    ].join('\n');
+        // ── Mentions ──
+        const mentions = [senderJid];
+        if (targetJid) mentions.push(targetJid);
 
-    if (!gifUrl) {
-        await sock.sendMessage(chatId, {
-            text: caption + '\n\n_(GIF unavailable)_',
-            mentions
-        }, { quoted: message });
-        return;
-    }
+        // ── Caption ──
+        const caption = [
+            `${reaction.emoji} *${actionText}*`,
+            '',
+            '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™',
+        ].join('\n');
 
-    // ── Download & send as animated sticker ──
-    try {
-        const resp    = await axios.get(gifUrl, { responseType: 'arraybuffer', timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const buf     = Buffer.from(resp.data);
-        const isGif   = gifUrl.toLowerCase().endsWith('.gif');
-        const sticker = await convertToSticker(buf, isGif);
+        if (!gifUrl) {
+            await sock.sendMessage(from, {
+                text: caption + '\n\n_(GIF unavailable)_',
+                mentions,
+            }, { quoted: msg });
+            return;
+        }
 
-        // Send sticker (quoted)
-        await sock.sendMessage(chatId, { sticker }, { quoted: message });
-
-        // Send bold caption with mentions right after
-        await sock.sendMessage(chatId, { text: caption, mentions }, { quoted: message });
-
-    } catch (err) {
-        console.error('[CYBER X] anime error:', err.message);
-        // Fallback: send as gif video
+        // ── Send as GIF ──
         try {
-            await sock.sendMessage(chatId, {
-                video: { url: gifUrl },
+            await sock.sendMessage(from, {
+                video:       { url: gifUrl },
                 caption,
                 gifPlayback: true,
-                mentions
-            }, { quoted: message });
-        } catch {
-            await sock.sendMessage(chatId, {
+                mentions,
+            }, { quoted: msg });
+        } catch (err) {
+            console.error('[CYBER X] anime gif error:', err.message);
+            await sock.sendMessage(from, {
                 text: caption + '\n\n_(Could not load GIF)_',
-                mentions
-            }, { quoted: message });
+                mentions,
+            }, { quoted: msg });
         }
-    }
-}
-
-module.exports = { animeCommand };
+    },
+};
