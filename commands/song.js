@@ -100,7 +100,7 @@ function fmtViews(n) {
 module.exports = {
   pattern: 'song',
   alias: ['yta'],
-  category: 'media',
+  category: 'download',
   desc: 'Download audio from YouTube',
   usage: '.song <song name or YouTube link>',
 

@@ -1,41 +1,19 @@
-// commands/say.js — CYBER X CLEAN COMMAND
+'use strict'
+// ════════════════════════════════════════════════════════════════════
+//  commands/say.js  —  CYBER X  |  🗣️ Say (TTS Shortcut)
+//  Usage: .say <text>
+//  Reaction: 🗣️ | Category: utility
+// ════════════════════════════════════════════════════════════════════
 
-const fs = require("fs")
-const { say } = require("../lib/say")
+const tts = require('./tts')
 
 module.exports = {
-  pattern: "say",
+    pattern:  'say',
+    category: 'utility',
+    desc:     'Convert text to speech (shortcut for .tts)',
+    usage:    '.say <text>',
 
-  run: async ({ sock, from, msg, args }) => {
-
-    const text = args.join(" ").trim()
-
-    if (!text) {
-      return sock.sendMessage(from, {
-        text: "❌ Usage: .say <text>"
-      }, { quoted: msg })
+    run: async (ctx) => {
+        return tts.run(ctx)
     }
-
-    try {
-      const audioPath = await say(text)
-
-      const audio = fs.readFileSync(audioPath)
-
-      await sock.sendMessage(from, {
-        audio,
-        mimetype: "audio/mpeg",
-        ptt: true
-      }, { quoted: msg })
-
-      fs.unlinkSync(audioPath)
-
-    } catch (err) {
-      console.log("SAY COMMAND ERROR:", err.message)
-
-      await sock.sendMessage(from, {
-        text: "❌ Voice failed. CYBER ENGINE ERROR"
-      }, { quoted: msg })
-    }
-  }
 }
-

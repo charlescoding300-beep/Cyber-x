@@ -146,7 +146,7 @@ function fmtNum(n) {
 module.exports = {
   pattern:  'tiktok',
   alias:    ['tt', 'ttdl', 'tiktokdl'],
-  category: 'media',
+  category: 'download',
   desc:     'Download TikTok videos without watermark',
   usage:    '.tiktok <TikTok link>',
 

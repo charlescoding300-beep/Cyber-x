@@ -1,15 +1,19 @@
-const fetch = require('node-fetch');
-
+'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  CYBER X — PIES COMMAND
 //  Usage: .pies <any country in the world>
-//  Reaction: 🗽  |  Category: General
+//  Anyone can use | Category: general
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const BASE = 'https://api.shizo.top/pies';
+const fetch = require('node-fetch')
 
-// Normalize input → match closest country slug
-// Uses a broad alias map + fallback to raw input
+const CREDIT =
+`*╭══ ✕-CYBER X ⚡*
+*┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
+*╰═════════════════⊷*`
+
+const BASE = 'https://api.shizo.top/pies'
+
 const ALIASES = {
     'usa': 'usa', 'united states': 'usa', 'america': 'usa', 'us': 'usa',
     'uk': 'uk', 'united kingdom': 'uk', 'england': 'uk', 'britain': 'uk',
@@ -43,94 +47,107 @@ const ALIASES = {
     'sierra leone': 'sierraleone',
     'san marino': 'sanmarino',
     'ivory': 'ivorycoast',
-};
+}
 
 function resolveCountry(input) {
-    const lower = input.toLowerCase().trim();
-    // Check alias map first
-    if (ALIASES[lower]) return ALIASES[lower];
-    // Strip spaces for compound names (e.g. "south africa" → "southafrica")
-    const noSpace = lower.replace(/\s+/g, '');
-    if (ALIASES[noSpace]) return ALIASES[noSpace];
-    // Fallback: just pass it raw (single word countries like france, japan, etc.)
-    return noSpace || lower;
+    const lower   = input.toLowerCase().trim()
+    if (ALIASES[lower]) return ALIASES[lower]
+    const noSpace = lower.replace(/\s+/g, '')
+    if (ALIASES[noSpace]) return ALIASES[noSpace]
+    return noSpace || lower
 }
 
 async function fetchPiesImage(country) {
-    const url = `${BASE}/${encodeURIComponent(country)}?apikey=shizo`;
-    const res = await fetch(url, { timeout: 10000 });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('image')) throw new Error('Not an image');
-    return res.buffer();
+    const url = `${BASE}/${encodeURIComponent(country)}?apikey=shizo`
+    const res  = await fetch(url, { timeout: 10000 })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('image')) throw new Error('Not an image')
+    return res.buffer()
 }
 
-async function piesCommand(sock, chatId, message, args) {
-    const input = Array.isArray(args) ? args.join(' ') : (args || '');
+module.exports = {
+    pattern:  'pies',
+    alias:    ['pie', 'country'],
+    category: 'general',
+    desc:     'Get a pie chart image for any country',
+    usage:    '.pies <country>',
 
-    if (!input.trim()) {
-        await sock.sendMessage(chatId, {
-            text: [
-                '╔════════════════════════════╗',
-                '║  🗽  *C Y B E R  X  PIES*   ║',
-                '╚════════════════════════════╝',
-                '',
-                '❌ *No country provided!*',
-                '',
-                '┌─────────────────────────────',
-                '│ 📌 *Usage:*',
-                '│  `.pies <any country>`',
-                '└─────────────────────────────',
-                '',
-                '🔥 *Examples:*',
-                '  `.pies nigeria`',
-                '  `.pies united states`',
-                '  `.pies south africa`',
-                '  `.pies japan`',
-                '  `.pies brazil`',
-                '',
-                '> 𝕮𝖄𝕭𝕰𝕽 𝖃 ™ — *Any country in the world*'
-            ].join('\n')
-        }, { quoted: message });
-        return;
-    }
+    run: async ({ sock, from, msg, args, text }) => {
 
-    // React 🗽
-    await sock.sendMessage(chatId, { react: { text: '🗽', key: message.key } });
+        const input = (text || args.join(' ')).trim()
 
-    const countrySlug = resolveCountry(input);
-    const displayName = input.trim()
-        .split(' ')
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
+        // ── No input → usage help ──────────────────────────────
+        if (!input) {
+            return sock.sendMessage(from, {
+                text:
+`╔════════════════════════════╗
+║  🗽  *C Y B E R  X  PIES*   ║
+╚════════════════════════════╝
 
-    try {
-        const imgBuf = await fetchPiesImage(countrySlug);
-        await sock.sendMessage(chatId, {
-            image: imgBuf,
-            caption: [
-                `🗽 *${displayName}*`,
-                '',
-                '> 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-            ].join('\n'),
-            mimetype: 'image/jpeg'
-        }, { quoted: message });
-    } catch (err) {
-        console.error('[CYBER X] pies error:', err.message);
-        await sock.sendMessage(chatId, {
-            text: [
-                '╔════════════════════════════╗',
-                '║  🗽  *C Y B E R  X  PIES*   ║',
-                '╚════════════════════════════╝',
-                '',
-                `❌ *Could not find image for:* _"${displayName}"_`,
-                '',
-                '💡 Try a different spelling or country name',
-                '',
-                '> 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-            ].join('\n')
-        }, { quoted: message });
+❌ *No country provided!*
+
+┌─────────────────────────────
+│ 📌 *Usage:*
+│  _.pies <any country>_
+└─────────────────────────────
+
+🔥 *Examples:*
+  _.pies nigeria_
+  _.pies united states_
+  _.pies south africa_
+  _.pies japan_
+  _.pies brazil_
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${CREDIT}`,
+                quoted: msg
+            })
+        }
+
+        // ── React 🗽 ───────────────────────────────────────────
+        await sock.sendMessage(from, {
+            react: { text: '🗽', key: msg.key }
+        }).catch(() => {})
+
+        const countrySlug = resolveCountry(input)
+        const displayName = input.trim()
+            .split(' ')
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ')
+
+        try {
+            const imgBuf = await fetchPiesImage(countrySlug)
+
+            await sock.sendMessage(from, {
+                image:    imgBuf,
+                caption:
+`🗽 *${displayName}*
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${CREDIT}`,
+                mimetype: 'image/jpeg',
+            }, { quoted: msg })
+
+        } catch (err) {
+            console.error('[PIES]', err.message)
+            await sock.sendMessage(from, {
+                react: { text: '❌', key: msg.key }
+            }).catch(() => {})
+            await sock.sendMessage(from, {
+                text:
+`╔════════════════════════════╗
+║  🗽  *C Y B E R  X  PIES*   ║
+╚════════════════════════════╝
+
+❌ *Could not find image for:* _"${displayName}"_
+
+💡 Try a different spelling or country name
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${CREDIT}`,
+                quoted: msg
+            })
+        }
     }
 }
-
-module.exports = { piesCommand };

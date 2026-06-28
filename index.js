@@ -15,7 +15,6 @@ const {
 const isAdminLib    = require("./lib/isAdmin")
 const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
-const greetListener = require("./lib/greetListener")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -137,7 +136,17 @@ function saveSlotAssignments() {
   }
 }
 
-function getSlotCounts() {
+function getDisplaySlotCounts() {
+  const counts = {}
+  for (let i = 1; i <= SLOT_COUNT; i++) counts[i] = 0
+  for (const phone of Object.keys(slotAssignments)) {
+    const slot = slotAssignments[phone]
+    if (counts[slot] !== undefined) counts[slot]++
+  }
+  return counts
+}
+
+function getLiveSlotCounts() {
   const counts = {}
   for (let i = 1; i <= SLOT_COUNT; i++) counts[i] = 0
   for (const phone of Object.keys(slotAssignments)) {
@@ -148,7 +157,7 @@ function getSlotCounts() {
 }
 
 function getNextAvailableSlot() {
-  const counts = getSlotCounts()
+  const counts = getLiveSlotCounts()
   for (let i = 1; i <= SLOT_COUNT; i++) {
     if (counts[i] < SLOT_CAPACITY) return i
   }
@@ -157,7 +166,7 @@ function getNextAvailableSlot() {
 
 function assignToSlot(phone, preferredSlot = null) {
   if (slotAssignments[phone]) return slotAssignments[phone]
-  const counts = getSlotCounts()
+  const counts = getLiveSlotCounts()
   let slot = null
   if (preferredSlot && preferredSlot >= 1 && preferredSlot <= SLOT_COUNT && counts[preferredSlot] < SLOT_CAPACITY) {
     slot = preferredSlot
@@ -171,191 +180,21 @@ function assignToSlot(phone, preferredSlot = null) {
 }
 
 function getSlotsSummary() {
-  const counts = getSlotCounts()
   const result = []
   for (let i = 1; i <= SLOT_COUNT; i++) {
-    const phonesInSlot = Object.keys(slotAssignments).filter(p => slotAssignments[p] === i && sessions.has(p))
-    const onlineCount  = phonesInSlot.filter(p => sessions.get(p)?.connected).length
+    const everPaired  = Object.keys(slotAssignments).filter(p => slotAssignments[p] === i)
+    const liveInSlot   = everPaired.filter(p => sessions.has(p))
+    const onlineCount  = liveInSlot.filter(p => sessions.get(p)?.connected).length
     result.push({
-      slot:      i,
-      connected: phonesInSlot.length,
-      capacity:  SLOT_CAPACITY,
-      online:    onlineCount > 0,
-      full:      phonesInSlot.length >= SLOT_CAPACITY,
+      slot:        i,
+      connected:   everPaired.length,
+      online:      onlineCount > 0,
+      onlineCount,
+      capacity:    SLOT_CAPACITY,
+      full:        everPaired.length >= SLOT_CAPACITY,
     })
   }
   return result
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WELCOME / GOODBYE ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-const GREET_ROOT = path.join(__dirname, "data", "greet")
-if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
-
-const GREET_DEFAULT_WELCOME = "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.\n\n_{desc}_"
-const GREET_DEFAULT_GOODBYE = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
-
-const greetCache = {}
-
-function greetFile(phone, groupId) {
-  const dir = path.join(GREET_ROOT, phone)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return path.join(dir, groupId.replace(/[^a-z0-9]/gi, "_") + ".json")
-}
-
-function greetLoadFromDisk(phone, groupId) {
-  try {
-    const f = greetFile(phone, groupId)
-    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, "utf8"))
-  } catch {}
-  return {}
-}
-
-function greetLoad(phone, groupId) {
-  if (!greetCache[phone])          greetCache[phone] = {}
-  if (!greetCache[phone][groupId]) greetCache[phone][groupId] = greetLoadFromDisk(phone, groupId)
-  return greetCache[phone][groupId]
-}
-
-function greetSave(phone, groupId) {
-  try {
-    const data = greetCache[phone]?.[groupId] || {}
-    fs.writeFileSync(greetFile(phone, groupId), JSON.stringify(data, null, 2))
-  } catch (e) {
-    console.error(`[GREET] save error ${phone}/${groupId}:`, e.message)
-  }
-}
-
-function greetGet(phone, groupId, type) {
-  return greetLoad(phone, groupId)?.[type] || null
-}
-
-function greetSet(phone, groupId, type, settings) {
-  const data = greetLoad(phone, groupId)
-  data[type] = { ...data[type], ...settings, updatedAt: Date.now() }
-  if (!greetCache[phone])          greetCache[phone] = {}
-  greetCache[phone][groupId] = data
-  greetSave(phone, groupId)
-  console.log(`[GREET:${phone}] ✔ ${type} updated for ${groupId}`)
-}
-
-function greetFill(template, { name, group, desc, members, tag }) {
-  return template
-    .replace(/{name}/g,    name    || "Friend")
-    .replace(/{group}/g,   group   || "this group")
-    .replace(/{desc}/g,    desc    || "")
-    .replace(/{members}/g, String(members || ""))
-    .replace(/{tag}/g,     tag     || "")
-}
-
-global.__greetGet              = greetGet
-global.__greetSet              = greetSet
-global.__greetFill             = greetFill
-global.__GREET_DEFAULT_WELCOME = GREET_DEFAULT_WELCOME
-global.__GREET_DEFAULT_GOODBYE = GREET_DEFAULT_GOODBYE
-
-function greetRestoreAllFromDisk() {
-  try {
-    if (!fs.existsSync(GREET_ROOT)) return
-    const phones = fs.readdirSync(GREET_ROOT).filter(f =>
-      fs.statSync(path.join(GREET_ROOT, f)).isDirectory()
-    )
-    let total = 0
-    for (const phone of phones) {
-      const dir   = path.join(GREET_ROOT, phone)
-      const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"))
-      if (!greetCache[phone]) greetCache[phone] = {}
-      for (const file of files) {
-        try {
-          const raw      = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"))
-          const groupKey = file.replace(".json", "")
-          greetCache[phone][groupKey] = raw
-          total++
-        } catch {}
-      }
-    }
-    if (total > 0)
-      console.log(`[GREET] 💾 Restored ${total} greet config(s) from disk across ${phones.length} session(s)`)
-  } catch (e) {
-    console.error("[GREET] restore error:", e.message)
-  }
-}
-greetRestoreAllFromDisk()
-
-setInterval(() => {
-  let flushed = 0
-  for (const phone of Object.keys(greetCache)) {
-    for (const groupId of Object.keys(greetCache[phone] || {})) {
-      try { greetSave(phone, groupId); flushed++ } catch {}
-    }
-  }
-  if (flushed > 0) console.log(`[GREET] 🔄 Flushed ${flushed} greet config(s) to disk`)
-}, 5 * 60 * 1000)
-
-async function handleGreetEvent(sock, phone, update) {
-  const { id: groupId, participants, action } = update
-  if (!groupId?.endsWith("@g.us")) return
-  if (!["add", "remove"].includes(action)) return
-
-  let meta
-  try { meta = await sock.groupMetadata(groupId) } catch { return }
-
-  const groupName   = meta.subject || "the group"
-  const groupDesc   = meta.desc    || ""
-  const memberCount = (meta.participants || []).length
-
-  for (const participantJid of participants) {
-    const memberPhone = participantJid
-      .replace("@s.whatsapp.net", "")
-      .replace(/:\d+$/, "")
-
-    let pushName = ""
-    try {
-      const contact = meta.participants?.find(p =>
-        p.id === participantJid || p.id?.startsWith(memberPhone)
-      )
-      pushName = contact?.notify || contact?.name || ""
-    } catch {}
-
-    const displayName = pushName || memberPhone
-    const type        = action === "add" ? "welcome" : "goodbye"
-    const settings    = greetGet(phone, groupId, type)
-
-    if (!settings?.enabled) continue
-
-    const defaultMsg = type === "welcome" ? GREET_DEFAULT_WELCOME : GREET_DEFAULT_GOODBYE
-    const template   = settings.message || defaultMsg
-
-    const text = greetFill(template, {
-      name:    displayName,
-      group:   groupName,
-      desc:    groupDesc,
-      members: memberCount,
-      tag:     memberPhone,
-    })
-
-    let ppUrl = null
-    try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
-
-    try {
-      if (ppUrl) {
-        await sock.sendMessage(groupId, {
-          image:    { url: ppUrl },
-          caption:  text,
-          mentions: [participantJid],
-        })
-      } else {
-        await sock.sendMessage(groupId, {
-          text,
-          mentions: [participantJid],
-        })
-      }
-      console.log(`[GREET:${phone}] ${type === "welcome" ? "👋 Welcomed" : "👣 Goodbye"} ${memberPhone} in ${groupName}`)
-    } catch (e) {
-      console.error(`[GREET:${phone}] send error:`, e.message)
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -589,14 +428,14 @@ function extractBody(msg) {
   if (!m) return ""
   const inner = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m
   return (
-    inner.conversation                                           ||
-    inner.extendedTextMessage?.text                             ||
-    inner.imageMessage?.caption                                 ||
-    inner.videoMessage?.caption                                 ||
-    inner.documentMessage?.caption                              ||
-    inner.buttonsResponseMessage?.selectedButtonId              ||
+    inner.conversation ||
+    inner.extendedTextMessage?.text ||
+    inner.imageMessage?.caption ||
+    inner.videoMessage?.caption ||
+    inner.documentMessage?.caption ||
+    inner.buttonsResponseMessage?.selectedButtonId ||
     inner.listResponseMessage?.singleSelectReply?.selectedRowId ||
-    inner.templateButtonReplyMessage?.selectedId               ||
+    inner.templateButtonReplyMessage?.selectedId ||
     ""
   )
 }
@@ -658,10 +497,10 @@ function loadMetaPhones() {
 async function handleOrdinaryMessage(state, sock, msg, from) {
   const s = state.settings
   if (s.get("autoTyping")) {
-    try { await sock.sendPresenceUpdate("composing", from); await helper.sleep(5000); await sock.sendPresenceUpdate("paused", from) } catch {}
+    try { await sock.sendPresenceUpdate("composing", from); await helper.sleep(10000); await sock.sendPresenceUpdate("paused", from) } catch {}
   }
   if (s.get("autoRecording")) {
-    try { await sock.sendPresenceUpdate("recording", from); await helper.sleep(5000); await sock.sendPresenceUpdate("paused", from) } catch {}
+    try { await sock.sendPresenceUpdate("recording", from); await helper.sleep(7000); await sock.sendPresenceUpdate("paused", from) } catch {}
   }
   if (s.get("autoReply")) {
     const prefix = s.get("prefix") || BOT_PREFIX
@@ -862,24 +701,37 @@ async function handleMessage(state, sock, msg) {
   if (msg.key.remoteJid === "status@broadcast") return
   const body = extractBody(msg)
   if (!body) return
+
+  // ── BAN CHECK ──
+  const banCheck = require('./commands/ban.js')
+  if (banCheck.checkBan(msg.key.participant || msg.key.remoteJid)) {
+    console.log(`[BAN] Blocked banned user: ${msg.key.participant || msg.key.remoteJid}`)
+    return
+  }
+
   const from      = msg.key.remoteJid
   const sender    = msg.key.participant || from
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
+
   if (!fromMe && state.settings.get("autoRead")) {
     sock.readMessages([msg.key]).catch(() => {})
   }
+
   const prefix = state.settings.get("prefix") || BOT_PREFIX
   if (!body.startsWith(prefix)) {
     if (!fromMe) handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
     return
   }
+
   const isOwner = checkIsOwner(state, sender, senderAlt, fromMe)
   const mode = state.settings.get("mode") || "public"
   if (mode === "private" && !isOwner && !fromMe) return
+
   const isGroup = from.endsWith("@g.us")
   if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
   if (state.settings.get("dmOnly") && isGroup && !isOwner) return
+
   const slice    = body.slice(prefix.length).trimStart()
   const spaceIdx = slice.indexOf(" ")
   const rawCmd   = (spaceIdx === -1 ? slice : slice.slice(0, spaceIdx)).toLowerCase()
@@ -888,9 +740,12 @@ async function handleMessage(state, sock, msg) {
   const canonical = registry.aliases.get(rawCmd) || rawCmd
   const command   = registry.map.get(canonical)
   if (!command) return
+
   let isAdmin = false, isBotAdmin = false
   if (isGroup) { ({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner)) }
+
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
+
   try {
     await command.run({
       sock, from, msg, sender, args,
@@ -971,9 +826,76 @@ async function startBot(phone) {
       )
     }
 
-    handleGreetEvent(sock, phone, update).catch(e =>
-      console.error(`[${phone}] handleGreetEvent ERR:`, e.message)
-    )
+    // ── NEW: WELCOME/GOODBYE LISTENER ──
+    try {
+      const { id: groupId, participants, action } = update
+      if (!groupId?.endsWith("@g.us")) return
+      if (!["add", "remove"].includes(action)) return
+
+      let meta
+      try { meta = await sock.groupMetadata(groupId) } catch { return }
+
+      const groupName = meta.subject || "the group"
+      const memberCount = (meta.participants || []).length
+      const welcomeCmd = require('./commands/welcome.js')
+      const goodbyeCmd = require('./commands/goodbye.js')
+
+      for (const participantJid of participants) {
+        const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
+        let pushName = ""
+        try {
+          const contact = meta.participants?.find(p => p.id === participantJid || p.id?.startsWith(memberPhone))
+          pushName = contact?.notify || contact?.name || ""
+        } catch {}
+
+        const displayName = pushName || memberPhone
+        const type = action === "add" ? "welcome" : "goodbye"
+
+        // ── Load greet settings ──
+        const greetData = welcomeCmd.loadGreet(phone, groupId)
+        const settings = type === "welcome" ? greetData.welcome : greetData.goodbye
+        if (!settings?.enabled) {
+          console.log(`[GREET:${phone}] 🔇 ${type} ${action === "add" ? "👋 JOIN" : "👣 LEAVE"} ${memberPhone} — disabled`)
+          continue
+        }
+
+        // ── Build message ──
+        const defaultMsg = type === "welcome"
+          ? "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members."
+          : "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
+
+        const template = settings.message || defaultMsg
+        const text = template
+          .replace(/{tag}/g, memberPhone)
+          .replace(/{group}/g, groupName)
+          .replace(/{members}/g, String(memberCount))
+
+        // ── Get profile picture ──
+        let ppUrl = null
+        try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
+
+        // ── Send message ──
+        try {
+          if (ppUrl) {
+            await sock.sendMessage(groupId, {
+              image: { url: ppUrl },
+              caption: text,
+              mentions: [participantJid]
+            })
+          } else {
+            await sock.sendMessage(groupId, {
+              text,
+              mentions: [participantJid]
+            })
+          }
+          console.log(`[GREET:${phone}] ${type === "welcome" ? "👋 WELCOME" : "👣 GOODBYE"} ${memberPhone} in ${groupName}`)
+        } catch (e) {
+          console.error(`[GREET:${phone}] send error:`, e.message)
+        }
+      }
+    } catch (e) {
+      console.error(`[GREET:${phone}] error:`, e.message)
+    }
   })
 
   if (!authState.creds.registered) {
@@ -1044,7 +966,6 @@ async function startBot(phone) {
       if (loggedOut) {
         console.log(`[${phone}] ✗ Logged out — removing session`)
         await removeSession(phone)
-        // ✨ Also wipe from Redis immediately on logout so it never comes back
         await sessionBackup.deleteSession(phone).catch(() => {})
         return
       }
@@ -1059,10 +980,7 @@ async function startBot(phone) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ✨ NEW — DEAD SESSION CLEANUP
-// Runs in background after startup. Gives every session 60 seconds to connect.
-// Any session still disconnected after 60s gets permanently removed from
-// bot memory, disk, Redis and slot assignments — no dead weight ever again.
+// DEAD SESSION CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
 async function cleanupDeadSessions(waitMs = 60000) {
   console.log(`[SESSION-GUARD] ⏳ Watching sessions — will remove any that fail to connect within ${waitMs / 1000}s...`)
@@ -1083,7 +1001,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
 
   for (const phone of dead) {
     try {
-      // 1. Kill socket
       const state = sessions.get(phone)
       if (state) {
         if (state.presenceTimer) clearInterval(state.presenceTimer)
@@ -1092,7 +1009,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
         console.log(`[SESSION-GUARD] 🗑 Removed from bot memory: ${phone}`)
       }
 
-      // 2. Remove session folder from disk
       try {
         const sessDir = path.join(SESS_ROOT, phone)
         if (fs.existsSync(sessDir)) {
@@ -1103,7 +1019,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
         console.error(`[SESSION-GUARD] ✗ Disk remove failed for ${phone}:`, e.message)
       }
 
-      // 3. Wipe from Redis permanently
       try {
         await sessionBackup.deleteSession(phone)
         console.log(`[SESSION-GUARD] 🗑 Wiped from Redis: ${phone}`)
@@ -1111,7 +1026,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
         console.error(`[SESSION-GUARD] ✗ Redis wipe failed for ${phone}:`, e.message)
       }
 
-      // 4. Remove from slot assignments
       if (slotAssignments[phone]) {
         delete slotAssignments[phone]
       }
@@ -1121,7 +1035,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
     }
   }
 
-  // Save updated meta and slots after cleanup
   saveMeta()
   saveSlotAssignments()
 
@@ -1146,7 +1059,6 @@ async function init() {
     console.warn("[PERSIST] ⚠ lib/persist.js not found — skipping data restore:", e.message)
   }
 
-  // ✨ Step 1 — Restore ALL sessions from Redis (credentials + keys)
   console.log("[INIT] 🔄 Restoring sessions from backup...")
   const restoredCount = await sessionBackup.restoreAll().catch(e => {
     console.error("[INIT] ✗ Backup restore failed:", e.message)
@@ -1180,7 +1092,6 @@ async function init() {
 
   console.log(`[INIT] ▶ Starting ${allPhones.length} session(s): ${allPhones.join(", ") || "(none)"}`)
 
-  // ✨ Step 2 — Connect ALL sessions with full credentials from Redis
   for (const phone of allPhones) {
     try { await startBot(phone) }
     catch (e) { console.error(`[INIT] ✗ Failed to start ${phone}:`, e.message) }
@@ -1188,8 +1099,6 @@ async function init() {
 
   saveMeta()
 
-  // ✨ Step 3 — Give 60 seconds to stabilize, then remove any that failed
-  // Runs in background — does NOT block the bot from serving requests
   cleanupDeadSessions(60000).catch(e => console.error("[SESSION-GUARD] ✗", e.message))
 }
 
@@ -1233,6 +1142,11 @@ function listBots() {
     slot:          slotAssignments[phone] || null,
   }))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL EXPOSURE
+// ─────────────────────────────────────────────────────────────────────────────
+global.__listBots = listBots
 
 module.exports = {
   init, addSession, removeSession, listBots,

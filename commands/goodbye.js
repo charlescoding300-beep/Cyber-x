@@ -1,69 +1,110 @@
-// commands/goodbye.js — CYBER X
-// .goodbye on | off | set <msg> | reset | view
+'use strict'
+const fs = require('fs')
+const path = require('path')
+
+const GREET_ROOT = path.join(__dirname, '../data/greet')
+
+function greetFile(phone, groupId) {
+  const dir = path.join(GREET_ROOT, phone)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return path.join(dir, groupId.replace(/[^a-z0-9]/gi, '_') + '.json')
+}
+
+function loadGreet(phone, groupId) {
+  try {
+    const f = greetFile(phone, groupId)
+    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'))
+  } catch {}
+  return {}
+}
+
+function saveGreet(phone, groupId, data) {
+  try {
+    fs.writeFileSync(greetFile(phone, groupId), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[GOODBYE] save error:`, e.message)
+  }
+}
+
+const DEFAULT_GOODBYE = 'Goodbye @{tag}! 👋\nWe\'ll miss you in *{group}*.\nWe now have *{members}* members.'
+
+const run = async ({ sock, from, message, sender, isGroup, isAdmin, isOwner, args, text }) => {
+
+  if (!isGroup) {
+    return sock.sendMessage(from, {
+      text: `❌ *Groups only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  if (!isAdmin && !isOwner) {
+    return sock.sendMessage(from, {
+      text: `❌ *Admins only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  const phone = sender.replace(/[^0-9]/g, '')
+  const data = loadGreet(phone, from)
+
+  const cmd = args[0]?.toLowerCase()
+
+  if (cmd === 'on') {
+    data.goodbye = { ...data.goodbye, enabled: true, updatedAt: Date.now() }
+    saveGreet(phone, from, data)
+    return sock.sendMessage(from, {
+      text: `✅ *Goodbye messages enabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  if (cmd === 'off') {
+    data.goodbye = { ...data.goodbye, enabled: false, updatedAt: Date.now() }
+    saveGreet(phone, from, data)
+    return sock.sendMessage(from, {
+      text: `❌ *Goodbye messages disabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  if (cmd === 'view') {
+    const msg_text = data.goodbye?.message || DEFAULT_GOODBYE
+    return sock.sendMessage(from, {
+      text: `╔════════════════════════╗\n║  👋 *GOODBYE MESSAGE*  ║\n╚════════════════════════╝\n\n${msg_text}\n\n*Status:* ${data.goodbye?.enabled ? '✅ ON' : '❌ OFF'}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  if (cmd === 'set') {
+    const newMsg = args.slice(1).join(' ').trim()
+    if (!newMsg) {
+      return sock.sendMessage(from, {
+        text: `❌ *Provide a message*\n*.goodbye set <message>*\n\nUse {tag}, {group}, {members}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: message
+      })
+    }
+    data.goodbye = { message: newMsg, enabled: true, updatedAt: Date.now() }
+    saveGreet(phone, from, data)
+    return sock.sendMessage(from, {
+      text: `✅ *Goodbye message set!*\n\n${newMsg}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: message
+    })
+  }
+
+  return sock.sendMessage(from, {
+    text: `╔════════════════════════╗\n║  👋 *GOODBYE COMMAND*  ║\n╚════════════════════════╝\n\n*.goodbye on* — enable\n*.goodbye off* — disable\n*.goodbye set <msg>* — customize\n*.goodbye view* — see current\n\n*Variables:*\n{tag} — user phone\n{group} — group name\n{members} — member count\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+    quoted: message
+  })
+}
 
 module.exports = {
-  pattern:  "goodbye",
-  category: "GROUP",
-  desc:     "Manage goodbye messages for this group",
-  usage:    ".goodbye on | off | set <message> | reset | view",
-
-  async run({ sock, from, msg, args, isAdmin, isOwner }) {
-    if (!from.endsWith("@g.us"))
-      return sock.sendMessage(from, { text: "👋 .goodbye only works in groups!" }, { quoted: msg })
-
-    if (!isAdmin && !isOwner)
-      return sock.sendMessage(from, { text: "🚫 Only admins can change goodbye settings." }, { quoted: msg })
-
-    const phone    = sock?.user?.id?.split("@")[0]?.replace(/:\d+$/, "") || ""
-    const greetGet = global.__greetGet
-    const greetSet = global.__greetSet
-    const defMsg   = global.__GREET_DEFAULT_GOODBYE
-    const sub      = (args[0] || "").toLowerCase()
-
-    if (sub === "on") {
-      greetSet(phone, from, "goodbye", { enabled: true })
-      return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE ENABLED* 〕━━━╮\n┃\n┃ ✅ Goodbye messages are now *ON*\n┃ Members leaving get a farewell\n┃ with their tag!\n┃\n┃ *.goodbye set <msg>* to customize\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-      }, { quoted: msg })
-    }
-
-    if (sub === "off") {
-      greetSet(phone, from, "goodbye", { enabled: false })
-      return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE DISABLED* 〕━━━╮\n┃\n┃ ❌ Goodbye messages are *OFF*\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-      }, { quoted: msg })
-    }
-
-    if (sub === "reset") {
-      greetSet(phone, from, "goodbye", { message: null })
-      return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE RESET* 〕━━━╮\n┃\n┃ ✅ Reset to default message!\n┃\n┃ ${defMsg}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-      }, { quoted: msg })
-    }
-
-    if (sub === "view") {
-      const s = greetGet(phone, from, "goodbye")
-      return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE SETTINGS* 〕━━━╮\n┃\n┃ Status: ${s?.enabled ? "✅ ON" : "❌ OFF"}\n┃\n┃ Message:\n┃ ${s?.message || defMsg}\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-      }, { quoted: msg })
-    }
-
-    if (sub === "set") {
-      const customMsg = args.slice(1).join(" ").trim()
-      if (!customMsg) {
-        return sock.sendMessage(from, {
-          text: `╭━━━〔 👣 *SET GOODBYE* 〕━━━╮\n┃\n┃ ⚠ Provide a message!\n┃\n┃ Example:\n┃ .goodbye set Goodbye {name}! 👋\n┃ We'll miss you in {group}.\n┃ Now {members} members remain.\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯`
-        }, { quoted: msg })
-      }
-      greetSet(phone, from, "goodbye", { message: customMsg, enabled: true })
-      return sock.sendMessage(from, {
-        text: `╭━━━〔 👣 *GOODBYE MESSAGE SET* 〕━━━╮\n┃\n┃ ✅ Saved! Goodbye is now *ON*\n┃\n┃ Your message:\n┃ ${customMsg}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-      }, { quoted: msg })
-    }
-
-    // help
-    return sock.sendMessage(from, {
-      text: `╭━━━〔 👣 *GOODBYE HELP* 〕━━━╮\n┃\n┃ .goodbye on\n┃ .goodbye off\n┃ .goodbye set <message>\n┃ .goodbye reset\n┃ .goodbye view\n┃\n┃ Placeholders:\n┃ {name} {group} {desc}\n┃ {members} {tag}\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-    }, { quoted: msg })
-  }
+  name: 'goodbye',
+  aliases: ['goodbye'],
+  category: 'group',
+  desc: 'Set custom goodbye messages for members who leave',
+  usage: '.goodbye on|off|set|view',
+  run,
+  loadGreet,
+  saveGreet,
+  greetFile
 }

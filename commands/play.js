@@ -171,7 +171,7 @@ module.exports = {
   alias:    ['music', 'mp3'],
   desc:     'Search and download music from YouTube',
   usage:    '.play <song name or YouTube link>',
-  category: 'media',
+  category: 'download',
 
   run: async ({ sock, from, msg, args }) => {
     const query = args.join(' ').trim()

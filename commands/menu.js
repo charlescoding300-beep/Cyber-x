@@ -25,17 +25,18 @@ const HIDDEN = new Set([
 ])
 
 const CATEGORY_ORDER = [
-    'general', 'owner', 'group/admin', 'media', 'fun', 'ai', 'utility',
+    'general', 'owner', 'group/admin', 'download', 'download', 'fun', 'ai', 'utility',
 ]
 
 const CATEGORY_LABELS = {
-    general:       '🌐 GENERAL',
-    owner:         '👑 OWNER',
-    'group/admin': '👥 GROUP/ADMIN👮',
-    media:         '🎵 MEDIA',
-    fun:           '🎮 FUN',
-    ai:            '🤖 AI',
-    utility:       '🛠️ UTILITY',
+    general:          '🌐 GENERAL',
+    owner:            '👑 OWNER',
+    'group/admin':    '👥 GROUP/ADMIN👮',
+    download:         '📥 DOWNLOAD',
+    'media':          '🎵 MEDIA',
+    fun:              '🎮 FUN',
+    ai:               '🤖 AI',
+    utility:          '🛠️ UTILITY',
 }
 
 const PAIR_URL = process.env.PAIR_URL || 'https://cyber-x-y8yv.onrender.com/pair'
@@ -82,8 +83,9 @@ module.exports = {
         }).catch(() => {})
 
         // ── 2. Session phone = this session's linked number ───────
-        const phone    = (sock.user?.id || '').split(':')[0].split('@')[0]
-        const ownerNumber = phone || 'Unknown'
+        const phone      = (sock.user?.id || '').split(':')[0].split('@')[0]
+        const ownerJid   = phone ? `${phone}@s.whatsapp.net` : null
+        const ownerTag   = ownerJid ? `@${phone}` : 'Unknown'
 
         const prefix  = settings?.get('prefix')  || '.'
         const botName = settings?.get('botName') || 'CYBER X'
@@ -149,9 +151,8 @@ module.exports = {
 *┃👀 ᴘʀᴇғɪx    :* ${prefix}
 *┃🚀 ʀᴀᴍ       :* ${ramUsedGB} / ${ramTotalGB} GB
 *┃🌨️ ᴛɪᴍᴇ      :* ${time}
-*┃🫂 ʙᴏᴛ ᴏᴡɴᴇʀ :* ${ownerNumber}
+*┃🫂 ʙᴏᴛ ᴏᴡɴᴇʀ :* ${ownerTag}
 *┃🕊️ ᴘᴀɪʀ      :* ${PAIR_URL}
-*┃🛡️ ᴄʀᴇᴅɪᴛ    :* © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™
 *┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
 *╰═════════════════⊷*`
 
@@ -168,6 +169,7 @@ ${sections}
 
         // ── 7. Mentions ───────────────────────────────────────────
         const mentions = [senderJid]
+        if (ownerJid) mentions.push(ownerJid)
 
         // ── 8. Send — this session's custom pic first ─────────────
         const custom = loadCustomPic(phone)

@@ -104,7 +104,7 @@ function fmtViews(n) {
 module.exports = {
   pattern:  'youtube',
   alias:    ['yt', 'ytlink', 'ytdl'],
-  category: 'media',
+  category: 'download',
   desc:     'Download YouTube video by link',
   usage:    '.youtube <YouTube link>',
 
