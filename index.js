@@ -183,8 +183,8 @@ function getSlotsSummary() {
   const result = []
   for (let i = 1; i <= SLOT_COUNT; i++) {
     const everPaired  = Object.keys(slotAssignments).filter(p => slotAssignments[p] === i)
-    const liveInSlot   = everPaired.filter(p => sessions.has(p))
-    const onlineCount  = liveInSlot.filter(p => sessions.get(p)?.connected).length
+    const liveInSlot  = everPaired.filter(p => sessions.has(p))
+    const onlineCount = liveInSlot.filter(p => sessions.get(p)?.connected).length
     result.push({
       slot:        i,
       connected:   everPaired.length,
@@ -702,17 +702,23 @@ async function handleMessage(state, sock, msg) {
   const body = extractBody(msg)
   if (!body) return
 
-  // ── BAN CHECK ──
-  const banCheck = require('./commands/ban.js')
-  if (banCheck.checkBan(msg.key.participant || msg.key.remoteJid)) {
-    console.log(`[BAN] Blocked banned user: ${msg.key.participant || msg.key.remoteJid}`)
-    return
-  }
-
   const from      = msg.key.remoteJid
   const sender    = msg.key.participant || from
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
+
+  // ── GLOBAL BAN CHECK — blocks banned users from ALL commands ──
+  if (!fromMe && typeof global.__isBanned === 'function') {
+    const sessionPhone = normalizeNum(sock.user?.id || '')
+    const senderPhone  = normalizeNum(sender || from)
+    try {
+      const banned = await global.__isBanned(sessionPhone, senderPhone)
+      if (banned) {
+        console.log(`[BAN] 🚫 Blocked: ${senderPhone} on session ${sessionPhone}`)
+        return
+      }
+    } catch {}
+  }
 
   if (!fromMe && state.settings.get("autoRead")) {
     sock.readMessages([msg.key]).catch(() => {})
@@ -826,7 +832,7 @@ async function startBot(phone) {
       )
     }
 
-    // ── NEW: WELCOME/GOODBYE LISTENER ──
+    // ── WELCOME/GOODBYE LISTENER ──
     try {
       const { id: groupId, participants, action } = update
       if (!groupId?.endsWith("@g.us")) return
@@ -835,10 +841,10 @@ async function startBot(phone) {
       let meta
       try { meta = await sock.groupMetadata(groupId) } catch { return }
 
-      const groupName = meta.subject || "the group"
+      const groupName   = meta.subject || "the group"
       const memberCount = (meta.participants || []).length
-      const welcomeCmd = require('./commands/welcome.js')
-      const goodbyeCmd = require('./commands/goodbye.js')
+      const welcomeCmd  = require('./commands/welcome.js')
+      const goodbyeCmd  = require('./commands/goodbye.js')
 
       for (const participantJid of participants) {
         const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
@@ -849,43 +855,39 @@ async function startBot(phone) {
         } catch {}
 
         const displayName = pushName || memberPhone
-        const type = action === "add" ? "welcome" : "goodbye"
+        const type        = action === "add" ? "welcome" : "goodbye"
 
-        // ── Load greet settings ──
         const greetData = welcomeCmd.loadGreet(phone, groupId)
-        const settings = type === "welcome" ? greetData.welcome : greetData.goodbye
+        const settings  = type === "welcome" ? greetData.welcome : greetData.goodbye
         if (!settings?.enabled) {
           console.log(`[GREET:${phone}] 🔇 ${type} ${action === "add" ? "👋 JOIN" : "👣 LEAVE"} ${memberPhone} — disabled`)
           continue
         }
 
-        // ── Build message ──
         const defaultMsg = type === "welcome"
           ? "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members."
           : "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
 
         const template = settings.message || defaultMsg
         const text = template
-          .replace(/{tag}/g, memberPhone)
-          .replace(/{group}/g, groupName)
+          .replace(/{tag}/g,     memberPhone)
+          .replace(/{group}/g,   groupName)
           .replace(/{members}/g, String(memberCount))
 
-        // ── Get profile picture ──
         let ppUrl = null
         try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
 
-        // ── Send message ──
         try {
           if (ppUrl) {
             await sock.sendMessage(groupId, {
-              image: { url: ppUrl },
-              caption: text,
-              mentions: [participantJid]
+              image:    { url: ppUrl },
+              caption:  text,
+              mentions: [participantJid],
             })
           } else {
             await sock.sendMessage(groupId, {
               text,
-              mentions: [participantJid]
+              mentions: [participantJid],
             })
           }
           console.log(`[GREET:${phone}] ${type === "welcome" ? "👋 WELCOME" : "👣 GOODBYE"} ${memberPhone} in ${groupName}`)
