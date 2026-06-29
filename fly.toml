@@ -1,5 +1,5 @@
 app = "cyber-x"
-primary_region = "lhr"
+primary_region = "ams"
 
 [build]
   builder = "heroku"
