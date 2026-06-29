@@ -5,115 +5,133 @@
 //  Reaction: 🔊 | Category: utility
 // ════════════════════════════════════════════════════════════════════
 
-const axios = require('axios')
+async function getTTSAudio(text) {
+    const apis = [
+        `https://www.laurine.site/api/tts/tts-nova?text=${encodeURIComponent(text)}`,
+        `https://api.popcat.xyz/tts?text=${encodeURIComponent(text)}`,
+    ]
 
-module.exports = {
-    pattern:  'tts',
-    alias:    ['say'],
-    category: 'utility',
-    desc:     'Convert text to speech audio',
-    usage:    '.tts <text>',
-
-    run: async ({ sock, from, msg, text, args }) => {
-
-        sock.sendMessage(from, { react: { text: '🔊', key: msg.key } }).catch(() => {})
-
-        const input = text?.trim() || args?.join(' ')?.trim() || ''
-
-        if (!input) {
-            await sock.sendMessage(from, {
-                text: [
-                    '╔══════════════════════════════════╗',
-                    '║  🔊  *C Y B E R  X  —  T T S*  ║',
-                    '╚══════════════════════════════════╝',
-                    '',
-                    '🤖 *What is Text to Speech?*',
-                    'This command converts any text you type',
-                    'into a real voice audio message.',
-                    '',
-                    '✨ *What you can do:*',
-                    '┌─────────────────────────────────',
-                    '│ 💬 Convert any sentence to audio',
-                    '│ 📢 Send voice messages via text',
-                    '│ 🌐 Works with any language',
-                    '└─────────────────────────────────',
-                    '',
-                    '📌 *How to use:*',
-                    '  `.tts <your text>`',
-                    '  `.say <your text>`',
-                    '',
-                    '🔥 *Examples:*',
-                    '  `.tts Hello everyone!`',
-                    '  `.say Welcome to CYBER X`',
-                    '  `.tts Good morning fam`',
-                    '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-                ].join('\n')
-            }, { quoted: msg })
-            return
-        }
-
+    for (const url of apis) {
         try {
-            const apiUrl = `https://www.laurine.site/api/tts/tts-nova?text=${encodeURIComponent(input)}`
-            const res = await axios.get(apiUrl, {
-                timeout: 30000,
+            const res = await fetch(url, {
+                signal: AbortSignal.timeout(15000),
                 headers: { 'User-Agent': 'Mozilla/5.0' }
             })
+            if (!res.ok) continue
 
+            const data = await res.json()
             let audioUrl = null
 
-            if (res.data) {
-                if (typeof res.data === 'string' && res.data.startsWith('http')) {
-                    audioUrl = res.data
-                } else if (res.data.data) {
-                    const d = res.data.data
-                    audioUrl = d.URL || d.url
-                    if (!audioUrl && d.MP3) audioUrl = `https://ttsmp3.com/created_mp3_ai/${d.MP3}`
-                    if (!audioUrl && d.mp3) audioUrl = `https://ttsmp3.com/created_mp3_ai/${d.mp3}`
-                } else {
-                    audioUrl = res.data.URL || res.data.url
-                    if (!audioUrl && res.data.MP3) audioUrl = `https://ttsmp3.com/created_mp3_ai/${res.data.MP3}`
-                }
+            if (typeof data === 'string' && data.startsWith('http')) {
+                audioUrl = data
+            } else if (data?.data) {
+                audioUrl = data.data.URL || data.data.url
+                if (!audioUrl && data.data.MP3) audioUrl = `https://ttsmp3.com/created_mp3_ai/${data.data.MP3}`
+            } else if (data?.url) {
+                audioUrl = data.url
+            } else if (data?.buffer) {
+                return Buffer.from(data.buffer.data || [])
             }
 
-            if (!audioUrl) throw new Error('No audio URL returned')
-
-            const display = input.length > 60 ? input.slice(0, 57) + '...' : input
-
-            await sock.sendMessage(from, {
-                audio: { url: audioUrl },
-                mimetype: 'audio/mpeg',
-                ptt: true,
-            }, { quoted: msg })
-
-            await sock.sendMessage(from, {
-                text: [
-                    '╔══════════════════════════════════╗',
-                    '║  🔊  *C Y B E R  X  —  T T S*  ║',
-                    '╚══════════════════════════════════╝',
-                    '',
-                    `📝 *Text:* ${display}`,
-                    '',
-                    '✅ *Audio generated successfully!*',
-                    '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-                ].join('\n')
-            }, { quoted: msg })
-
+            if (audioUrl && audioUrl.startsWith('http')) {
+                const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(10000) })
+                if (audioRes.ok) {
+                    return Buffer.from(await audioRes.arrayBuffer())
+                }
+            }
         } catch (e) {
-            await sock.sendMessage(from, {
-                text: [
-                    '╔══════════════════════════════════╗',
-                    '║  🔊  *C Y B E R  X  —  T T S*  ║',
-                    '╚══════════════════════════════════╝',
-                    '',
-                    '❌ *Failed to generate audio*',
-                    '',
-                    '🔄 Please try again later',
-                    '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
-                ].join('\n')
-            }, { quoted: msg })
+            console.log(`[TTS] API failed: ${e.message}`)
         }
     }
+    return null
+}
+
+const run = async ({ sock, from, message, text, args }) => {
+
+    await sock.sendMessage(from, { react: { text: '🔊', key: message.key } }).catch(() => {})
+
+    const input = (text || args.join(' ')).trim()
+
+    if (!input) {
+        return sock.sendMessage(from, {
+            text: `╔══════════════════════════════════╗
+║  🔊  *CYBER X — TTS*            ║
+╚══════════════════════════════════╝
+
+🤖 *Text to Speech*
+Convert text into real voice audio!
+
+✨ *What you can do:*
+  • 💬 Convert any text to audio
+  • 📢 Send voice messages
+  • 🌐 Works with any language
+
+📌 *Usage:*
+  _.tts <your text>_
+  _.say <your text>_
+
+🔥 *Examples:*
+  _.tts Hello everyone!_
+  _.say Welcome to CYBER X_
+  _.tts Good morning fam_
+
+> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+        }, { quoted: message })
+    }
+
+    try {
+        const audioBuffer = await getTTSAudio(input)
+
+        if (!audioBuffer) {
+            throw new Error('No audio generated')
+        }
+
+        const display = input.length > 60 ? input.slice(0, 57) + '...' : input
+
+        await sock.sendMessage(from, {
+            audio: audioBuffer,
+            mimetype: 'audio/mpeg',
+            ptt: true,
+        }, { quoted: message })
+
+        await sock.sendMessage(from, {
+            text: `╔══════════════════════════════════╗
+║  🔊  *CYBER X — TTS*            ║
+╚══════════════════════════════════╝
+
+📝 *Text:* ${display}
+
+✅ *Audio generated!*
+
+> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+            quoted: message
+        })
+
+        await sock.sendMessage(from, { react: { text: '✅', key: message.key } }).catch(() => {})
+
+    } catch (e) {
+        console.error('[TTS]', e.message)
+
+        await sock.sendMessage(from, {
+            react: { text: '❌', key: message.key }
+        }).catch(() => {})
+
+        await sock.sendMessage(from, {
+            text: `❌ *Failed to generate audio*
+
+🔄 Try again later
+
+> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+            quoted: message
+        })
+    }
+}
+
+module.exports = {
+    name: 'tts',
+    aliases: ['tts', 'say'],
+    category: 'utility',
+    desc: 'Convert text to speech audio',
+    usage: '.tts <text>',
+    run
 }
