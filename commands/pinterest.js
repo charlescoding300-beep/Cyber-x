@@ -6,51 +6,59 @@
 // ════════════════════════════════════════════════════════════════════
 
 async function getPinterestImage(query) {
-    const apis = [
-        `https://api.popcat.xyz/pinterest?search=${encodeURIComponent(query)}`,
-        `https://api.giftedtech.web.id/api/search/pinterest?apikey=gifted&query=${encodeURIComponent(query)}`,
-    ]
+  const apis = [
+    `https://api.popcat.xyz/pinterest?search=${encodeURIComponent(query)}`,
+    `https://api.giftedtech.web.id/api/search/pinterest?apikey=gifted&query=${encodeURIComponent(query)}`,
+  ]
 
-    for (const url of apis) {
-        try {
-            const res = await fetch(url, {
-                signal: AbortSignal.timeout(8000),
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            })
-            if (!res.ok) continue
+  for (const url of apis) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(8000),
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      })
+      if (!res.ok) continue
 
-            const data = await res.json()
-            let results = []
+      const data = await res.json()
+      let results = []
 
-            if (Array.isArray(data)) {
-                results = data
-            } else if (data?.result && Array.isArray(data.result)) {
-                results = data.result
-            } else if (data?.data && Array.isArray(data.data)) {
-                results = data.data
-            }
+      if (Array.isArray(data)) {
+        results = data
+      } else if (data?.result && Array.isArray(data.result)) {
+        results = data.result
+      } else if (data?.data && Array.isArray(data.data)) {
+        results = data.data
+      }
 
-            if (results.length === 0) continue
+      if (results.length === 0) continue
 
-            const random = results[Math.floor(Math.random() * results.length)]
-            const imageUrl = typeof random === 'string' ? random : (random?.image || random?.url)
+      const random    = results[Math.floor(Math.random() * results.length)]
+      const imageUrl  = typeof random === 'string' ? random : (random?.image || random?.url)
 
-            if (imageUrl && imageUrl.startsWith('http')) {
-                return imageUrl
-            }
-        } catch (e) {
-            console.log(`[PINTEREST] API failed: ${e.message}`)
-        }
+      if (imageUrl && imageUrl.startsWith('http')) return imageUrl
+
+    } catch (e) {
+      console.warn(`[PINTEREST] API failed: ${e.message}`)
     }
-    return null
+  }
+  return null
 }
 
-const run = async ({ sock, from, message, args, text }) => {
-    const query = (text || args.join(' ')).trim()
+module.exports = {
+  pattern:  'pinterest',
+  alias:    ['pin'],
+  category: 'media',
+  desc:     'Search Pinterest images',
+  usage:    '.pinterest <query>',
 
+  run: async ({ sock, from, msg, args, text }) => {
+
+    const query = (text || args?.join(' ') || '').trim()
+
+    // ── No query → usage help ──────────────────────────────────
     if (!query) {
-        return sock.sendMessage(from, {
-            text: `╔══════════════════════════════╗
+      return sock.sendMessage(from, {
+        text: `╔══════════════════════════════╗
 ║  🩸  *PINTEREST SEARCH*       ║
 ╚══════════════════════════════╝
 
@@ -65,70 +73,61 @@ const run = async ({ sock, from, message, args, text }) => {
   _.pinterest aesthetic dark_
   _.pinterest cute cats_
 
-> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
-        }, { quoted: message })
+> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      }, { quoted: msg })
     }
 
-    await sock.sendMessage(from, { react: { text: '🩸', key: message.key } }).catch(() => {})
+    // ── React instantly ────────────────────────────────────────
+    await sock.sendMessage(from, { react: { text: '🩸', key: msg.key } }).catch(() => {})
 
     const imageUrl = await getPinterestImage(query)
+    const caption  = `🩸 *Pinterest* — _${query}_\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
 
     if (!imageUrl) {
-        await sock.sendMessage(from, {
-            text: `╔══════════════════════════════╗
+      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      return sock.sendMessage(from, {
+        text: `╔══════════════════════════════╗
 ║  🩸  *PINTEREST SEARCH*       ║
 ╚══════════════════════════════╝
 
 ❌ *No results for:* _"${query}"_
-
 💡 Try different keywords
 
-> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
-        }, { quoted: message })
-        return
+> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      }, { quoted: msg })
     }
 
-    const caption = `🩸 *Pinterest* — _${query}_\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
-
+    // ── Send image (buffer first, URL fallback) ────────────────
     try {
-        const res = await fetch(imageUrl, {
-            signal: AbortSignal.timeout(10000),
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        })
-        if (!res.ok) throw new Error('fetch failed')
+      const res = await fetch(imageUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      })
+      if (!res.ok) throw new Error(`fetch failed: ${res.status}`)
+      const buf = Buffer.from(await res.arrayBuffer())
 
-        const buf = Buffer.from(await res.arrayBuffer())
-        await sock.sendMessage(from, {
-            image: buf,
-            caption,
-            mimetype: 'image/jpeg'
-        }, { quoted: message })
-
-        await sock.sendMessage(from, { react: { text: '✅', key: message.key } }).catch(() => {})
+      await sock.sendMessage(from, {
+        image:    buf,
+        caption,
+        mimetype: 'image/jpeg'
+      }, { quoted: msg })
 
     } catch (err) {
-        console.error('[PINTEREST]', err.message)
-
-        try {
-            await sock.sendMessage(from, {
-                image: { url: imageUrl },
-                caption,
-                mimetype: 'image/jpeg'
-            }, { quoted: message })
-        } catch {
-            await sock.sendMessage(from, {
-                text: `❌ *Could not load image*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-                quoted: message
-            })
-        }
+      console.warn('[PINTEREST] buffer failed, trying URL fallback:', err.message)
+      try {
+        await sock.sendMessage(from, {
+          image:    { url: imageUrl },
+          caption,
+          mimetype: 'image/jpeg'
+        }, { quoted: msg })
+      } catch {
+        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+        return sock.sendMessage(from, {
+          text: `❌ *Could not load image*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+        }, { quoted: msg })
+      }
     }
-}
 
-module.exports = {
-    name: 'pinterest',
-    aliases: ['pinterest', 'pin'],
-    category: 'media',
-    desc: 'Search Pinterest images',
-    usage: '.pinterest <query>',
-    run
+    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+  }
 }
