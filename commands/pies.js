@@ -5,10 +5,7 @@
 //  Anyone can use | Category: general
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const fetch = require('node-fetch')
-
-const CREDIT =
-`*╭══ ✕-CYBER X ⚡*
+const CREDIT = `*╭══ ✕-CYBER X ⚡*
 *┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
 *╰═════════════════⊷*`
 
@@ -59,29 +56,21 @@ function resolveCountry(input) {
 
 async function fetchPiesImage(country) {
     const url = `${BASE}/${encodeURIComponent(country)}?apikey=shizo`
-    const res  = await fetch(url, { timeout: 10000 })
+    const res = await fetch(url, { timeout: 15000 })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const contentType = res.headers.get('content-type') || ''
     if (!contentType.includes('image')) throw new Error('Not an image')
-    return res.buffer()
+    return Buffer.from(await res.arrayBuffer())
 }
 
-module.exports = {
-    pattern:  'pies',
-    alias:    ['pie', 'country'],
-    category: 'general',
-    desc:     'Get a pie chart image for any country',
-    usage:    '.pies <country>',
+const run = async ({ sock, from, message, args, text }) => {
 
-    run: async ({ sock, from, msg, args, text }) => {
+    const input = (text || args.join(' ')).trim()
 
-        const input = (text || args.join(' ')).trim()
-
-        // ── No input → usage help ──────────────────────────────
-        if (!input) {
-            return sock.sendMessage(from, {
-                text:
-`╔════════════════════════════╗
+    // ── No input → usage help ──────────────────────────────
+    if (!input) {
+        return sock.sendMessage(from, {
+            text: `╔════════════════════════════╗
 ║  🗽  *C Y B E R  X  PIES*   ║
 ╚════════════════════════════╝
 
@@ -101,42 +90,46 @@ module.exports = {
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${CREDIT}`,
-                quoted: msg
-            })
-        }
+            quoted: message
+        })
+    }
 
-        // ── React 🗽 ───────────────────────────────────────────
+    // ── React 🗽 ───────────────────────────────────────────
+    await sock.sendMessage(from, {
+        react: { text: '🗽', key: message.key }
+    }).catch(() => {})
+
+    const countrySlug = resolveCountry(input)
+    const displayName = input.trim()
+        .split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+
+    try {
+        const imgBuf = await fetchPiesImage(countrySlug)
+
         await sock.sendMessage(from, {
-            react: { text: '🗽', key: msg.key }
-        }).catch(() => {})
-
-        const countrySlug = resolveCountry(input)
-        const displayName = input.trim()
-            .split(' ')
-            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ')
-
-        try {
-            const imgBuf = await fetchPiesImage(countrySlug)
-
-            await sock.sendMessage(from, {
-                image:    imgBuf,
-                caption:
-`🗽 *${displayName}*
+            image: imgBuf,
+            caption: `🗽 *${displayName}*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${CREDIT}`,
-                mimetype: 'image/jpeg',
-            }, { quoted: msg })
+            mimetype: 'image/jpeg',
+        }, { quoted: message })
 
-        } catch (err) {
-            console.error('[PIES]', err.message)
-            await sock.sendMessage(from, {
-                react: { text: '❌', key: msg.key }
-            }).catch(() => {})
-            await sock.sendMessage(from, {
-                text:
-`╔════════════════════════════╗
+        await sock.sendMessage(from, {
+            react: { text: '✅', key: message.key }
+        }).catch(() => {})
+
+    } catch (err) {
+        console.error('[PIES]', err.message)
+
+        await sock.sendMessage(from, {
+            react: { text: '❌', key: message.key }
+        }).catch(() => {})
+
+        await sock.sendMessage(from, {
+            text: `╔════════════════════════════╗
 ║  🗽  *C Y B E R  X  PIES*   ║
 ╚════════════════════════════╝
 
@@ -146,8 +139,16 @@ ${CREDIT}`,
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${CREDIT}`,
-                quoted: msg
-            })
-        }
+            quoted: message
+        })
     }
+}
+
+module.exports = {
+    name: 'pies',
+    aliases: ['pies', 'pie', 'country'],
+    category: 'general',
+    desc: 'Get a pie chart image for any country',
+    usage: '.pies <country>',
+    run
 }
