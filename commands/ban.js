@@ -1,267 +1,132 @@
 'use strict'
+const fs = require('fs')
+const path = require('path')
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const BAN_FILE = path.join(__dirname, '../session/banned_users.json')
 
-async function getRedis() {
+function loadBanned() {
   try {
-    const backup = require('../lib/sessionBackup')
-    if (backup?.redis) return backup.redis
-    const { Redis } = require('@upstash/redis')
-    return new Redis({
-      url:   process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    })
-  } catch {
-    return null
-  }
-}
-
-function banListKey(sessionPhone) {
-  return `banlist:${sessionPhone}`
-}
-
-async function loadBanned(sessionPhone) {
-  try {
-    const redis = await getRedis()
-    if (!redis) return {}
-    const data = await redis.get(banListKey(sessionPhone))
-    return data ? (typeof data === 'string' ? JSON.parse(data) : data) : {}
+    if (fs.existsSync(BAN_FILE)) {
+      return JSON.parse(fs.readFileSync(BAN_FILE, 'utf8'))
+    }
   } catch (e) {
-    console.error(`[BAN] Load error for ${sessionPhone}:`, e.message)
-    return {}
+    console.warn('[BAN] Load error:', e.message)
   }
+  return {}
 }
 
-async function saveBanned(sessionPhone, data) {
+function saveBanned(data) {
   try {
-    const redis = await getRedis()
-    if (!redis) return false
-    await redis.set(banListKey(sessionPhone), JSON.stringify(data))
-    console.log(`[BAN:${sessionPhone}] 💾 Saved ${Object.keys(data).length} banned user(s) to Redis`)
-    return true
+    fs.writeFileSync(BAN_FILE, JSON.stringify(data, null, 2))
   } catch (e) {
-    console.error(`[BAN] Save error for ${sessionPhone}:`, e.message)
-    return false
+    console.error('[BAN] Save error:', e.message)
   }
 }
 
-async function isBanned(sessionPhone, userPhone) {
-  try {
-    const banned = await loadBanned(sessionPhone)
-    return !!banned[userPhone]
-  } catch {
-    return false
-  }
+function isBanned(userId) {
+  const banned = loadBanned()
+  return !!banned[userId]
 }
-
-async function banUser(sessionPhone, userPhone, reason = 'No reason') {
-  const banned = await loadBanned(sessionPhone)
-  banned[userPhone] = {
-    phone:    userPhone,
-    bannedAt: new Date().toISOString(),
-    reason,
-    bannedBy: sessionPhone,
-  }
-  await saveBanned(sessionPhone, banned)
-  return banned[userPhone]
-}
-
-async function getBanInfo(sessionPhone, userPhone) {
-  const banned = await loadBanned(sessionPhone)
-  return banned[userPhone] || null
-}
-
-// ── Export globally so index.js can check bans ──
-global.__isBanned  = isBanned
-global.__loadBanned = loadBanned
-global.__banUser   = banUser
 
 module.exports = {
-  pattern:  'ban',
+  pattern: 'ban',
+  alias: ['ban'],
   category: 'owner',
-  desc:     'Ban a user from using the bot — works in DM and groups',
-  usage:    '.ban (reply to message)',
+  desc: 'Ban/unban users from using the bot (owner only)',
+  usage: '.ban (reply) | .ban @user | .ban unban <number> | .ban list',
 
-  run: async ({ sock, from, msg, sender, args, text,
-                isOwner, isAdmin, isGroup, fromMe }) => {
+  run: async ({ sock, from, msg, sender, args, text }) => {
 
-    // ── Get session phone ──
-    const sessionPhone = sock.user?.id
-      ?.replace(/:[^@]+/, '')
-      ?.replace('@s.whatsapp.net', '') || 'unknown'
-
-    const sessionJid = `${sessionPhone}@s.whatsapp.net`
-
-    // ── Permission check ──
-    // Owner — can use anywhere (DM + groups)
-    // Admin — can only use in groups
-    // Others — blocked
-
-    if (!isOwner && !isAdmin) {
+    const isOwner = sender === process.env.OWNER_NUMBER || sender.includes(process.env.OWNER_NUMBER)
+    
+    if (!isOwner) {
       return sock.sendMessage(from, {
-        text: `❌ *Access Denied!*\nOnly admins and owner can use this command.\n\n${CREDIT}`,
+        text: `❌ *Owner only command*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
         quoted: msg
       })
     }
 
-    if (!isOwner && isAdmin && !isGroup) {
-      return sock.sendMessage(from, {
-        text: `❌ *Admins can only use .ban inside groups!*\n\n${CREDIT}`,
-        quoted: msg
-      })
-    }
-
-    // ── Get target from reply ──
-    const quotedCtx    = msg.message?.extendedTextMessage?.contextInfo
-    const quotedJid    = quotedCtx?.participant || quotedCtx?.remoteJid
-    const msgMentioned = quotedCtx?.mentionedJid || []
-
+    const banned = loadBanned()
+    const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage
+    
     let targetJid = null
-
-    if (quotedJid) {
-      targetJid = quotedJid
-    } else if (msgMentioned.length) {
-      targetJid = msgMentioned[0]
-    } else {
-      const numArg = args.find(a => /^\d{7,}/.test(a.replace(/[^0-9]/g, '')))
-      if (numArg) {
-        const clean = numArg.replace(/[^0-9]/g, '')
-        if (clean) targetJid = `${clean}@s.whatsapp.net`
-      }
+    
+    if (quoted?.participant) {
+      targetJid = quoted.participant
+    } else if (args[0]?.startsWith('@')) {
+      const phone = args[0].replace('@', '').replace(/[^0-9]/g, '')
+      targetJid = `${phone}@s.whatsapp.net`
+    } else if (args[0] && /^\d+$/.test(args[0])) {
+      targetJid = `${args[0]}@s.whatsapp.net`
     }
 
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text:
-`╔═══════════════════════════╗
-║  🚫 *BAN COMMAND*         ║
-╚═══════════════════════════╝
-
-*How to use:*
-• *Reply to a message + .ban*
-• *.ban @user*
-• *.ban @user reason*
-
-*Who can use:*
-• 👑 Owner — anywhere (DM + groups)
-• 👮 Admins — groups only
-
-*Ban works globally:*
-• DMs ✅
-• Groups ✅
-• Everywhere ✅
-
-${CREDIT}`,
+        text: `╔════════════════════════╗\n║  🚫 *BAN COMMAND*      ║\n╚════════════════════════╝\n\n⚠️ *Owner Only*\n\n*Usage:*\n• *Reply to message + .ban* — ban that user\n• *.ban @username* — ban by tag\n• *.ban 234XXXXXXXXXX* — ban by number\n\n*Commands:*\n• *.ban unban <number>* — unban user\n• *.ban list* — show all banned users\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
         quoted: msg
       })
     }
 
-    const userPhone = targetJid
-      .replace('@s.whatsapp.net', '')
-      .replace(/[^0-9]/g, '')
+    const phone = targetJid.replace(/[^0-9]/g, '')
 
-    const targetDisplayJid = `${userPhone}@s.whatsapp.net`
-    const senderPhone      = sender
-      .replace('@s.whatsapp.net', '')
-      .replace(/[^0-9]/g, '')
-
-    // ── Protect owner from being banned by admins ──
-    const OWNER_NUMBERS = (process.env.OWNER_NUMBER || '')
-      .split(',').map(n => n.replace(/\D/g, '').trim()).filter(Boolean)
-
-    const targetIsOwner = OWNER_NUMBERS.includes(userPhone) ||
-                          userPhone === sessionPhone
-
-    if (targetIsOwner && !isOwner) {
+    if (args[0]?.toLowerCase() === 'unban') {
+      if (banned[phone]) {
+        delete banned[phone]
+        saveBanned(banned)
+        return sock.sendMessage(from, {
+          text: `✅ *Unbanned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+          quoted: msg
+        })
+      }
       return sock.sendMessage(from, {
-        text: `😂 @${senderPhone} You can't ban @${sessionPhone}`,
-        mentions: [
-          `${senderPhone}@s.whatsapp.net`,
-          sessionJid,
-        ],
+        text: `⚠️ *User not banned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
         quoted: msg
       })
     }
 
-    // ── Can't ban yourself ──
-    if (userPhone === senderPhone) {
+    if (args[0]?.toLowerCase() === 'list') {
+      const list = Object.keys(banned)
+      if (list.length === 0) {
+        return sock.sendMessage(from, {
+          text: `📋 *Banned Users:* None\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+          quoted: msg
+        })
+      }
+      const bannedList = list.map((p, i) => `${i + 1}. +${p}`).join('\n')
       return sock.sendMessage(from, {
-        text: `😂 @${senderPhone} You can't ban yourself!\n\n${CREDIT}`,
-        mentions: [`${senderPhone}@s.whatsapp.net`],
+        text: `📋 *Banned Users (${list.length}):*\n\n${bannedList}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
         quoted: msg
       })
     }
 
-    // ── Check already banned ──
-    const existingBan = await getBanInfo(sessionPhone, userPhone)
-    if (existingBan) {
+    if (banned[phone]) {
       return sock.sendMessage(from, {
-        text:
-`⚠️ *Already banned:* @${userPhone}
-📅 *Since:* ${existingBan.bannedAt?.slice(0, 10) || 'Unknown'}
-📝 *Reason:* ${existingBan.reason}
-
-${CREDIT}`,
-        mentions: [targetDisplayJid],
+        text: `⚠️ *Already banned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
         quoted: msg
       })
     }
 
-    // ── Get reason ──
-    const reason = args
-      .filter(a => !a.startsWith('@') && !/^\d{7,}$/.test(a))
-      .join(' ')
-      .trim() || 'No reason provided'
+    banned[phone] = {
+      phone,
+      bannedAt: new Date().toISOString(),
+      reason: args.slice(1).join(' ') || 'No reason'
+    }
 
-    // ── React ──
-    await sock.sendMessage(from, {
-      react: { text: '🚫', key: msg.key }
-    }).catch(() => {})
+    saveBanned(banned)
 
-    // ── Ban the user ──
-    await banUser(sessionPhone, userPhone, reason)
-
-    // ── Success message with tags ──
-    await sock.sendMessage(from, {
-      text:
-`╔═══════════════════════════╗
-║  🚫 *USER BANNED*         ║
-╚═══════════════════════════╝
-
-✅ @${userPhone} you have successfully been banned by @${sessionPhone}
-
-📝 *Reason:* ${reason}
-📅 *Date:* ${new Date().toLocaleDateString()}
-🌐 *Scope:* Global — DMs + Groups
-💾 *Saved:* Redis (survives restarts)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ This user can no longer use
-any command on this bot session.
-
-${CREDIT}`,
-      mentions: [
-        targetDisplayJid,
-        sessionJid,
-      ],
+    sock.sendMessage(from, {
+      text: `🚫 *Banned:* +${phone}\n*Reason:* ${banned[phone].reason}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
       quoted: msg
     })
 
-    // ── Notify banned user ──
     try {
-      await sock.sendMessage(targetDisplayJid, {
-        text:
-`🚫 *You have been banned from CYBER X!*
-
-*Reason:* ${reason}
-*Banned by:* @${sessionPhone}
-*Date:* ${new Date().toLocaleDateString()}
-
-You can no longer use any command on this bot.
-
-${CREDIT}`,
-        mentions: [sessionJid]
+      sock.sendMessage(`${phone}@s.whatsapp.net`, {
+        text: `🚫 *You have been banned from using this bot.*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
       })
-    } catch {}
+    } catch (_) {}
+  },
 
-  }
+  isBanned,
+  loadBanned,
+  saveBanned
+}

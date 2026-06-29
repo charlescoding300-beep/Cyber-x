@@ -10,6 +10,7 @@ const {
   makeCacheableSignalKeyStore,
   downloadMediaMessage,
   proto: WAProto,
+  Browsers,
 } = require("@whiskeysockets/baileys")
 
 const isAdminLib    = require("./lib/isAdmin")
@@ -787,6 +788,15 @@ async function startBot(phone) {
       creds: authState.creds,
       keys:  makeCacheableSignalKeyStore(authState.keys, Pino({ level: "silent" })),
     },
+    // ── FIX: explicit browser identifier required for pairing-code flow ──
+    // Multiple independently-reported Baileys bugs (issues #2306, #2197,
+    // and a maintainer-patched case requiring an exact browser string)
+    // confirm that without a well-formed `browser` field, WhatsApp can
+    // issue a pairing code that DISPLAYS fine but whose underlying device
+    // registration handshake silently fails — producing exactly this
+    // symptom: code shows up, phone says "couldn't link device." This
+    // was previously unset entirely in this config.
+    browser:             Browsers.macOS("Chrome"),
     logger:              Pino({ level: "silent" }),
     printQRInTerminal:   false,
     markOnlineOnConnect: false,
@@ -900,15 +910,31 @@ async function startBot(phone) {
     }
   })
 
+  // ── FIX: pairing code now requested on the actual connecting/qr event,
+  // not a fixed 3-second timeout. Baileys' own docs are explicit that you
+  // should wait for this event before calling requestPairingCode — a
+  // flat delay is a guess about readiness that can easily be wrong on a
+  // cold-starting Render free-tier instance, which is exactly why NEW
+  // pairings (which hit this code path) failed while already-registered
+  // numbers (which skip this block entirely) kept working fine.
+  let pairingCodeRequested = false
   if (!authState.creds.registered) {
-    const number = phone.replace(/\D/g, "")
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(number)
-        console.log(`[${phone}] 📱 PAIRING CODE: ${code}`)
-        state.pairingCode = code
-      } catch (e) { console.error(`[${phone}] PAIR ERR:`, e.message) }
-    }, 3000)
+    sock.ev.on("connection.update", async (update) => {
+      const { connection, qr } = update
+      if (pairingCodeRequested) return
+      if (connection === "connecting" || !!qr) {
+        pairingCodeRequested = true
+        const number = phone.replace(/\D/g, "")
+        try {
+          const code = await sock.requestPairingCode(number)
+          console.log(`[${phone}] 📱 PAIRING CODE: ${code}`)
+          state.pairingCode = code
+        } catch (e) {
+          console.error(`[${phone}] PAIR ERR:`, e.message)
+          pairingCodeRequested = false   // allow a retry on the next connecting/qr event
+        }
+      }
+    })
   }
 
   if (typeof lib.setSocket      === "function") lib.setSocket(sock)

@@ -29,86 +29,82 @@ function saveGreet(phone, groupId, data) {
 
 const DEFAULT_WELCOME = 'Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.'
 
-const run = async ({ sock, from, message, sender, isGroup, isAdmin, isOwner, args, text }) => {
-
-  if (!isGroup) {
-    return sock.sendMessage(from, {
-      text: `❌ *Groups only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  if (!isAdmin && !isOwner) {
-    return sock.sendMessage(from, {
-      text: `❌ *Admins only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  const phone = sender.replace(/[^0-9]/g, '')
-  const data = loadGreet(phone, from)
-
-  const cmd = args[0]?.toLowerCase()
-
-  // .welcome on/off
-  if (cmd === 'on') {
-    data.welcome = { ...data.welcome, enabled: true, updatedAt: Date.now() }
-    saveGreet(phone, from, data)
-    return sock.sendMessage(from, {
-      text: `✅ *Welcome messages enabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  if (cmd === 'off') {
-    data.welcome = { ...data.welcome, enabled: false, updatedAt: Date.now() }
-    saveGreet(phone, from, data)
-    return sock.sendMessage(from, {
-      text: `❌ *Welcome messages disabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  // .welcome view
-  if (cmd === 'view') {
-    const msg_text = data.welcome?.message || DEFAULT_WELCOME
-    return sock.sendMessage(from, {
-      text: `╔════════════════════════╗\n║  👋 *WELCOME MESSAGE*  ║\n╚════════════════════════╝\n\n${msg_text}\n\n*Status:* ${data.welcome?.enabled ? '✅ ON' : '❌ OFF'}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  // .welcome set <message>
-  if (cmd === 'set') {
-    const newMsg = args.slice(1).join(' ').trim()
-    if (!newMsg) {
-      return sock.sendMessage(from, {
-        text: `❌ *Provide a message*\n*.welcome set <message>*\n\nUse {tag}, {group}, {members}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: message
-      })
-    }
-    data.welcome = { message: newMsg, enabled: true, updatedAt: Date.now() }
-    saveGreet(phone, from, data)
-    return sock.sendMessage(from, {
-      text: `✅ *Welcome message set!*\n\n${newMsg}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: message
-    })
-  }
-
-  // Help
-  return sock.sendMessage(from, {
-    text: `╔════════════════════════╗\n║  👋 *WELCOME COMMAND*  ║\n╚════════════════════════╝\n\n*.welcome on* — enable\n*.welcome off* — disable\n*.welcome set <msg>* — customize\n*.welcome view* — see current\n\n*Variables:*\n{tag} — user phone\n{group} — group name\n{members} — member count\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-    quoted: message
-  })
-}
-
 module.exports = {
-  name: 'welcome',
-  aliases: ['welcome'],
+  pattern: 'welcome',
+  alias: ['welcome'],
   category: 'group',
   desc: 'Set custom welcome messages for new members',
   usage: '.welcome on|off|set|view',
-  run,
+
+  run: async ({ sock, from, msg, sender, isGroup, isAdmin, isOwner, args, text }) => {
+
+    if (!isGroup) {
+      return sock.sendMessage(from, {
+        text: `❌ *Groups only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    if (!isAdmin && !isOwner) {
+      return sock.sendMessage(from, {
+        text: `❌ *Admins only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    const phone = sender.replace(/[^0-9]/g, '')
+    const data = loadGreet(phone, from)
+
+    const cmd = args[0]?.toLowerCase()
+
+    if (cmd === 'on') {
+      data.welcome = { ...data.welcome, enabled: true, updatedAt: Date.now() }
+      saveGreet(phone, from, data)
+      return sock.sendMessage(from, {
+        text: `✅ *Welcome messages enabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    if (cmd === 'off') {
+      data.welcome = { ...data.welcome, enabled: false, updatedAt: Date.now() }
+      saveGreet(phone, from, data)
+      return sock.sendMessage(from, {
+        text: `❌ *Welcome messages disabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    if (cmd === 'view') {
+      const msg_text = data.welcome?.message || DEFAULT_WELCOME
+      return sock.sendMessage(from, {
+        text: `╔════════════════════════╗\n║  👋 *WELCOME MESSAGE*  ║\n╚════════════════════════╝\n\n${msg_text}\n\n*Status:* ${data.welcome?.enabled ? '✅ ON' : '❌ OFF'}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    if (cmd === 'set') {
+      const newMsg = args.slice(1).join(' ').trim()
+      if (!newMsg) {
+        return sock.sendMessage(from, {
+          text: `❌ *Provide a message*\n*.welcome set <message>*\n\nUse {tag}, {group}, {members}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+          quoted: msg
+        })
+      }
+      data.welcome = { message: newMsg, enabled: true, updatedAt: Date.now() }
+      saveGreet(phone, from, data)
+      return sock.sendMessage(from, {
+        text: `✅ *Welcome message set!*\n\n${newMsg}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        quoted: msg
+      })
+    }
+
+    return sock.sendMessage(from, {
+      text: `╔════════════════════════╗\n║  👋 *WELCOME COMMAND*  ║\n╚════════════════════════╝\n\n*.welcome on* — enable\n*.welcome off* — disable\n*.welcome set <msg>* — customize\n*.welcome view* — see current\n\n*Variables:*\n{tag} — user phone\n{group} — group name\n{members} — member count\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      quoted: msg
+    })
+  },
+
   loadGreet,
   saveGreet,
   greetFile
