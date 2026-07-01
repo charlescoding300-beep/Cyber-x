@@ -57,7 +57,7 @@ function timeAgo(dateStr) {
 module.exports = {
     pattern:  'news',
     alias:    ['headlines'],
-    category: 'search',
+    category: 'utility',
     desc:     'Get latest news by country',
     usage:    '.news <country>',
 

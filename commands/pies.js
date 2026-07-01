@@ -1,60 +1,55 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — PIES COMMAND
-//  Usage: .pies <any country in the world>
-//  Anyone can use | Category: general
+//  CYBER X — PIC COMMAND
+//  Usage: .pic <any country in the world>
+//  Anyone can use | Category: download
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CREDIT = `> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
 
-const APIS = [
-  (slug) => `https://api.shizo.top/pies/${encodeURIComponent(slug)}?apikey=shizo`,
-  (slug) => `https://some-random-api.com/canvas/misc/simpcard?user=${encodeURIComponent(slug)}`,
-]
-
-const ALIASES = {
-  'usa': 'usa', 'united states': 'usa', 'america': 'usa', 'us': 'usa',
-  'uk': 'uk', 'united kingdom': 'uk', 'england': 'uk', 'britain': 'uk',
-  'uae': 'uae', 'dubai': 'uae', 'emirates': 'uae', 'united arab emirates': 'uae',
-  'south korea': 'korea', 'korea': 'korea',
-  'north korea': 'northkorea', 'dprk': 'northkorea',
-  'russia': 'russia', 'russian federation': 'russia',
-  'saudi': 'saudi', 'saudi arabia': 'saudi',
-  'south africa': 'southafrica',
-  'new zealand': 'newzealand',
-  'costa rica': 'costarica',
-  'puerto rico': 'puertorico',
-  'sri lanka': 'srilanka',
-  'czech republic': 'czech', 'czechia': 'czech',
-  'dominican republic': 'dominican',
-  'el salvador': 'elsalvador',
-  'hong kong': 'hongkong',
-  'ivory coast': 'ivorycoast', "cote d'ivoire": 'ivorycoast', 'ivory': 'ivorycoast',
-  'trinidad': 'trinidad', 'trinidad and tobago': 'trinidad',
-  'bosnia': 'bosnia', 'bosnia and herzegovina': 'bosnia',
-  'papua new guinea': 'papuanewguinea',
-  'central african republic': 'car',
-  'congo': 'congo', 'drc': 'drc', 'democratic republic of congo': 'drc',
-  'burkina faso': 'burkinafaso',
-  'cape verde': 'capeverde',
-  'equatorial guinea': 'equatorialguinea',
-  'guinea bissau': 'guineabissau',
-  'marshall islands': 'marshallislands',
-  'solomon islands': 'solomonislands',
-  'sierra leone': 'sierraleone',
-  'san marino': 'sanmarino',
-}
+const SLICE_LABELS = ['🔥 Rizz', '💀 Chaos', '✨ Vibes', '🎭 Drama', '😎 Swag']
 
 function resolveCountry(input) {
-  const lower = input.toLowerCase().trim()
-  if (ALIASES[lower]) return ALIASES[lower]
-  const noSpace = lower.replace(/\s+/g, '')
-  if (ALIASES[noSpace]) return ALIASES[noSpace]
-  return noSpace || lower
+  return input.toLowerCase().trim()
 }
 
 function toTitleCase(str) {
   return str.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function randomSlices(n) {
+  let remaining = 100
+  const vals = []
+  for (let i = 0; i < n - 1; i++) {
+    const max = remaining - (n - 1 - i)
+    const v = Math.max(1, Math.floor(Math.random() * max))
+    vals.push(v)
+    remaining -= v
+  }
+  vals.push(remaining)
+  return vals
+}
+
+function buildChartUrl(countryName) {
+  const values = randomSlices(SLICE_LABELS.length)
+  const config = {
+    type: 'pie',
+    data: {
+      labels: SLICE_LABELS,
+      datasets: [{
+        data: values,
+        backgroundColor: ['#ff4d4d', '#4d79ff', '#ffd24d', '#4dff88', '#c94dff']
+      }]
+    },
+    options: {
+      plugins: {
+        title: { display: true, text: `${countryName} Energy 🥧`, font: { size: 22 } },
+        legend: { position: 'bottom' }
+      }
+    }
+  }
+  const encoded = encodeURIComponent(JSON.stringify(config))
+  return `https://quickchart.io/chart?width=600&height=600&backgroundColor=white&c=${encoded}`
 }
 
 async function fetchImage(url) {
@@ -69,55 +64,49 @@ async function fetchImage(url) {
 }
 
 module.exports = {
-  pattern:  'pies',
-  alias:    ['pie', 'countrypie'],
-  category: 'general',
-  desc:     'Get a pie chart image for any country',
-  usage:    '.pies <country>',
+  pattern:  'pic',
+  alias:    ['pics', 'countrypie'],
+  category: 'download',
+  desc:     'Get a fun pie chart for any country',
+  usage:    '.pic <country>',
 
   run: async ({ sock, from, msg, args, text }) => {
 
     const input = (text || args?.join(' ') || '').trim()
 
-    // ── No input → usage help ──────────────────────────────────
     if (!input) {
       return sock.sendMessage(from, {
         text: `╔════════════════════════════╗
-║  🗽  *C Y B E R  X  PIES*  ║
+║  🗽  *C Y B E R  X  PIC*   ║
 ╚════════════════════════════╝
 
 ❌ *No country provided!*
 
 ┌─────────────────────────────
-│ 📌 *Usage:*  _.pies <country>_
+│ 📌 *Usage:*  _.pic <country>_
 └─────────────────────────────
 
 🔥 *Examples:*
-  _.pies nigeria_
-  _.pies united states_
-  _.pies south africa_
-  _.pies japan_
-  _.pies brazil_
+  _.pic nigeria_
+  _.pic united states_
+  _.pic south africa_
+  _.pic japan_
+  _.pic brazil_
 
 ${CREDIT}`,
       }, { quoted: msg })
     }
 
-    // ── React instantly ────────────────────────────────────────
     await sock.sendMessage(from, { react: { text: '🗽', key: msg.key } }).catch(() => {})
 
-    const slug        = resolveCountry(input)
     const displayName = toTitleCase(input)
+    const url = buildChartUrl(displayName)
 
-    // ── Try each API in chain ──────────────────────────────────
     let buf = null
-    for (const buildUrl of APIS) {
-      try {
-        buf = await fetchImage(buildUrl(slug))
-        break
-      } catch (e) {
-        console.warn(`[PIES] API failed (${buildUrl(slug)}):`, e.message)
-      }
+    try {
+      buf = await fetchImage(url)
+    } catch (e) {
+      console.warn(`[PIC] QuickChart failed:`, e.message)
     }
 
     if (buf) {
@@ -127,17 +116,17 @@ ${CREDIT}`,
         mimetype: 'image/jpeg',
       }, { quoted: msg })
 
-      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: ' ✅', key: msg.key } }).catch(() => {})
     } else {
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: ' ❌', key: msg.key } }).catch(() => {})
       await sock.sendMessage(from, {
         text: `╔════════════════════════════╗
-║  🗽  *C Y B E R  X  PIES*  ║
+║  🗽  *C Y B E R  X  PIC*   ║
 ╚════════════════════════════╝
 
-❌ *Could not find pie chart for:* _"${displayName}"_
+❌ *Could not generate chart for:* _"${displayName}"_
 
-💡 Try a different spelling or country name
+💡 Try again in a moment
 
 ${CREDIT}`,
       }, { quoted: msg })

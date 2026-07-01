@@ -75,7 +75,7 @@ module.exports = {
   alias:    [],
   desc:     'Add a member to this group (admin/owner only)',
   usage:    '.add 234812345678  |  reply to someone\'s message with .add',
-  category: 'owner', // also listed under group — see note in menu.js if dual-category display is wanted
+  category: ['group', 'admin', 'owner'],
 
   async run({ sock, from, msg, args, isAdmin, isOwner, isGroup }) {
     if (!isGroup) {

@@ -33,16 +33,16 @@ if (!fs.existsSync(TEMP)) fs.mkdirSync(TEMP, { recursive: true })
 
 // ── FFmpeg filter presets ────────────────────────────────────────────────────
 const EFFECTS = {
-  fast:    { filter: "atempo=2.0",                                             label: "⚡ FAST",    emoji: "⚡", category: 'utility' },
-  slow:    { filter: "atempo=0.5",                                             label: "🐢 SLOW",    emoji: "🐢", category: 'utility' },
-  robot:   { filter: "asetrate=44100*0.8,atempo=1.25,aecho=0.8:0.88:60:0.4", label: "🤖 ROBOT",   emoji: "🤖", category: 'utility' },
-  cyber:   { filter: "asetrate=44100*1.2,atempo=0.83,flanger=delay=20:depth=5:speed=0.5,aecho=0.6:0.7:40:0.3", label: "⬣ CYBER", emoji: "⬣", category: 'utility' },
-  reverse: { filter: "areverse",                                               label: "🔄 REVERSE", emoji: "🔄", category: 'utility' },
-  bass:    { filter: "bass=g=20:f=110:w=0.3,aecho=0.8:0.9:20:0.2",          label: "🔊 BASS",    emoji: "🔊", category: 'utility' },
-  helium:  { filter: "asetrate=44100*1.6,atempo=0.625",                       label: "🎈 HELIUM",  emoji: "🎈", category: 'utility' },
-  deep:    { filter: "asetrate=44100*0.6,atempo=1.666",                       label: "👹 DEEP",    emoji: "👹", category: 'utility' },
-  echo:    { filter: "aecho=0.8:0.9:1000|1800:0.3|0.25",                     label: "🌊 ECHO",    emoji: "🌊", category: 'utility' },
-  phone:   { filter: "highpass=f=300,lowpass=f=3400,aecho=0.8:0.9:15:0.1",   label: "📞 PHONE",   emoji: "📞", category: 'utility' },
+  fast:    { filter: "atempo=2.0",                                             label: "⚡ FAST",    emoji: "⚡", category: 'soundeffect' },
+  slow:    { filter: "atempo=0.5",                                             label: "🐢 SLOW",    emoji: "🐢", category: 'soundeffect' },
+  robot:   { filter: "asetrate=44100*0.8,atempo=1.25,aecho=0.8:0.88:60:0.4", label: "🤖 ROBOT",   emoji: "🤖", category: 'soundeffect' },
+  cyber:   { filter: "asetrate=44100*1.2,atempo=0.83,flanger=delay=20:depth=5:speed=0.5,aecho=0.6:0.7:40:0.3", label: "⬣ CYBER", emoji: "⬣", category: 'soundeffect' },
+  reverse: { filter: "areverse",                                               label: "🔄 REVERSE", emoji: "🔄", category: 'soundeffect' },
+  bass:    { filter: "bass=g=20:f=110:w=0.3,aecho=0.8:0.9:20:0.2",          label: "🔊 BASS",    emoji: "🔊", category: 'soundeffect' },
+  helium:  { filter: "asetrate=44100*1.6,atempo=0.625",                       label: "🎈 HELIUM",  emoji: "🎈", category: 'soundeffect' },
+  deep:    { filter: "asetrate=44100*0.6,atempo=1.666",                       label: "👹 DEEP",    emoji: "👹", category: 'soundeffect' },
+  echo:    { filter: "aecho=0.8:0.9:1000|1800:0.3|0.25",                     label: "🌊 ECHO",    emoji: "🌊", category: 'soundeffect' },
+  phone:   { filter: "highpass=f=300,lowpass=f=3400,aecho=0.8:0.9:15:0.1",   label: "📞 PHONE",   emoji: "📞", category: 'soundeffect' },
 }
 
 // ── Helper: run ffmpeg command ───────────────────────────────────────────────

@@ -1,14 +1,12 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/wasted.js  —  CYBER X  |  💀 GTA Wasted Effect
+//  commands/wasted.js  —  CYBER X  |  💀 GTA Wasted Effect (local, no API)
 //  Usage: .wasted @user  OR  reply to someone + .wasted
-//  Fetches profile picture automatically and applies wasted effect
-//  Reaction: 💀 | Category: fun
-//  APIs (fallback chain):
-//    1. api.popcat.xyz/wasted          — primary (most reliable)
-//    2. some-random-api.com wasted     — fallback #1
-//    3. nekos.best                     — fallback #2 (grayscale+text only)
+//  Category: fun
 // ════════════════════════════════════════════════════════════════════
+
+const sharp = require('sharp')
+const CREDIT = `> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
 
 module.exports = {
   pattern:  'wasted',
@@ -17,22 +15,16 @@ module.exports = {
   desc:     'GTA wasted effect on someone\'s profile pic',
   usage:    '.wasted @user | reply to message',
 
-  run: async ({ sock, from, msg, sender, args }) => {
-
-    // ── React instantly ────────────────────────────────────────────
+  run: async ({ sock, from, msg, sender }) => {
     await sock.sendMessage(from, { react: { text: '💀', key: msg.key } }).catch(() => {})
 
-    // ── Detect target (reply or mention) ──────────────────────────
-    const ctx        = msg.message?.extendedTextMessage?.contextInfo
+    const ctx       = msg.message?.extendedTextMessage?.contextInfo
     const replyJid   = ctx?.participant || null
     const mentioned  = ctx?.mentionedJid?.[0] || null
-
-    // Priority: reply target → @mention → self
     let targetJid = (replyJid || mentioned || sender).replace(/:\d+@/, '@')
     const targetNum = targetJid.split('@')[0]
-    const targetTag = `@${targetNum}`
+    const targetTag  = `@${targetNum}`
 
-    // ── Fetch target profile picture ───────────────────────────────
     let ppUrl = null
     try {
       ppUrl = await sock.profilePictureUrl(targetJid, 'image')
@@ -42,79 +34,74 @@ module.exports = {
 
     if (!ppUrl) {
       await sock.sendMessage(from, {
-        text: `╔════════════════════════╗\n║  💀 *WASTED* 💀        ║\n╚════════════════════════╝\n\n❌ *${targetTag} has no profile picture!*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `╔════════════════════════╗\n║  💀 *WASTED* 💀        ║\n╚════════════════════════╝\n\n❌ *${targetTag} has no profile picture!*\n\n${CREDIT}`,
         mentions: [targetJid]
       }, { quoted: msg })
       return
     }
 
-    // ── Thinking message ───────────────────────────────────────────
-    const thinkMsg = await sock.sendMessage(from, {
+    const baseMsg = await sock.sendMessage(from, {
       text: `💀 *Applying WASTED effect on ${targetTag}...*`
-    }, { quoted: msg }).catch(() => null)
-
-    const deleteThink = async () => {
-      if (!thinkMsg) return
-      try { await sock.sendMessage(from, { delete: thinkMsg.key }) } catch {}
-    }
-
-    // ── Helper: fetch image buffer from URL ────────────────────────
-    const fetchBuf = async (url) => {
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(15000),
-        headers: { 'User-Agent': 'CYBER-X-Bot/1.0' }
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const ct = res.headers.get('content-type') || ''
-      if (!ct.includes('image')) throw new Error(`Not image: ${ct}`)
-      return Buffer.from(await res.arrayBuffer())
-    }
-
-    // ── Send final result ──────────────────────────────────────────
-    const sendResult = async (buf) => {
-      await deleteThink()
-      await sock.sendMessage(from, {
-        image:    buf,
-        caption:  `💀 *${targetTag} got WASTED!*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        mimetype: 'image/png',
-        mentions: [targetJid]
-      }, { quoted: msg })
-      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
-    }
-
-    const encoded = encodeURIComponent(ppUrl)
-
-    // ── API chain ──────────────────────────────────────────────────
-    // 1️⃣  popcat.xyz  (primary — most stable, used by 90% of bots)
-    try {
-      const buf = await fetchBuf(`https://api.popcat.xyz/wasted?image=${encoded}`)
-      return await sendResult(buf)
-    } catch (e) {
-      console.warn('[WASTED] popcat failed:', e.message)
-    }
-
-    // 2️⃣  some-random-api.com  (fallback #1)
-    try {
-      const buf = await fetchBuf(`https://some-random-api.com/canvas/misc/wasted?avatar=${encoded}`)
-      return await sendResult(buf)
-    } catch (e) {
-      console.warn('[WASTED] some-random-api failed:', e.message)
-    }
-
-    // 3️⃣  vacefron.nl  (fallback #2 — Dutch public canvas API)
-    try {
-      const buf = await fetchBuf(`https://vacefron.nl/api/wasted?user=${encoded}`)
-      return await sendResult(buf)
-    } catch (e) {
-      console.warn('[WASTED] vacefron failed:', e.message)
-    }
-
-    // ── All APIs failed ────────────────────────────────────────────
-    await deleteThink()
-    await sock.sendMessage(from, {
-      text: `╔════════════════════════╗\n║  💀 *WASTED* 💀        ║\n╚════════════════════════╝\n\n❌ *Could not apply wasted effect right now*\n🔄 All image APIs are down — try again later\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      mentions: [targetJid]
     }, { quoted: msg })
-    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+
+    try {
+      const res = await fetch(ppUrl, { signal: AbortSignal.timeout(15000) })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const inputBuf = Buffer.from(await res.arrayBuffer())
+
+      const meta = await sharp(inputBuf).metadata()
+      const W = meta.width || 512
+      const H = meta.height || 512
+
+      // GTA-style "WASTED" text as SVG overlay
+      const svg = `
+        <svg width="${W}" height="${H}">
+          <style>
+            .txt {
+              fill: #b30000;
+              font-family: Arial, Helvetica, sans-serif;
+              font-weight: 900;
+              font-style: italic;
+              letter-spacing: ${Math.floor(W * 0.02)}px;
+            }
+          </style>
+          <text x="50%" y="52%" text-anchor="middle" class="txt"
+                font-size="${Math.floor(W * 0.16)}"
+                stroke="black" stroke-width="${Math.max(2, Math.floor(W * 0.004))}">
+            WASTED
+          </text>
+        </svg>`
+
+      const outBuf = await sharp(inputBuf)
+        .grayscale()
+        .modulate({ brightness: 0.75 })
+        .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+        .png()
+        .toBuffer()
+
+      await sock.sendMessage(from, {
+        image:    outBuf,
+        caption:  `💀 *${targetTag} got WASTED!*\n\n${CREDIT}`,
+        mimetype: 'image/png',
+        mentions: [targetJid],
+        edit:     baseMsg.key
+      })
+
+      await sock.sendMessage(from, { react: { text: ' ✅', key: msg.key } }).catch(() => {})
+
+    } catch (e) {
+      console.warn('[WASTED] Local render failed:', e.message)
+      await sock.sendMessage(from, {
+        text: `╔════════════════════════╗\n║  💀 *WASTED* 💀        ║\n╚════════════════════════╝\n\n❌ *Could not apply wasted effect*\n${e.message}\n\n${CREDIT}`,
+        mentions: [targetJid],
+        edit: baseMsg.key
+      }).catch(async () => {
+        await sock.sendMessage(from, {
+          text: `❌ *Could not apply wasted effect*\n${e.message}\n\n${CREDIT}`,
+          mentions: [targetJid]
+        }, { quoted: msg })
+      })
+      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+    }
   }
 }

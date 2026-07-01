@@ -130,7 +130,7 @@ Convert text into real voice audio!
 module.exports = {
     name: 'tts',
     aliases: ['tts', 'say'],
-    category: 'utility',
+    category: 'media',
     desc: 'Convert text to speech audio',
     usage: '.tts <text>',
     run
