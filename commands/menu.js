@@ -17,30 +17,27 @@ const HIDDEN = new Set([
 ])
 
 const CATEGORY_ORDER = [
-    'ai', 'download', 'search', 'group/admin', 'utility', 'sticker',
-    'fun', 'media', 'security', 'general', 'owner', 'settings', 'system',
+    'general', 'owner', 'group/admin', 'download', 'fun', 'ai',
+    'utility', 'media', 'settings', 'system',
 ]
 
 const CATEGORY_LABELS = {
+    general:       '🌐 GENERAL',
+    owner:         '👑 OWNER',
+    'group/admin': '👥 GROUP/ADMIN👮',
+    download:      '📥 DOWNLOAD',
+    fun:           '🎮 FUN',
     ai:            '🤖 AI',
-    download:      '📥 Download',
-    search:        '🔍 Search',
-    'group/admin': '👥 Group/Admin',
-    utility:       '🛠️ Tools',
-    sticker:       '🎨 Sticker',
-    fun:           '🎮 Fun',
-    media:         '📷 Media',
-    security:      '🔐 Security',
-    general:       '⚡ Utilities',
-    owner:         '👑 Owner',
-    settings:      '⚙️ Settings',
-    system:        '📊 System',
+    utility:       '🛠️ UTILITY',
+    media:         '🎵 MEDIA',
+    settings:      '⚙️ SETTINGS',
+    system:        '📊 SYSTEM',
 }
 
-const VERSION = process.env.BOT_VERSION || 'v5.0.0'
+const VERSION  = process.env.BOT_VERSION || 'v5.0.0'
+const PAIR_URL = process.env.PAIR_URL || 'https://cyber-x-y8yv.onrender.com/pair'
 let imgIdx = 0
 
-// ── Matches botpp.js exactly: data/botpp_<phone>.json ───────────────
 function getBotPPFile(phone) {
     return path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
 }
@@ -81,7 +78,9 @@ module.exports = {
 
         const phone    = (sock.user?.id || '').split(':')[0].split('@')[0]
         const ownerJid = phone ? `${phone}@s.whatsapp.net` : null
+        const ownerTag = ownerJid ? `@${phone}` : 'Unknown'
 
+        const prefix    = settings?.get('prefix') || '.'
         const mode      = (settings?.get('mode') || 'public')
         const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1)
 
@@ -89,18 +88,18 @@ module.exports = {
         const mem       = process.memoryUsage()
         const ramUsedMB = Math.round(mem.rss / 1024 / 1024)
         const ramMaxMB  = parseInt(process.env.MAX_RAM_MB || '512', 10)
+        const ping      = Math.floor(Math.random() * 40 + 5)
 
-        const ping = Math.floor(Math.random() * 40 + 5)
-
-        const senderJid  = sender || from
-        const senderNum  = senderJid.split('@')[0].replace(/:\d+$/, '')
-        const senderName = senderNum
+        const senderJid = sender || from
+        const senderNum = senderJid.split('@')[0].replace(/:\d+$/, '')
+        const senderTag = `@${senderNum}`
 
         const grouped = new Map()
         if (Array.isArray(cmdDetails)) {
             for (const cmd of cmdDetails) {
                 const name = (cmd.pattern || '').replace(/^\./, '')
                 if (HIDDEN.has(name)) continue
+                // ── Merge "group" category into "group/admin" ──
                 let cat = (cmd.category || 'general').toLowerCase()
                 if (cat === 'group') cat = 'group/admin'
                 if (!grouped.has(cat)) grouped.set(cat, [])
@@ -117,19 +116,28 @@ module.exports = {
         const sections = allCats.map(cat => {
             const label = CATEGORY_LABELS[cat] || cat.toUpperCase()
             const cmds  = grouped.get(cat) || []
-            const list  = cmds.join('\n')
-            return `*_${label}_*\n${list}`
+            const lines = cmds.map((c, i) => {
+                const isLast = i === cmds.length - 1
+                return ` *${isLast ? '┕' : '├'}◈ ${c}*`
+            }).join('\n')
+            return ` *╭────❒ ${label} ❒*\n${lines}\n *┕──────────────────❒*`
         }).join('\n\n')
 
-        const caption = `╭━━━〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* ⚡ 〕━━━⬣
-┃
-┃ 👤 *User*    : ${senderName}
+        const header = `╭━━━〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* ⚡ 〕━━━⬣
+┃ 👤 *User*    : ${senderTag}
 ┃ ⚙️ *Version* : ${VERSION}
 ┃ 🚀 *Mode*    : ${modeLabel}
 ┃ 📡 *Ping*    : ${ping}ms
 ┃ 💾 *RAM*     : ${ramUsedMB}MB / ${ramMaxMB}MB
 ┃ ⏳ *Uptime*  : ${formatUptime(upSec)}
-╰━━━━━━━━━━━━━━━━━━━━━━⬣
+┃ 👑 *Owner*   : ${ownerTag}
+╰━━━━━━━━━━━━━━━━━━━━━━⬣`
+
+        const caption = `${header}
+
+*Hey* 👋🏻 ${senderTag}
+
+*♡︎•━━━━━CYBER X━━━━━•♡*
 
 ${sections}
 
@@ -138,7 +146,6 @@ ${sections}
         const mentions = [senderJid]
         if (ownerJid) mentions.push(ownerJid)
 
-        // ── 1. Per-session custom pic (via .botpp) takes priority ──
         const botpp = loadBotPP(phone)
         if (botpp.imageBase64) {
             try {
@@ -154,7 +161,6 @@ ${sections}
             }
         }
 
-        // ── 2. Rotates through MENU_IMAGES list above ───────────────
         const imgUrl = MENU_IMAGES[imgIdx % MENU_IMAGES.length]
         imgIdx++
 
