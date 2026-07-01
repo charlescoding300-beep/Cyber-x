@@ -32,10 +32,14 @@ const REACTIONS = {
     yawn:      { emoji: '🥱', text: (a, b) => `${a} yawned` },
 }
 
-async function fetchGifBuffer(url) {
+async function fetchBuffer(url) {
     return new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http
-        client.get(url, { timeout: 10000 }, (res) => {
+        client.get(url, { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                fetchBuffer(res.headers.location).then(resolve).catch(reject)
+                return
+            }
             if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
             const chunks = []
             res.on('data', c => chunks.push(c))
@@ -49,17 +53,18 @@ async function getGifUrl(action) {
     const apis = [
         `https://api.waifu.pics/sfw/${action}`,
         `https://nekos.best/api/v2/${action}`,
-        `https://nekos.fun/api/${action}`,
     ]
-    
+
     for (const apiUrl of apis) {
         try {
-            const res = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) })
+            const res = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) })
             if (!res.ok) continue
             const json = await res.json()
-            const gifUrl = json.url || json.results?.[0]?.url || json.image
+            const gifUrl = json.url || json.results?.[0]?.url
             if (gifUrl) return gifUrl
-        } catch {}
+        } catch (e) {
+            console.log(`[ANIME] API failed (${apiUrl}):`, e.message)
+        }
     }
     return null
 }
@@ -104,21 +109,28 @@ const run = async ({ sock, from, message, args }) => {
     }
 
     try {
-        const gifBuf = await fetchGifBuffer(gifUrl)
+        const buf = await fetchBuffer(gifUrl)
+        // ── Send as image, not mislabeled video/mp4 ──
+        // waifu.pics/nekos.best return real .gif bytes, and WhatsApp
+        // can't decode gif-bytes wrapped as video/mp4 — that mismatch
+        // is exactly why nothing was rendering before.
         await sock.sendMessage(from, {
-            video: gifBuf,
+            image: buf,
             caption,
-            gifPlayback: true,
-            mimetype: 'video/mp4',
             mentions,
         }, { quoted: message })
     } catch (err) {
         console.error('[ANIME]', err.message)
-        await sock.sendMessage(from, {
-            image: { url: gifUrl },
-            caption,
-            mentions,
-        }, { quoted: message })
+        try {
+            await sock.sendMessage(from, {
+                image: { url: gifUrl },
+                caption,
+                mentions,
+            }, { quoted: message })
+        } catch (err2) {
+            console.error('[ANIME] fallback also failed:', err2.message)
+            await sock.sendMessage(from, { text: caption, mentions }, { quoted: message })
+        }
     }
 }
 
