@@ -280,13 +280,18 @@ setInterval(() => {
 }, 30_000)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMMAND REGISTRY
+// COMMAND REGISTRY — supports BOTH formats:
+//   OLD: { pattern: 'name', alias: [...] , run }
+//   NEW: { name: 'name', aliases: [...], run }
 // ─────────────────────────────────────────────────────────────────────────────
 const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
-const isValidCmd = m => m && typeof m.pattern === "string" && typeof m.run === "function"
-const toKey      = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
-const CMD_RESERVED_KEYS = new Set(["run", "pattern", "alias", "desc", "usage", "category"])
+const isValidCmd = m =>
+  m && (typeof m.pattern === "string" || typeof m.name === "string") && typeof m.run === "function"
+
+const toKey = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
+
+const CMD_RESERVED_KEYS = new Set(["run", "pattern", "name", "alias", "aliases", "desc", "usage", "category"])
 
 function loadFile(file) {
   const full = path.join(CMD_DIR, file)
@@ -301,22 +306,37 @@ function loadFile(file) {
       }
     }
     if (!isValidCmd(mod)) return false
-    const key = toKey(mod.pattern)
+
+    // ── Support both naming styles ──
+    const cmdName = mod.name || mod.pattern
+    const key     = toKey(cmdName)
     registry.map.set(key, mod)
-    if (Array.isArray(mod.alias))
-      for (const a of mod.alias) registry.aliases.set(toKey(a), key)
+
+    const aliasList = mod.aliases || mod.alias || []
+    if (Array.isArray(aliasList)) {
+      for (const a of aliasList) registry.aliases.set(toKey(a), key)
+    }
     return true
   } catch (e) { console.error(`[CMD] ✗ ${file}: ${e.message}`); return false }
 }
 
 function rebuildLists() {
   const mods = [...registry.map.values()]
-  registry.list    = mods.map(c => c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`).sort()
-  registry.details = mods.map(c => ({
-    pattern:  c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`,
-    desc:     c.desc || "", usage: c.usage || "",
-    category: c.category || "general", alias: c.alias || [],
-  })).sort((a, b) => a.pattern.localeCompare(b.pattern))
+  registry.list = mods.map(c => {
+    const n = c.name || c.pattern
+    return n.startsWith(".") ? n : `.${n}`
+  }).sort()
+
+  registry.details = mods.map(c => {
+    const n = c.name || c.pattern
+    return {
+      pattern:  n.startsWith(".") ? n : `.${n}`,
+      desc:     c.desc || "",
+      usage:    c.usage || "",
+      category: c.category || "general",
+      alias:    c.aliases || c.alias || [],
+    }
+  }).sort((a, b) => a.pattern.localeCompare(b.pattern))
 }
 
 function logCommandTable() {
@@ -325,8 +345,9 @@ function logCommandTable() {
   const groups = {}
   for (const c of cmds) {
     const cat = (c.category || "GENERAL").toUpperCase()
+    const n   = c.name || c.pattern
     if (!groups[cat]) groups[cat] = []
-    groups[cat].push(c.pattern.startsWith(".") ? c.pattern : `.${c.pattern}`)
+    groups[cat].push(n.startsWith(".") ? n : `.${n}`)
   }
   console.log("\n╔══════════════════════════════════════════════╗")
   console.log("║         ⚡ CYBER X — COMMAND REGISTRY        ║")
@@ -755,7 +776,8 @@ async function handleMessage(state, sock, msg) {
 
   try {
     await command.run({
-      sock, from, msg, sender, args,
+      // ── Both param names available: old commands use `msg`, new ones use `message` ──
+      sock, from, msg, message: msg, sender, args,
       text: rest, full: body,
       commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
       settings: state.settings, lib, api, config, helper,
@@ -788,14 +810,6 @@ async function startBot(phone) {
       creds: authState.creds,
       keys:  makeCacheableSignalKeyStore(authState.keys, Pino({ level: "silent" })),
     },
-    // ── FIX: explicit browser identifier required for pairing-code flow ──
-    // Multiple independently-reported Baileys bugs (issues #2306, #2197,
-    // and a maintainer-patched case requiring an exact browser string)
-    // confirm that without a well-formed `browser` field, WhatsApp can
-    // issue a pairing code that DISPLAYS fine but whose underlying device
-    // registration handshake silently fails — producing exactly this
-    // symptom: code shows up, phone says "couldn't link device." This
-    // was previously unset entirely in this config.
     browser:             Browsers.macOS("Chrome"),
     logger:              Pino({ level: "silent" }),
     printQRInTerminal:   false,
@@ -831,10 +845,18 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // GROUP WATCHDOG — detects joins/leaves, logs to terminal, sends
+  // welcome/goodbye messages using welcome.js / goodbye.js settings
+  // ─────────────────────────────────────────────────────────────────────────
   sock.ev.on("group-participants.update", async (update) => {
+    let meta = null
     try {
-      state.groupCache[update.id] = { ...(await sock.groupMetadata(update.id)), _cachedAt: Date.now() }
-    } catch {}
+      meta = await sock.groupMetadata(update.id)
+      state.groupCache[update.id] = { ...meta, _cachedAt: Date.now() }
+    } catch (e) {
+      console.error(`[WATCHDOG:${phone}] metadata fetch failed for ${update.id}:`, e.message)
+    }
 
     if (typeof lib.handleGroupUpdate === "function") {
       lib.handleGroupUpdate(sock, update).catch(e =>
@@ -842,35 +864,47 @@ async function startBot(phone) {
       )
     }
 
-    // ── WELCOME/GOODBYE LISTENER ──
-    try {
-      const { id: groupId, participants, action } = update
-      if (!groupId?.endsWith("@g.us")) return
-      if (!["add", "remove"].includes(action)) return
+    const { id: groupId, participants, action } = update
+    if (!groupId?.endsWith("@g.us")) return
+    if (!["add", "remove", "promote", "demote"].includes(action)) return
 
-      let meta
-      try { meta = await sock.groupMetadata(groupId) } catch { return }
+    const groupName   = meta?.subject || groupId
+    const memberCount = (meta?.participants || []).length
 
-      const groupName   = meta.subject || "the group"
-      const memberCount = (meta.participants || []).length
-      const welcomeCmd  = require('./commands/welcome.js')
-      const goodbyeCmd  = require('./commands/goodbye.js')
+    for (const participantJid of participants) {
+      const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
 
-      for (const participantJid of participants) {
-        const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
+      // ── Terminal watchdog log — always fires regardless of welcome/goodbye settings ──
+      const actionLabel = {
+        add:     "🟢 JOINED",
+        remove:  "🔴 LEFT",
+        promote: "⬆️  PROMOTED",
+        demote:  "⬇️  DEMOTED",
+      }[action] || action.toUpperCase()
+
+      console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in "${groupName}" (${groupId}) | members now: ${memberCount}`)
+
+      if (action !== "add" && action !== "remove") continue
+
+      // ── Welcome/Goodbye message sending ──
+      try {
+        const welcomeCmd = require('./commands/welcome.js')
+        const goodbyeCmd = require('./commands/goodbye.js')
+
         let pushName = ""
         try {
-          const contact = meta.participants?.find(p => p.id === participantJid || p.id?.startsWith(memberPhone))
+          const contact = meta?.participants?.find(p => p.id === participantJid || p.id?.startsWith(memberPhone))
           pushName = contact?.notify || contact?.name || ""
         } catch {}
 
-        const displayName = pushName || memberPhone
-        const type        = action === "add" ? "welcome" : "goodbye"
+        const type = action === "add" ? "welcome" : "goodbye"
+        const cmdModule = type === "welcome" ? welcomeCmd : goodbyeCmd
 
-        const greetData = welcomeCmd.loadGreet(phone, groupId)
+        const greetData = cmdModule.loadGreet(phone, groupId)
         const settings  = type === "welcome" ? greetData.welcome : greetData.goodbye
+
         if (!settings?.enabled) {
-          console.log(`[GREET:${phone}] 🔇 ${type} ${action === "add" ? "👋 JOIN" : "👣 LEAVE"} ${memberPhone} — disabled`)
+          console.log(`[WATCHDOG:${phone}] ${type} message disabled for this group — skipping send`)
           continue
         }
 
@@ -887,36 +921,27 @@ async function startBot(phone) {
         let ppUrl = null
         try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
 
-        try {
-          if (ppUrl) {
-            await sock.sendMessage(groupId, {
-              image:    { url: ppUrl },
-              caption:  text,
-              mentions: [participantJid],
-            })
-          } else {
-            await sock.sendMessage(groupId, {
-              text,
-              mentions: [participantJid],
-            })
-          }
-          console.log(`[GREET:${phone}] ${type === "welcome" ? "👋 WELCOME" : "👣 GOODBYE"} ${memberPhone} in ${groupName}`)
-        } catch (e) {
-          console.error(`[GREET:${phone}] send error:`, e.message)
+        if (ppUrl) {
+          await sock.sendMessage(groupId, {
+            image:    { url: ppUrl },
+            caption:  text,
+            mentions: [participantJid],
+          })
+        } else {
+          await sock.sendMessage(groupId, {
+            text,
+            mentions: [participantJid],
+          })
         }
+
+        console.log(`[WATCHDOG:${phone}] ${type === "welcome" ? "👋 Sent welcome" : "👣 Sent goodbye"} message for ${memberPhone} in ${groupName}`)
+
+      } catch (e) {
+        console.error(`[WATCHDOG:${phone}] send error for ${memberPhone}:`, e.message)
       }
-    } catch (e) {
-      console.error(`[GREET:${phone}] error:`, e.message)
     }
   })
 
-  // ── FIX: pairing code now requested on the actual connecting/qr event,
-  // not a fixed 3-second timeout. Baileys' own docs are explicit that you
-  // should wait for this event before calling requestPairingCode — a
-  // flat delay is a guess about readiness that can easily be wrong on a
-  // cold-starting Render free-tier instance, which is exactly why NEW
-  // pairings (which hit this code path) failed while already-registered
-  // numbers (which skip this block entirely) kept working fine.
   let pairingCodeRequested = false
   if (!authState.creds.registered) {
     sock.ev.on("connection.update", async (update) => {
@@ -931,7 +956,7 @@ async function startBot(phone) {
           state.pairingCode = code
         } catch (e) {
           console.error(`[${phone}] PAIR ERR:`, e.message)
-          pairingCodeRequested = false   // allow a retry on the next connecting/qr event
+          pairingCodeRequested = false
         }
       }
     })
