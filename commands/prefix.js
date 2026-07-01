@@ -8,7 +8,7 @@ module.exports = {
   pattern:  "prefix",
   desc:     "Change your command prefix",
   usage:    ".prefix <symbol>",
-  category: "settings",
+  category: 'utility',
 
   async run({ sock, from, msg, args, sender }) {
     const phone = sender.replace(/\D/g, "").split("@")[0] ||

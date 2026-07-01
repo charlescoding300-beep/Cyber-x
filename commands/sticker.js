@@ -69,7 +69,7 @@ module.exports = {
   alias:    ['sticker'],
   desc:     'Convert image/video/gif to a sticker',
   usage:    'Reply to image/video → .s',
-  category: 'media',
+  category: 'sticker',
 
   async run({ sock, from, msg, quoted: ctxQuoted }) {
     // ── Resolve target media (quoted message OR the message itself) ────────────

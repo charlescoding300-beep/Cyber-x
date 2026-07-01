@@ -15,7 +15,7 @@
 module.exports = {
   pattern:  "antilink",
   desc:     "Ultra antilink — detects every link + hidden/obfuscated/image links",
-  category: "group",
+  category: 'group/admin',
 
   async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup, groupCache }) {
 

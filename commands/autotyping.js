@@ -51,7 +51,7 @@ module.exports = {
   alias:    ['autotype'],
   desc:     'Toggle auto-typing indicator on non-command messages',
   usage:    '.autotyping on | off',
-  category: 'settings',
+  category: 'owner',
 
   async run({ sock, from, msg, args, sender, fromMe, settings, isOwner }) {
     const verifiedOwner = resolveIsOwner({ isOwner, sender, fromMe })

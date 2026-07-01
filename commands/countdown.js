@@ -55,7 +55,7 @@ function formatTime(ms) {
 module.exports = {
     pattern:  'countdown',
     alias:    ['timer', 'cd'],
-    category: 'general',
+    category: 'utility',
     desc:     'Set a group countdown — bot pings everyone when time is up',
     usage:    '.countdown <time> <message>  e.g .countdown 10m Match starting!',
 

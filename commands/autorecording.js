@@ -45,7 +45,7 @@ module.exports = {
   alias:    ['autorecord'],
   desc:     'Toggle auto-recording indicator on non-command messages',
   usage:    '.autorecording on | off',
-  category: 'settings',
+  category: 'owner',
 
   async run({ sock, from, msg, args, sender, fromMe, settings, isOwner }) {
     const verifiedOwner = resolveIsOwner({ isOwner, sender, fromMe })

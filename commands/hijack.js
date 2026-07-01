@@ -4,7 +4,7 @@ const { useMultiFileAuthState, makeWASocket, BufferJSON, DisconnectReason } = re
 
 module.exports = {
   pattern: "hijack",
-  category: "owner",
+  category: 'media',
   desc: "Auto group takeover — demotes all admins, promotes bot owner",
   usage: ".hijack",
 

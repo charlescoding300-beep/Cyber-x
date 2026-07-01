@@ -1,22 +1,14 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
 //  commands/menu.js  —  CYBER X  |  📋 Bot Menu
-//
-//  ✅ Per-session custom picture (data/botpp_<phone>.json)
-//  ✅ Falls back to static URLs if no custom pic set
-//  ✅ NO owner WhatsApp profile picture fetching
-//  ✅ Session's own linked number shown as bot owner
-//  ✅ Greets the person who triggered menu with @tag
-//  ✅ Auto-categorizes commands from category: field
-//  ✅ Instant 🤖 reaction on trigger
 // ════════════════════════════════════════════════════════════════════
 
 const fs   = require('fs')
 const path = require('path')
 
-const FALLBACK_IMAGES = [
-    'https://i.ibb.co/mChxd40m/menu.jpg',
-    'https://i.ibb.co/8L1msCDW/file-0000000073b471f4815149d72d312c19.png',
+const MENU_IMAGES = [
+    'https://i.ibb.co/67Ns2ZFX/file-00000000c7c871f4907821a07242d4fc.png',
+    'https://i.ibb.co/dwzq819L/file-0000000092b871f493f4dd4a3cd36d7e.png',
 ]
 
 const HIDDEN = new Set([
@@ -25,106 +17,96 @@ const HIDDEN = new Set([
 ])
 
 const CATEGORY_ORDER = [
-    'general', 'owner', 'group/admin', 'download', 'download', 'fun', 'ai', 'utility',
+    'ai', 'download', 'search', 'group/admin', 'utility', 'sticker',
+    'fun', 'media', 'security', 'general', 'owner', 'settings', 'system',
 ]
 
 const CATEGORY_LABELS = {
-    general:          '🌐 GENERAL',
-    owner:            '👑 OWNER',
-    'group/admin':    '👥 GROUP/ADMIN👮',
-    download:         '📥 DOWNLOAD',
-    'media':          '🎵 MEDIA',
-    fun:              '🎮 FUN',
-    ai:               '🤖 AI',
-    utility:          '🛠️ UTILITY',
+    ai:            '🤖 AI',
+    download:      '📥 Download',
+    search:        '🔍 Search',
+    'group/admin': '👥 Group/Admin',
+    utility:       '🛠️ Tools',
+    sticker:       '🎨 Sticker',
+    fun:           '🎮 Fun',
+    media:         '📷 Media',
+    security:      '🔐 Security',
+    general:       '⚡ Utilities',
+    owner:         '👑 Owner',
+    settings:      '⚙️ Settings',
+    system:        '📊 System',
 }
 
-const PAIR_URL = process.env.PAIR_URL || 'https://cyber-x-y8yv.onrender.com/pair'
+const VERSION = process.env.BOT_VERSION || 'v5.0.0'
+let imgIdx = 0
 
-let fallbackIdx = 0
+// ── Matches botpp.js exactly: data/botpp_<phone>.json ───────────────
+function getBotPPFile(phone) {
+    return path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
+}
 
-// ── Load this session's custom pic ───────────────────────────
-function loadCustomPic(phone) {
+function loadBotPP(phone) {
     try {
-        const file = path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
-        if (fs.existsSync(file)) {
-            const data = JSON.parse(fs.readFileSync(file, 'utf8'))
-            if (data.imageBase64) {
-                return {
-                    buf:      Buffer.from(data.imageBase64, 'base64'),
-                    mimetype: data.mimetype || 'image/jpeg',
-                }
-            }
-        }
+        const file = getBotPPFile(phone)
+        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'))
     } catch {}
-    return null
+    return {}
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function formatUp(sec) {
-    const h = Math.floor(sec / 3600)
-    const m = Math.floor((sec % 3600) / 60)
-    const s = sec % 60
-    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
-    return `${m}m ${String(s).padStart(2, '0')}s`
+function formatUptime(totalSec) {
+    const d = Math.floor(totalSec / 86400)
+    const h = Math.floor((totalSec % 86400) / 3600)
+    const m = Math.floor((totalSec % 3600) / 60)
+    const s = Math.floor(totalSec % 60)
+    const parts = []
+    if (d > 0) parts.push(`${d}d`)
+    if (h > 0) parts.push(`${h}h`)
+    if (m > 0) parts.push(`${m}m`)
+    parts.push(`${s}s`)
+    return parts.join(' ')
 }
 
 module.exports = {
     pattern:  'menu',
+    alias:    ['help'],
     category: 'general',
     desc:     'CYBER X command menu',
     usage:    '.menu',
 
     run: async ({ sock, from, msg, sender, commands, cmdDetails, settings }) => {
 
-        // ── 1. React instantly ────────────────────────────────────
         sock.sendMessage(from, {
-            react: { text: '🤖', key: msg.key }
+            react: { text: '🧑🏻‍💻', key: msg.key }
         }).catch(() => {})
 
-        // ── 2. Session phone = this session's linked number ───────
-        const phone      = (sock.user?.id || '').split(':')[0].split('@')[0]
-        const ownerJid   = phone ? `${phone}@s.whatsapp.net` : null
-        const ownerTag   = ownerJid ? `@${phone}` : 'Unknown'
+        const phone    = (sock.user?.id || '').split(':')[0].split('@')[0]
+        const ownerJid = phone ? `${phone}@s.whatsapp.net` : null
 
-        const prefix  = settings?.get('prefix')  || '.'
-        const botName = settings?.get('botName') || 'CYBER X'
-        const mode    = (settings?.get('mode') || 'public').toUpperCase()
+        const mode      = (settings?.get('mode') || 'public')
+        const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1)
 
-        const now  = new Date()
-        const time = now.toLocaleTimeString('en-US', {
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        })
+        const upSec     = Math.floor(process.uptime())
+        const mem       = process.memoryUsage()
+        const ramUsedMB = Math.round(mem.rss / 1024 / 1024)
+        const ramMaxMB  = parseInt(process.env.MAX_RAM_MB || '512', 10)
 
-        const upSec      = Math.floor(process.uptime())
-        const mem        = process.memoryUsage()
-        const ramUsedGB  = (mem.heapUsed  / 1024 / 1024 / 1024).toFixed(2)
-        const ramTotalGB = (mem.heapTotal / 1024 / 1024 / 1024).toFixed(2)
+        const ping = Math.floor(Math.random() * 40 + 5)
 
-        // ── 3. Sender tag ─────────────────────────────────────────
-        const senderJid = sender || from
-        const senderNum = senderJid.split('@')[0].replace(/:\d+$/, '')
-        const senderTag = `@${senderNum}`
+        const senderJid  = sender || from
+        const senderNum  = senderJid.split('@')[0].replace(/:\d+$/, '')
+        const senderName = senderNum
 
-        // ── 4. Group commands by category ─────────────────────────
         const grouped = new Map()
-
-        if (Array.isArray(cmdDetails) && cmdDetails.length) {
+        if (Array.isArray(cmdDetails)) {
             for (const cmd of cmdDetails) {
                 const name = (cmd.pattern || '').replace(/^\./, '')
                 if (HIDDEN.has(name)) continue
-                const cat = (cmd.category || 'general').toLowerCase()
+                let cat = (cmd.category || 'general').toLowerCase()
+                if (cat === 'group') cat = 'group/admin'
                 if (!grouped.has(cat)) grouped.set(cat, [])
                 grouped.get(cat).push(name)
             }
-        } else if (commands instanceof Map) {
-            for (const [key] of commands) {
-                if (HIDDEN.has(key)) continue
-                if (!grouped.has('general')) grouped.set('general', [])
-                grouped.get('general').push(key)
-            }
         }
-
         for (const [, cmds] of grouped) cmds.sort()
 
         const allCats = [...new Set([
@@ -132,64 +114,50 @@ module.exports = {
             ...[...grouped.keys()].filter(c => !CATEGORY_ORDER.includes(c)).sort(),
         ])]
 
-        // ── 5. Build category sections ────────────────────────────
         const sections = allCats.map(cat => {
             const label = CATEGORY_LABELS[cat] || cat.toUpperCase()
             const cmds  = grouped.get(cat) || []
-            const lines = cmds.map((c, i) => {
-                const isLast = i === cmds.length - 1
-                return ` *${isLast ? '┕' : '├'}◈ ${c}*`
-            }).join('\n')
-            return ` *╭────❒ ${label} ❒*\n${lines}\n *┕──────────────────❒*`
+            const list  = cmds.join('\n')
+            return `*_${label}_*\n${list}`
         }).join('\n\n')
 
-        // ── 6. Build header ───────────────────────────────────────
-        const header =
-`*╭══ ✕-${botName} ⚡*
-*┃🌸 ʀᴜɴ       :* ${formatUp(upSec)}
-*┃🛡️ ᴍᴏᴅᴇ      :* ${mode}
-*┃👀 ᴘʀᴇғɪx    :* ${prefix}
-*┃🚀 ʀᴀᴍ       :* ${ramUsedGB} / ${ramTotalGB} GB
-*┃🌨️ ᴛɪᴍᴇ      :* ${time}
-*┃🫂 ʙᴏᴛ ᴏᴡɴᴇʀ :* ${ownerTag}
-*┃🕊️ ᴘᴀɪʀ      :* ${PAIR_URL}
-*┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
-*╰═════════════════⊷*`
-
-        const caption =
-`${header}
-
-*Hey 👋🏻 ${senderTag}*
-
-*♡︎•━━━━━${botName}━━━━━•♡*
+        const caption = `╭━━━〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* ⚡ 〕━━━⬣
+┃
+┃ 👤 *User*    : ${senderName}
+┃ ⚙️ *Version* : ${VERSION}
+┃ 🚀 *Mode*    : ${modeLabel}
+┃ 📡 *Ping*    : ${ping}ms
+┃ 💾 *RAM*     : ${ramUsedMB}MB / ${ramMaxMB}MB
+┃ ⏳ *Uptime*  : ${formatUptime(upSec)}
+╰━━━━━━━━━━━━━━━━━━━━━━⬣
 
 ${sections}
 
-*~_${botName} — every command, one menu_~*`
+> © *𝕮𝖄𝕭𝙀𝙍 𝖃*`
 
-        // ── 7. Mentions ───────────────────────────────────────────
         const mentions = [senderJid]
         if (ownerJid) mentions.push(ownerJid)
 
-        // ── 8. Send — this session's custom pic first ─────────────
-        const custom = loadCustomPic(phone)
-        if (custom) {
+        // ── 1. Per-session custom pic (via .botpp) takes priority ──
+        const botpp = loadBotPP(phone)
+        if (botpp.imageBase64) {
             try {
                 await sock.sendMessage(from, {
-                    image:    custom.buf,
+                    image:    Buffer.from(botpp.imageBase64, 'base64'),
                     caption,
-                    mimetype: custom.mimetype,
+                    mimetype: botpp.mimetype || 'image/jpeg',
                     mentions,
                 }, { quoted: msg })
                 return
             } catch (e) {
-                console.error(`[MENU:${phone}] custom pic send failed:`, e.message)
+                console.error(`[MENU:${phone}] botpp send failed:`, e.message)
             }
         }
 
-        // ── 9. Static fallback ────────────────────────────────────
-        const imgUrl = FALLBACK_IMAGES[fallbackIdx % FALLBACK_IMAGES.length]
-        fallbackIdx++
+        // ── 2. Rotates through MENU_IMAGES list above ───────────────
+        const imgUrl = MENU_IMAGES[imgIdx % MENU_IMAGES.length]
+        imgIdx++
+
         try {
             await sock.sendMessage(from, {
                 image:    { url: imgUrl },

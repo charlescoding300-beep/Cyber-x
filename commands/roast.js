@@ -86,7 +86,7 @@ module.exports = {
   alias:    ["burn", "clap", "deadass"],
   desc:     "Roast someone with deadly precision 🔥",
   usage:    ".roast | reply to someone → .roast | .roast @mention",
-  category: "fun",
+  category: 'fun',
 
   async run({ sock, from, msg, args, sender }) {
 

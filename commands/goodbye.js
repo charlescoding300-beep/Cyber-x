@@ -31,7 +31,7 @@ const DEFAULT_GOODBYE = 'Goodbye @{tag}! 👋\nWe\'ll miss you in *{group}*.\nWe
 module.exports = {
   pattern: 'goodbye',
   alias: ['goodbye'],
-  category: 'group',
+  category: 'group/admin',
   desc: 'Set custom goodbye messages for members who leave',
   usage: '.goodbye on|off|set|view',
 

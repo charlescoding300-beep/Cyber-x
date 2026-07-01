@@ -48,7 +48,7 @@ module.exports = {
   alias:    ['setmode', 'privacy'],
   desc:     'Set bot to public or private mode (owner only)',
   usage:    '.mode | .mode public | .mode private',
-  category: 'settings',
+  category: 'owner',
 
   async run({ sock, from, msg, args, sender, fromMe, isOwner, settings }) {
     const verifiedOwner = resolveIsOwner({ isOwner, sender, fromMe })

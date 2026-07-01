@@ -31,7 +31,7 @@ function isBanned(userId) {
 module.exports = {
   pattern: 'ban',
   alias: ['ban'],
-  category: 'owner',
+  category: 'group/admin',
   desc: 'Ban/unban users from using the bot (owner only)',
   usage: '.ban (reply) | .ban @user | .ban unban <number> | .ban list',
 

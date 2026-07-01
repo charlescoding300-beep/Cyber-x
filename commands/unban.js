@@ -44,7 +44,7 @@ async function saveBanned(sessionPhone, data) {
 
 module.exports = {
   pattern:  'unban',
-  category: 'owner',
+  category: 'group/admin',
   desc:     'Unban a user from the bot',
   usage:    '.unban (reply to message) | .unban @user',
 

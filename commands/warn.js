@@ -127,7 +127,7 @@ ${DLINE}`;
 // ── Main ─────────────────────────────────────────────────────────
 module.exports = {
   pattern:  'warn',
-  category: 'group',
+  category: 'group/admin',
 
   run: async ({ sock, from, msg, sender, args, isGroup, isAdmin, isBotAdmin }) => {
 

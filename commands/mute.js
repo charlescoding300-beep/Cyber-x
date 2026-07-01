@@ -51,7 +51,7 @@ module.exports = {
   pattern:  "mute",
   desc:     "Mute the group — only admins can send messages",
   usage:    ".mute | .mute 10m | .mute 1h | .mute 2h30m",
-  category: "group",
+  category: 'group/admin',
 
   // expose timers so unmute.js can cancel them
   muteTimers,

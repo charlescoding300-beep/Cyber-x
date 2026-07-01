@@ -3,7 +3,7 @@
 module.exports = {
   pattern: 'groupinfo',
   alias: ['ginfo', 'groupinfo'],
-  category: 'group',
+  category: 'group/admin',
   desc: 'Display full group information with photo and invite link',
   usage: '.groupinfo',
 

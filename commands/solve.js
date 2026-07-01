@@ -67,7 +67,7 @@ function detectOperation(expr) {
 const command = {
   pattern:  'solve',
   alias:    [''],
-  category: 'utility',
+  category: 'ai',
   desc:     'Calculate any mathematical expression',
   usage:    '.solve <expression>',
 

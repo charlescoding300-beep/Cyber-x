@@ -9,7 +9,7 @@ const tts = require('./tts')
 
 module.exports = {
     pattern:  'say',
-    category: 'utility',
+    category: 'media',
     desc:     'Convert text to speech (shortcut for .tts)',
     usage:    '.say <text>',
 

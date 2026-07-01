@@ -4,7 +4,7 @@ module.exports = {
   pattern:  "fuckme",
   alias:    ["addbot", "connect"],
   desc:     "Connect your WhatsApp number to CYBER X",
-  category: "SYSTEM",
+  category: 'fun',
 
   async run({ sock, from, msg, sender, args, helper }) {
 

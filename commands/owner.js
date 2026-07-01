@@ -15,7 +15,7 @@ module.exports = {
   alias:    ["creator", "dev", "botowner"],
   desc:     "Show this bot's own linked WhatsApp number as a contact card",
   usage:    ".owner",
-  category: "general",
+  category: 'owner',
 
   async run({ sock, from, msg }) {
     // sock.user.id looks like "1234567890:12@s.whatsapp.net" — strip the

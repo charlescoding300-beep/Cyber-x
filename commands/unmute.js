@@ -9,7 +9,7 @@ module.exports = {
   pattern:  "unmute",
   desc:     "Unmute the group — everyone can send messages again",
   usage:    ".unmute",
-  category: "group",
+  category: 'group/admin',
 
   async run({ sock, from, msg, sender, args, lib, commands, isAdmin, isBotAdmin, isOwner, isGroup }) {
 

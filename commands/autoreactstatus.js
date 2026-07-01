@@ -8,7 +8,7 @@ module.exports = {
   pattern:  "autoreactstatus",
   desc:     "Toggle auto react to status",
   usage:    ".autoreactstatus on/off",
-  category: "settings",
+  category: 'owner',
 
   async run({ sock, from, msg, args, sender }) {
     const phone = sender.replace(/\D/g, "").split("@")[0] ||

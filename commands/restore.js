@@ -3,7 +3,7 @@ const { pushAllData, restoreAllData } = require("../lib/persist")
 module.exports = {
   name: "restore",
   alias: ["backup", "savedata"],
-  category: "owner",
+  category: 'owner',
   desc: "Restore or backup all bot data from Redis",
   owner: true,
   async run({ sock, m, args }) {

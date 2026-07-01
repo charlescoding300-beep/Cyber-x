@@ -35,7 +35,7 @@ module.exports = {
   pattern:  'demote',
   desc:     'Demote an admin to member',
   usage:    '.demote @user  OR  reply to message + .demote',
-  category: 'group',
+  category: 'group/admin',
 
   run: async ({ sock, from, msg, sender, isOwner, isAdmin, isBotAdmin }) => {
 

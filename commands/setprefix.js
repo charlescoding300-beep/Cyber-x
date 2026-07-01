@@ -4,7 +4,7 @@ module.exports = {
   alias:    ["changeprefix", "prefix"],
   desc:     "Change the bot's global command prefix (owner only)",
   usage:    ".setprefix !  |  .setprefix reset",
-  category: "settings",
+  category: 'utility',
 
   async run({ sock, from, msg, args, settings, helper, isOwner }) {
     if (!isOwner) return helper.reply(sock, msg, "❌ Only the bot owner can change the prefix.")

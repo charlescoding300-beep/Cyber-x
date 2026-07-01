@@ -8,7 +8,7 @@ try { isAdminLib = require("../lib/isAdmin") } catch { isAdminLib = null }
 module.exports = {
   pattern: "del",
   alias:   ["delete"],
-  category: "group",
+  category: 'utility',
 
   run: async ({ sock, from, msg, sender, isOwner }) => {
 

@@ -80,7 +80,7 @@ function getForecastEmoji(condition) {
 const command = {
   pattern:  'weather',
   alias:    ['w', 'forecast', 'climate'],
-  category: 'utility',
+  category: 'search',
   desc:     'Get real-time weather for any city in the world',
   usage:    '.weather <city>',
 

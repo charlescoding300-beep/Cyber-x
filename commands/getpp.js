@@ -3,7 +3,7 @@
 
 module.exports = {
   pattern:  "getpp",
-  category: "UTILITY",
+  category: 'utility',
   desc:     "Get a user's profile picture",
   usage:    ".getpp @user | reply to a message",
 

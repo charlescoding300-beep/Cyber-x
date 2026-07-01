@@ -149,7 +149,7 @@ module.exports = {
   alias:    ['abw'],
   desc:     'Toggle bad word filtering in this group',
   usage:    '.antibadword on/off | .antibadword set delete/warn/kick',
-  category: 'group',
+  category: 'group/admin',
 
   async run({ sock, from, msg, args, sender, isGroup, isAdmin, isBotAdmin }) {
     if (!isGroup) {

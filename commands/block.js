@@ -22,7 +22,7 @@ module.exports = {
   alias:    [],
   desc:     'Block the person in this DM (owner only)',
   usage:    '.block',
-  category: 'owner',
+  category: 'group/admin',
 
   async run({ sock, from, msg, isOwner, isGroup }) {
     if (!isOwner) {

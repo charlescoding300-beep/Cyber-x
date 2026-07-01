@@ -3,7 +3,7 @@
 module.exports = {
   pattern: 'pair',
   desc: 'Shows how to deploy your own CYBER X bot',
-  category: 'general',
+  category: 'owner',
 
   run: async ({ sock, from, msg }) => {
     // React with 🖕🏻
@@ -174,7 +174,7 @@ Just create a new file in the *commands/* folder:
 module.exports = {
   pattern: 'hello',
   desc: 'Say hello',
-  category: 'general',
+  category: 'owner',
   run: async ({ sock, from, msg }) => {
     await sock.sendMessage(from, {
       text: 'Hello from CYBER X! 👋'

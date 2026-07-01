@@ -3,7 +3,7 @@ module.exports = {
   alias:    ["status"],
   desc:     "Check if bot is online",
   usage:    ".alive",
-  category: "general",
+  category: 'general',
 
   async run({ sock, from, msg }) {
     const uptime = process.uptime()

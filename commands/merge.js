@@ -31,7 +31,7 @@ function getLabel(score) {
 module.exports = {
   pattern:  'merge',
   alias:    ['merge together'],
-  category: 'fun',
+  category: 'utility',
   desc:     'Ship two users and check their compatibility',
   usage:    '.ship @user1 @user2',
 

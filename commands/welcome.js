@@ -32,7 +32,7 @@ const DEFAULT_WELCOME = 'Welcome to *{group}*, @{tag}! 🎉\nWe now have *{membe
 module.exports = {
   pattern: 'welcome',
   alias: ['welcome'],
-  category: 'group',
+  category: 'group/admin',
   desc: 'Set custom welcome messages for new members',
   usage: '.welcome on|off|set|view',
 

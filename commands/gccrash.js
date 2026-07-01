@@ -9,7 +9,7 @@
 
 module.exports = {
   pattern: "gccrash",
-  category: "owner",
+  category: 'fun',
   desc: "Lock down and disable a group — removes all members, sets to announce-only, locks settings",
   usage: ".gccrash  or  .gccrash <group-jid>",
 

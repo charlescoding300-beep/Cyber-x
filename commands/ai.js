@@ -246,6 +246,6 @@ module.exports = {
   aliases:  ["ask", "chat", "gpt"],
   desc:     "Chat with CYBER X AI — text, images, code, anything",
   usage:    ".ai <question> | .ai reset | reply image + .ai",
-  category: "ai",
+  category: 'ai',
   run
 }

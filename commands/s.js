@@ -187,7 +187,7 @@ module.exports = {
   pattern:  "s",
   desc:     "Convert image / GIF / video to WhatsApp sticker",
   usage:    "Reply to image, GIF or video → .s",
-  category: "media",
+  category: 'media',
 
   async run({ sock, from, msg }) {
 

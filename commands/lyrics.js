@@ -113,7 +113,7 @@ async function getYoutubeThumbnail(query) {
 module.exports = {
     pattern:  'lyrics',
     alias:    ['lyric', 'song'],
-    category: 'utility',
+    category: 'search',
     desc:     'Get lyrics for any song',
     usage:    '.lyrics <song>  OR  .lyrics <song> - <artist>',
 

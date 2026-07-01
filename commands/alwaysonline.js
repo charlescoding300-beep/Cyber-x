@@ -8,7 +8,7 @@ module.exports = {
   pattern:  "alwaysonline",
   desc:     "Toggle always online presence",
   usage:    ".alwaysonline on/off",
-  category: "settings",
+  category: 'owner',
 
   async run({ sock, from, msg, args, sender }) {
     const phone = sender.replace(/\D/g, "").split("@")[0] ||

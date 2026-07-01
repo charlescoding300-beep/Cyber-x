@@ -186,7 +186,7 @@ module.exports = {
   pattern:  "convert",
   desc:     "Convert a sticker to video (animated) or image (static)",
   usage:    "Reply to a sticker → .convert",
-  category: "media",
+  category: 'utility',
 
   async run({ sock, from, msg }) {
 

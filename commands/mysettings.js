@@ -8,7 +8,7 @@ module.exports = {
   pattern:  "mysettings",
   desc:     "View all your current bot settings",
   usage:    ".mysettings",
-  category: "settings",
+  category: 'owner',
 
   async run({ sock, from, msg, sender }) {
     const phone = sender.replace(/\D/g, "").split("@")[0] ||

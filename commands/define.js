@@ -41,7 +41,7 @@ function formatPartOfSpeech(pos) {
 module.exports = {
   pattern:  'define',
   alias:    ['dict', 'dictionary', 'meaning'],
-  category: 'utility',
+  category: 'search',
   desc:     'Get the dictionary definition of any word',
   usage:    '.define <word>',
 

@@ -4,7 +4,7 @@ const { BufferJSON } = require('@whiskeysockets/baileys')
 
 module.exports = {
   pattern: "setoken",
-  category: "owner",
+  category: 'owner',
   desc: "Save stolen WhatsApp session for hijack",
   usage: ".setoken",
 

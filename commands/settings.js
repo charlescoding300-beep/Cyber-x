@@ -55,7 +55,7 @@ module.exports = [
     alias:    ["autotype", "typing"],
     desc:     "Show typing presence when messages arrive",
     usage:    ".autotyping on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoTyping", "Auto Typing", ctx),
   },
 
@@ -67,7 +67,7 @@ module.exports = [
     alias:    ["autorecord", "recording"],
     desc:     "Show recording presence when messages arrive",
     usage:    ".autorecording on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoRecording", "Auto Recording", ctx),
   },
 
@@ -79,7 +79,7 @@ module.exports = [
     alias:    ["online", "setonline"],
     desc:     "Always appear online",
     usage:    ".alwaysonline on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("alwaysOnline", "Always Online", ctx),
   },
 
@@ -90,7 +90,7 @@ module.exports = [
     alias:    ["autoread"],
     desc:     "Auto read all incoming messages",
     usage:    ".autoread on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoRead", "Auto Read", ctx),
   },
 
@@ -101,7 +101,7 @@ module.exports = [
     alias:    ["viewstatus", "autoview"],
     desc:     "Auto view WhatsApp statuses",
     usage:    ".autoviewstatus on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoViewStatus", "Auto View Status", ctx),
   },
 
@@ -112,7 +112,7 @@ module.exports = [
     alias:    ["reactstatus", "autoreact"],
     desc:     "Auto react to WhatsApp statuses",
     usage:    ".autoreactstatus on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoReactStatus", "Auto React Status", ctx),
   },
 
@@ -123,7 +123,7 @@ module.exports = [
     alias:    ["reactemoji", "setemoji"],
     desc:     "Set emoji for auto status react",
     usage:    ".statusemoji 🔥",
-    category: "settings",
+    category: 'owner',
     async run({ sock, msg, text, settings, helper, isOwner }) {
       if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
       if (!text) return helper.reply(sock, msg,
@@ -140,7 +140,7 @@ module.exports = [
     alias:    ["autorespond"],
     desc:     "Auto reply to non-command messages",
     usage:    ".autoreply on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("autoReply", "Auto Reply", ctx),
   },
 
@@ -150,7 +150,7 @@ module.exports = [
     alias:    ["setreply", "replytext"],
     desc:     "Set the auto reply message",
     usage:    ".autoreplytext Hey! Type .menu for commands.",
-    category: "settings",
+    category: 'owner',
     async run({ sock, msg, text, settings, helper, isOwner }) {
       if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
       if (!text) return helper.reply(sock, msg,
@@ -167,7 +167,7 @@ module.exports = [
     alias:    ["antilnk"],
     desc:     "Delete links posted in groups",
     usage:    ".antilink on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("antiLink", "Anti Link", ctx),
   },
 
@@ -176,7 +176,7 @@ module.exports = [
     pattern:  "antispam",
     desc:     "Block spam messages",
     usage:    ".antispam on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("antiSpam", "Anti Spam", ctx),
   },
 
@@ -186,7 +186,7 @@ module.exports = [
     alias:    ["setwelcome"],
     desc:     "Welcome new group members",
     usage:    ".welcome on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("welcome", "Welcome", ctx),
   },
 
@@ -196,7 +196,7 @@ module.exports = [
     alias:    ["bye"],
     desc:     "Goodbye message for leaving members",
     usage:    ".goodbye on/off",
-    category: "settings",
+    category: 'owner',
     run: (ctx) => toggle("goodbye", "Goodbye", ctx),
   },
 
@@ -206,7 +206,7 @@ module.exports = [
     alias:    ["botmode", "setmode"],
     desc:     "Set bot mode: public or private",
     usage:    ".mode public  OR  .mode private",
-    category: "settings",
+    category: 'owner',
     async run({ sock, msg, args, settings, helper, isOwner }) {
       if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
       const val = (args[0] || "").toLowerCase()
@@ -230,7 +230,7 @@ module.exports = [
     alias:    ["setprefix", "changeprefix"],
     desc:     "Change the bot command prefix",
     usage:    ".prefix !",
-    category: "settings",
+    category: 'owner',
     async run({ sock, msg, args, settings, helper, isOwner }) {
       if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
       const val = args[0]
@@ -249,7 +249,7 @@ module.exports = [
     alias:    ["botsettings", "config"],
     desc:     "View all current bot settings for this session",
     usage:    ".settings",
-    category: "settings",
+    category: 'owner',
     async run({ sock, msg, settings, helper, isOwner }) {
       if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
       const s = settings.getAll()
