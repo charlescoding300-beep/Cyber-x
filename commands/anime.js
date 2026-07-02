@@ -37,14 +37,45 @@ const REACTIONS = {
     yawn:      { emoji: '🥱', text: (a, b) => `${a} yawned` },
 }
 
-// Only actions confirmed to exist on nekos.best — waifu.pics is unreliable
-// (DNS failed in testing), so nekos.best is now primary, waifu.pics is
-// kept only as a secondary attempt in case it resolves on Render's network.
-const NEKOS_BEST_ACTIONS = new Set([
-    'hug','kiss','cuddle','pat','handhold','slap','kick','punch','bite',
-    'tickle','poke','cry','laugh','blush','smile','wink','pout','angry',
-    'dance','wave','nom','sleep','yawn'
-])
+// otakugifs.xyz confirmed working from Render (unlike nekos.best/waifu.pics,
+// which block/reject datacenter IPs — that was the real root cause).
+// Maps your action names to otakugifs' supported reaction names where they differ.
+const ACTION_MAP = { angry: 'mad' }
+
+// These 5 have no equivalent on otakugifs.xyz — kept in the menu/REACTIONS
+// list so the emoji+text reply still works, they just won't have a GIF.
+const NO_GIF_AVAILABLE = new Set(['kick', 'bonk', 'yeet', 'baka'])
+
+async function getGifUrl(action, sock, from, message) {
+    if (NO_GIF_AVAILABLE.has(action)) return null
+
+    const apiAction = ACTION_MAP[action] || action
+    const debugLines = [`node: ${process.version}`]
+
+    try {
+        const res = await fetch(`https://api.otakugifs.xyz/gif?reaction=${apiAction}`, {
+            signal: AbortSignal.timeout(15000),
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        })
+        debugLines.push(`otakugifs: HTTP ${res.status}`)
+        if (res.ok) {
+            const json = await res.json()
+            if (json.url) return json.url
+            debugLines.push('otakugifs: no url in response')
+        }
+    } catch (e) {
+        debugLines.push(`otakugifs: threw ${e.name} - ${e.message}`)
+    }
+
+    if (sock && from && message) {
+        try {
+            await sock.sendMessage(from, {
+                text: `🐛 *DEBUG*\n${debugLines.join('\n')}`
+            }, { quoted: message })
+        } catch (_) {}
+    }
+    return null
+}
 
 function fetchBuffer(url, redirects = 0) {
     return new Promise((resolve, reject) => {
@@ -62,47 +93,6 @@ function fetchBuffer(url, redirects = 0) {
             res.on('error', reject)
         }).on('error', reject)
     })
-}
-
-async function getGifUrl(action, sock, from, message) {
-    const apis = []
-    if (NEKOS_BEST_ACTIONS.has(action)) {
-        apis.push({ name: 'nekos.best', url: `https://nekos.best/api/v2/${action}` })
-    }
-    apis.push({ name: 'waifu.pics', url: `https://api.waifu.pics/sfw/${action}` })
-
-    const debugLines = [`node: ${process.version}`]
-
-    for (const api of apis) {
-        try {
-            const res = await fetch(api.url, {
-                signal: AbortSignal.timeout(15000),
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            })
-            debugLines.push(`${api.name}: HTTP ${res.status}`)
-            if (!res.ok) continue
-            const json = await res.json()
-            const gifUrl = json.url || json.results?.[0]?.url
-            if (gifUrl) {
-                debugLines.push(`${api.name}: got url ✓`)
-                return gifUrl
-            }
-            debugLines.push(`${api.name}: no url in response`)
-        } catch (e) {
-            debugLines.push(`${api.name}: threw ${e.name} - ${e.message}`)
-        }
-    }
-
-    // Send debug info straight to WhatsApp so we don't depend on Render's
-    // log panel at all — this is the actual reason it's failing, in the chat.
-    if (sock && from && message) {
-        try {
-            await sock.sendMessage(from, {
-                text: `🐛 *DEBUG*\n${debugLines.join('\n')}`
-            }, { quoted: message })
-        } catch (_) {}
-    }
-    return null
 }
 
 function runFfmpeg(args) {
