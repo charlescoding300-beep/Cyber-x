@@ -64,12 +64,14 @@ function fetchBuffer(url, redirects = 0) {
     })
 }
 
-async function getGifUrl(action) {
+async function getGifUrl(action, sock, from, message) {
     const apis = []
     if (NEKOS_BEST_ACTIONS.has(action)) {
         apis.push({ name: 'nekos.best', url: `https://nekos.best/api/v2/${action}` })
     }
     apis.push({ name: 'waifu.pics', url: `https://api.waifu.pics/sfw/${action}` })
+
+    const debugLines = [`node: ${process.version}`]
 
     for (const api of apis) {
         try {
@@ -77,23 +79,29 @@ async function getGifUrl(action) {
                 signal: AbortSignal.timeout(15000),
                 headers: { 'User-Agent': 'Mozilla/5.0' }
             })
-            console.log(`[ANIME] ${api.name} status:`, res.status)
-            if (!res.ok) {
-                console.log(`[ANIME] ${api.name} non-200:`, res.status, res.statusText)
-                continue
-            }
+            debugLines.push(`${api.name}: HTTP ${res.status}`)
+            if (!res.ok) continue
             const json = await res.json()
             const gifUrl = json.url || json.results?.[0]?.url
             if (gifUrl) {
-                console.log(`[ANIME] ${api.name} success:`, gifUrl)
+                debugLines.push(`${api.name}: got url ✓`)
                 return gifUrl
             }
-            console.log(`[ANIME] ${api.name} returned no url:`, JSON.stringify(json))
+            debugLines.push(`${api.name}: no url in response`)
         } catch (e) {
-            console.log(`[ANIME] ${api.name} threw:`, e.name, '-', e.message)
+            debugLines.push(`${api.name}: threw ${e.name} - ${e.message}`)
         }
     }
-    console.log('[ANIME] all APIs failed for action:', action)
+
+    // Send debug info straight to WhatsApp so we don't depend on Render's
+    // log panel at all — this is the actual reason it's failing, in the chat.
+    if (sock && from && message) {
+        try {
+            await sock.sendMessage(from, {
+                text: `🐛 *DEBUG*\n${debugLines.join('\n')}`
+            }, { quoted: message })
+        } catch (_) {}
+    }
     return null
 }
 
@@ -165,7 +173,7 @@ const run = async ({ sock, from, message, args }) => {
 
     await sock.sendMessage(from, { react: { text: reaction.emoji, key: message.key } }).catch(() => {})
 
-    const gifUrl = await getGifUrl(action)
+    const gifUrl = await getGifUrl(action, sock, from, message)
 
     const mentions = [senderJid]
     if (targetJid) mentions.push(targetJid)
@@ -196,6 +204,9 @@ const run = async ({ sock, from, message, args }) => {
         }, { quoted: message })
     } catch (err) {
         console.error('[ANIME] gif conversion failed:', err.message)
+        try {
+            await sock.sendMessage(from, { text: `🐛 *DEBUG* mp4 conversion failed:\n${err.message}` }, { quoted: message })
+        } catch (_) {}
         try {
             await sock.sendMessage(from, { image: gifBuffer, caption, mentions }, { quoted: message })
         } catch (err2) {
