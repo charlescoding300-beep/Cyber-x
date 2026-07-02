@@ -1,4 +1,4 @@
-// commands/define.js — CYBER X Dictionary Command
+// commands/meaning.js — CYBER X Dictionary Command
 'use strict'
 
 const https = require('https')
@@ -25,25 +25,25 @@ async function fetchDefinition(word) {
 
 function formatPartOfSpeech(pos) {
   const map = {
-    noun:        '📦 *Noun*',
-    verb:        '⚡ *Verb*',
-    adjective:   '🎨 *Adjective*',
-    adverb:      '💨 *Adverb*',
-    pronoun:     '👤 *Pronoun*',
-    preposition: '🔗 *Preposition*',
-    conjunction: '🔀 *Conjunction*',
-    interjection:'😲 *Interjection*',
-    exclamation: '❗ *Exclamation*',
+    noun:         '📦 *Noun*',
+    verb:         '⚡ *Verb*',
+    adjective:    '🎨 *Adjective*',
+    adverb:       '💨 *Adverb*',
+    pronoun:      '👤 *Pronoun*',
+    preposition:  '🔗 *Preposition*',
+    conjunction:  '🔀 *Conjunction*',
+    interjection: '😲 *Interjection*',
+    exclamation:  '❗ *Exclamation*',
   }
   return map[pos?.toLowerCase()] || `📝 *${pos}*`
 }
 
 module.exports = {
   pattern:  'meaning',
-  alias:     ['',]
+  alias:    ['define', 'dict'],
   category: 'search',
   desc:     'Get the dictionary definition of any word',
-  usage:    '.define <word>',
+  usage:    '.meaning <word>',
 
   run: async ({ sock, from, msg, args, text }) => {
 
@@ -60,15 +60,15 @@ module.exports = {
 ╚═══════════════════════════╝
 
 *How to use:*
-• *.define <word>* — Get definition
+• *.meaning <word>* — Get definition
+• *.define <word>* — Also works
 • *.dict <word>* — Also works
-• *.meaning <word>* — Also works
 
 💡 *Examples:*
-  _.define love_
-  _.define intelligence_
-  _.define ephemeral_
-  _.define serendipity_
+  _.meaning love_
+  _.meaning intelligence_
+  _.meaning ephemeral_
+  _.meaning serendipity_
 
 > Supports any English word in existence!
 
@@ -160,7 +160,7 @@ ${origin ? `🌍 *Origin:* ${origin}` : ''}
 
     } catch (e) {
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      console.error('[DEFINE]', e.message)
+      console.error('[MEANING]', e.message)
 
       await sock.sendMessage(from, {
         react: { text: '❌', key: msg.key }

@@ -75,7 +75,7 @@ module.exports = {
   alias:    [],
   desc:     'Add a member to this group (admin/owner only)',
   usage:    '.add 234812345678  |  reply to someone\'s message with .add',
-  category: ['group', 'admin', 'owner'],
+  category: 'group',
 
   async run({ sock, from, msg, args, isAdmin, isOwner, isGroup }) {
     if (!isGroup) {
@@ -119,7 +119,7 @@ module.exports = {
     try {
       results = await sock.groupParticipantsUpdate(from, [target], 'add')
     } catch (e) {
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: ' ❌', key: msg.key } }).catch(() => {})
       return sock.sendMessage(from, {
         text: `❌ Couldn't add *${target.split('@')[0]}* — ${e.message}`,
       }, { quoted: msg }).catch(() => {})
@@ -131,7 +131,7 @@ module.exports = {
 
     // ── ✅ Success ──────────────────────────────────────────────────────────
     if (status === '200' || status === 200) {
-      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: ' ✅', key: msg.key } }).catch(() => {})
       return sock.sendMessage(from, {
         text: `✅ Added *${num}* to the group.`,
       }, { quoted: msg }).catch(() => {})
@@ -139,7 +139,7 @@ module.exports = {
 
     // ── ❗ Privacy-blocked — send invite link directly to the person ───────
     if (status === '403' || status === 403) {
-      await sock.sendMessage(from, { react: { text: '❗', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: ' ❗', key: msg.key } }).catch(() => {})
 
       let inviteSent = false
       try {
