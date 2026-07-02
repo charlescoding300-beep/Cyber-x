@@ -133,30 +133,93 @@
   .waking-banner { display:none;border:1px solid var(--yellow);background:#0f0a00;padding:10px 14px;margin-bottom:10px;font-size:10px;color:var(--yellow);letter-spacing:1px;text-align:center; }
   .waking-banner.show { display:block; }
 
-  /* ══ GLOBAL CAPACITY COUNTER — top of page ══ */
-  .global-counter {
-    position:sticky;top:0;z-index:101;
-    background:#000;border-bottom:2px solid var(--g);
-    padding:8px 16px;text-align:center;
-    font-family:'Orbitron',monospace;
-  }
-  .global-counter-val {
-    font-size:clamp(18px,5vw,28px);font-weight:900;letter-spacing:4px;
-    color:var(--g);text-shadow:0 0 14px var(--g),0 0 28px var(--dg);
-  }
-  .global-counter-val.glitch-pulse {
-    animation: counterGlitch 0.18s steps(2,end) 1;
-  }
-  @keyframes counterGlitch {
-    0%   { transform:translateX(0); color:var(--g); text-shadow:0 0 14px var(--g); }
-    30%  { transform:translateX(-2px); color:var(--cyan); text-shadow:-2px 0 var(--red),2px 0 var(--cyan); }
-    60%  { transform:translateX(2px); color:var(--red); text-shadow:2px 0 var(--cyan),-2px 0 var(--red); }
-    100% { transform:translateX(0); color:var(--g); text-shadow:0 0 14px var(--g); }
-  }
+  /* ══ GLOBAL CAPACITY COUNTER ══ */
+  .global-counter { position:sticky;top:0;z-index:101;background:#000;border-bottom:2px solid var(--g);padding:8px 16px;text-align:center;font-family:'Orbitron',monospace; }
+  .global-counter-val { font-size:clamp(18px,5vw,28px);font-weight:900;letter-spacing:4px;color:var(--g);text-shadow:0 0 14px var(--g),0 0 28px var(--dg); }
+  .global-counter-val.glitch-pulse { animation: counterGlitch 0.18s steps(2,end) 1; }
+  @keyframes counterGlitch { 0%{transform:translateX(0);color:var(--g);}30%{transform:translateX(-2px);color:var(--cyan);}60%{transform:translateX(2px);color:var(--red);}100%{transform:translateX(0);color:var(--g);} }
   .global-counter-label { font-size:8px;color:var(--ddg);letter-spacing:3px;text-transform:uppercase;margin-top:2px; }
+
+  /* ══ TOTAL USERS BANNER ══ */
+  .total-users-banner {
+    background: linear-gradient(90deg, #000800, #001200, #000800);
+    border-top: 1px solid var(--ddg);
+    border-bottom: 1px solid var(--ddg);
+    padding: 10px 16px;
+    text-align: center;
+    font-family: 'Orbitron', monospace;
+  }
+  .total-users-val {
+    font-size: clamp(20px,5vw,30px);
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 16px var(--cyan), 0 0 32px #00bfff;
+    letter-spacing: 6px;
+  }
+  .total-users-label { font-size: 8px; color: var(--ddg); letter-spacing: 3px; margin-top: 2px; }
 
   /* ══ TYPEWRITER ══ */
   .typewriter-cursor { display:inline-block;width:2px;background:var(--g);margin-left:2px;animation:blink 0.7s step-end infinite; }
+
+  /* ══ WHATSAPP GATE ══ */
+  #wa-gate {
+    border: 1px solid #1a4a1a;
+    background: #000d00;
+    padding: 20px;
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .wa-gate-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    color: var(--g);
+    letter-spacing: 3px;
+    margin-bottom: 6px;
+  }
+  .wa-gate-sub {
+    font-size: 10px;
+    color: var(--ddg);
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+  .wa-join-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #075e54;
+    border: 1px solid #25d366;
+    color: #fff;
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 12px 20px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-decoration: none;
+    transition: background 0.2s, box-shadow 0.2s;
+    margin-bottom: 14px;
+  }
+  .wa-join-btn:hover { background: #128c7e; box-shadow: 0 0 16px rgba(37,211,102,0.3); }
+  #wa-confirm-btn {
+    display: none;
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--g);
+    color: var(--g);
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 11px;
+    cursor: pointer;
+    letter-spacing: 3px;
+    transition: background 0.2s;
+    margin-top: 4px;
+  }
+  #wa-confirm-btn:hover { background: rgba(0,255,65,0.07); }
+  .wa-gate-timer { font-size: 10px; color: var(--ddg); letter-spacing: 2px; margin-top: 8px; min-height: 16px; }
+  #pair-form-locked { display: none; }
+  #pair-form-unlocked { display: none; }
 </style>
 </head>
 <body>
@@ -187,6 +250,10 @@
       <div class="hero-stats">
         <div class="hero-stat"><div class="hero-stat-val" id="stat-bots">—</div><div class="hero-stat-label">BOTS ONLINE</div></div>
         <div class="hero-stat"><div class="hero-stat-val" id="stat-sessions">—</div><div class="hero-stat-label">SESSIONS</div></div>
+        <div class="hero-stat">
+          <div class="hero-stat-val" id="stat-total-users" style="color:var(--cyan);text-shadow:0 0 10px var(--cyan);">—</div>
+          <div class="hero-stat-label">TOTAL USERS EVER</div>
+        </div>
         <div class="hero-stat"><div class="hero-stat-val">v2.0</div><div class="hero-stat-label">VERSION</div></div>
         <div class="hero-stat"><div class="hero-stat-val">NG</div><div class="hero-stat-label">REGION</div></div>
       </div>
@@ -197,6 +264,13 @@
         <span class="terminal-line">STATUS: OPERATIONAL <span class="blink">█</span></span>
       </div>
     </div>
+
+    <!-- TOTAL USERS BANNER -->
+    <div class="total-users-banner">
+      <div class="total-users-val" id="home-total-users">—</div>
+      <div class="total-users-label">📡 WHATSAPP ACCOUNTS EVER LINKED TO CYBER X</div>
+    </div>
+
     <div class="menu-section">
       <div class="menu-title">▸ SELECT MODULE TO INITIALIZE</div>
       <div class="menu-grid">
@@ -210,6 +284,7 @@
     <div class="footer"><div class="footer-name">𝕮𝖄𝕭𝙀𝙍 𝖃</div><div class="footer-rights">CREATED BY CHARLES CHUKWU — ALL RIGHTS RESERVED © 2025</div></div>
   </div>
 
+  <!-- PAIRING PAGE -->
   <div id="page-pairing" class="page">
     <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">📱 PAIRING CODE</div></div>
     <div class="page-content">
@@ -221,31 +296,62 @@
         <div class="info-row"><span class="info-label">Redis Storage</span><span class="info-val"><span id="redis-status-icon">⟳</span> <span id="redis-status-text">Checking...</span></span></div>
         <div class="info-row"><span class="info-label">Active Bots</span><span class="info-val"><span id="pair-active-bots" class="ok">—</span></span></div>
         <div class="info-row"><span class="info-label">Pairing Slot</span><span class="info-val"><span id="pair-slot-display" class="ok">Auto-assign</span></span></div>
+        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val"><span id="pair-total-users" class="ok" style="color:var(--cyan)">—</span></span></div>
       </div>
-      <div class="pair-box">
-        <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
-        <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Enter your WhatsApp number with country code</div>
-        <input class="pair-input" id="phone-input" type="tel" placeholder="234XXXXXXXXXX" maxlength="15"/>
-        <button class="pair-btn" id="pair-btn" onclick="requestPairCode()">▶ GENERATE PAIRING CODE</button>
-        <div class="pair-code-wrap" id="pair-code-wrap">
-          <div class="pair-code-display" id="pair-code-display"></div>
-          <button class="copy-btn" id="copy-btn" onclick="copyPairCode()">COPY</button>
+
+      <!-- ══ WHATSAPP CHANNEL GATE ══ -->
+      <div id="wa-gate">
+        <div class="wa-gate-title">⚡ STEP 1 — JOIN OUR CHANNEL</div>
+        <div class="wa-gate-sub">
+          You must join the official CYBER X WhatsApp channel<br>
+          before you can generate a pairing code.
         </div>
-        <div id="pair-status" style="font-size:11px;color:var(--ddg);margin-top:8px;letter-spacing:1px;"></div>
+        <a id="wa-join-link" href="https://whatsapp.com/channel/0029VbDYRQyLtOj9bPbEGt2p" target="_blank" class="wa-join-btn" onclick="onJoinClick()">
+          <svg width="18" height="18" viewBox="0 0 32 32" fill="#25d366"><path d="M16 0C7.163 0 0 7.163 0 16c0 2.82.733 5.47 2.018 7.77L0 32l8.466-2.22A15.93 15.93 0 0016 32c8.837 0 16-7.163 16-16S24.837 0 16 0zm0 29.25a13.22 13.22 0 01-6.74-1.847l-.484-.287-5.025 1.32 1.341-4.9-.316-.502A13.19 13.19 0 012.75 16C2.75 8.682 8.682 2.75 16 2.75S29.25 8.682 29.25 16 23.318 29.25 16 29.25zm7.27-9.87c-.398-.2-2.355-1.162-2.72-1.294-.365-.133-.63-.2-.895.2-.265.398-1.028 1.294-1.26 1.56-.232.265-.464.298-.862.1-.398-.2-1.68-.619-3.2-1.975-1.183-1.055-1.982-2.358-2.213-2.756-.232-.398-.025-.613.174-.812.179-.178.398-.464.597-.696.2-.232.265-.398.398-.663.133-.265.066-.497-.033-.696-.1-.2-.895-2.158-1.227-2.954-.323-.775-.65-.67-.895-.682l-.762-.013c-.265 0-.696.1-1.061.497-.365.398-1.393 1.36-1.393 3.317s1.427 3.846 1.626 4.112c.2.265 2.808 4.285 6.803 6.01.951.41 1.692.655 2.27.838.953.303 1.82.26 2.506.158.764-.114 2.355-.963 2.688-1.893.332-.93.332-1.727.232-1.893-.1-.166-.365-.265-.763-.464z"/></svg>
+          JOIN CYBER X CHANNEL
+        </a>
+        <div class="wa-gate-timer" id="wa-gate-timer"></div>
+        <button id="wa-confirm-btn" onclick="unlockPairForm()">✅ I'VE JOINED — CONTINUE ▶</button>
       </div>
-      <div class="pair-warning">⚠ SECURITY NOTICE: Pairing codes expire in 60 seconds. Never share your code with anyone. CYBER X will never ask for your password.</div>
-      <div class="section-divider">HOW TO PAIR</div>
-      <div class="info-card">
-        <div class="pair-steps">
-          <div>> Enter your number above (with country code, no + or spaces)</div>
-          <div>> Tap GENERATE PAIRING CODE</div>
-          <div>> Open WhatsApp on your phone</div>
-          <div>> Go to Settings → Linked Devices</div>
-          <div>> Tap "Link with phone number"</div>
-          <div>> Enter the 8-digit code shown above (or tap COPY)</div>
-          <div>> Wait for CYBER X to confirm connection ✅</div>
+
+      <!-- PAIR FORM — locked until gate passed -->
+      <div id="pair-form-locked" style="opacity:0.3;pointer-events:none;filter:blur(2px);">
+        <div class="pair-box">
+          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
+          <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Join the channel above first to unlock</div>
+          <input class="pair-input" type="tel" placeholder="234XXXXXXXXXX" disabled/>
+          <button class="pair-btn" disabled>▶ LOCKED — JOIN CHANNEL FIRST</button>
         </div>
       </div>
+
+      <!-- PAIR FORM — unlocked -->
+      <div id="pair-form-unlocked">
+        <div class="pair-box">
+          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
+          <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Enter your WhatsApp number with country code</div>
+          <input class="pair-input" id="phone-input" type="tel" placeholder="234XXXXXXXXXX" maxlength="15"/>
+          <button class="pair-btn" id="pair-btn" onclick="requestPairCode()">▶ GENERATE PAIRING CODE</button>
+          <div class="pair-code-wrap" id="pair-code-wrap">
+            <div class="pair-code-display" id="pair-code-display"></div>
+            <button class="copy-btn" id="copy-btn" onclick="copyPairCode()">COPY</button>
+          </div>
+          <div id="pair-status" style="font-size:11px;color:var(--ddg);margin-top:8px;letter-spacing:1px;"></div>
+        </div>
+        <div class="pair-warning">⚠ SECURITY NOTICE: Pairing codes expire in 60 seconds. Never share your code with anyone. CYBER X will never ask for your password.</div>
+        <div class="section-divider">HOW TO PAIR</div>
+        <div class="info-card">
+          <div class="pair-steps">
+            <div>> Enter your number above (with country code, no + or spaces)</div>
+            <div>> Tap GENERATE PAIRING CODE</div>
+            <div>> Open WhatsApp on your phone</div>
+            <div>> Go to Settings → Linked Devices</div>
+            <div>> Tap "Link with phone number"</div>
+            <div>> Enter the 8-digit code shown above (or tap COPY)</div>
+            <div>> Wait for CYBER X to confirm connection ✅</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -274,7 +380,7 @@
       <div class="info-card">
         <div class="info-card-title">⬣ ABOUT SERVERS</div>
         <div style="font-size:11px;color:#9adb9a;line-height:1.6;letter-spacing:0.5px;">
-          <span class="ok" id="servers-count">—</span> server slots active, each holding up to <span class="ok" id="servers-capacity">—</span> sessions. Tap a box to pair into that specific slot — if it's full, you'll be moved to the next available one automatically. Slot count updates live, so adding more capacity later shows up here automatically.
+          <span class="ok" id="servers-count">—</span> server slots active, each holding up to <span class="ok" id="servers-capacity">—</span> sessions. Tap a box to pair into that specific slot — if it's full, you'll be moved to the next available one automatically.
         </div>
       </div>
       <div class="servers-grid" id="servers-grid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⟳ LOADING SERVERS...</div></div>
@@ -295,6 +401,7 @@
         <div class="info-row"><span class="info-label">Active Bots</span><span class="info-val" id="p-bots">—</span></div>
         <div class="info-row"><span class="info-label">Commands Loaded</span><span class="info-val" id="p-cmds">—</span></div>
         <div class="info-row"><span class="info-label">Uptime</span><span class="info-val" id="p-uptime">—</span></div>
+        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val" id="p-total-users" style="color:var(--cyan)">—</span></div>
       </div>
       <div class="info-card"><div class="info-card-title">📡 LIVE SERVICES</div>
         <div class="info-row"><span class="info-label">WhatsApp Gateway</span><span class="info-val" id="svc-wa">⟳ Checking</span></div>
@@ -307,8 +414,8 @@
       <div class="info-card"><div class="info-card-title">🌍 SESSION NETWORK</div>
         <div class="info-row"><span class="info-label">Active Sessions</span><span class="info-val" id="n-active">—</span></div>
         <div class="info-row"><span class="info-label">Total Registered</span><span class="info-val" id="n-reg">—</span></div>
+        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val" id="n-total" style="color:var(--cyan)">—</span></div>
         <div class="info-row"><span class="info-label">Memory Usage</span><span class="info-val" id="n-mem">—</span></div>
-        <div class="info-row"><span class="info-label">Platform</span><span class="info-val">Render Free Tier</span></div>
         <div class="info-row"><span class="info-label">Region</span><span class="info-val">Nigeria (NG)</span></div>
       </div>
     </div>
@@ -336,6 +443,7 @@
 </div>
 
 <script>
+// ══ MATRIX BACKGROUND ══
 (function(){
   const c=document.getElementById('matrix'),ctx=c.getContext('2d');
   let W,H,cols,drops;
@@ -353,6 +461,7 @@
   },40);
 })();
 
+// ══ ACCESS SCREEN ══
 (function(){
   const ac=document.getElementById('access-canvas'),ctx=ac.getContext('2d');
   ac.width=window.innerWidth;ac.height=window.innerHeight;
@@ -378,7 +487,7 @@
     if(progress>=100){ clearInterval(interval);clearInterval(anim);
       setTimeout(()=>{ label.style.display='none';document.querySelector('.access-bar-wrap').style.display='none';granted.style.display='block';
         setTimeout(()=>{ screen.style.transition='opacity 0.5s';screen.style.opacity='0';
-          setTimeout(()=>{ screen.style.display='none';document.getElementById('app').style.display='block';startServices();handleDeepLink();startTypewriter();startGlobalCounter(); },500); },800); },200); }
+          setTimeout(()=>{ screen.style.display='none';document.getElementById('app').style.display='block';startServices();handleDeepLink();startTypewriter();startGlobalCounter();loadTotalUsers(); },500); },800); },200); }
   },60);
 })();
 
@@ -408,7 +517,7 @@ function enterSection(name){
         setTimeout(()=>{ screen.style.display='none';screen.style.transition='';showPage(name);
           if(name==='session')loadSessions();
           if(name==='panel')loadPanel();
-          if(name==='pairing')checkPairingStatus();
+          if(name==='pairing'){ checkPairingStatus(); initGate(); }
           if(name==='servers')loadServers();
         },400); },600); }
   },40);
@@ -416,6 +525,76 @@ function enterSection(name){
 function showPage(name){ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('page-'+name).classList.add('active');currentPage=name; }
 function goHome(){ showPage('home'); }
 
+// ══ WHATSAPP CHANNEL GATE ══
+const WA_CHANNEL = 'https://whatsapp.com/channel/0029VbDYRQyLtOj9bPbEGt2p';
+const GATE_KEY   = 'cyberx_wa_joined';
+
+function initGate(){
+  // If already confirmed before, skip gate
+  if(localStorage.getItem(GATE_KEY) === '1'){
+    showPairForm(); return;
+  }
+  // Show locked form preview and gate
+  document.getElementById('pair-form-locked').style.display = 'block';
+  document.getElementById('wa-gate').style.display = 'block';
+}
+
+let waitingForReturn = false;
+function onJoinClick(){
+  const timerEl = document.getElementById('wa-gate-timer');
+  const confirmBtn = document.getElementById('wa-confirm-btn');
+  waitingForReturn = true;
+  timerEl.textContent = '⏳ Complete the join in the new tab, then come back here...';
+  confirmBtn.style.display = 'none';
+}
+
+// ── Detect return to this tab after visiting the WhatsApp channel ──────────
+// Uses the Page Visibility API: fires when the browser tab regains focus
+// after being backgrounded (i.e. user switched to WhatsApp and came back).
+function handleTabReturn(){
+  if(!waitingForReturn) return;
+  const timerEl = document.getElementById('wa-gate-timer');
+  const confirmBtn = document.getElementById('wa-confirm-btn');
+  timerEl.textContent = '✅ Welcome back! Tap below to continue.';
+  confirmBtn.style.display = 'block';
+  waitingForReturn = false;
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') handleTabReturn();
+});
+window.addEventListener('focus', handleTabReturn);
+
+function unlockPairForm(){
+  try{ localStorage.setItem(GATE_KEY, '1'); }catch{}
+  document.getElementById('wa-gate').style.display = 'none';
+  document.getElementById('pair-form-locked').style.display = 'none';
+  showPairForm();
+}
+
+function showPairForm(){
+  document.getElementById('wa-gate').style.display = 'none';
+  document.getElementById('pair-form-locked').style.display = 'none';
+  document.getElementById('pair-form-unlocked').style.display = 'block';
+}
+
+// ══ TOTAL USERS COUNTER ══
+// Reads from /api/stats which your server.js should expose.
+// Falls back gracefully if not yet implemented.
+async function loadTotalUsers(){
+  try{
+    const r = await fetch('/api/stats', { signal: AbortSignal.timeout(8000) });
+    if(!r.ok) return;
+    const d = await r.json();
+    const total = d.totalUsers ?? d.total_users ?? d.totalPaired ?? null;
+    if(total === null) return;
+    const fmt = Number(total).toLocaleString();
+    // Update all counter elements
+    const ids = ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'];
+    ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent = fmt; });
+  }catch{}
+}
+
+// ══ DEEP LINK ══
 let preselectedSlot = null;
 function handleDeepLink(){
   const path = window.location.pathname;
@@ -429,14 +608,9 @@ function handleDeepLink(){
 
 let hasWokenUp = false;
 async function pingService(path,cb,timeoutMs=8000){
-  // Never throws/surfaces to caller — always resolves via cb(bool).
   try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});cb(r.ok); }catch{cb(false);}
 }
 async function fetchData(path,cb,timeoutMs=8000){
-  // Silently degrades on any failure — callers should treat a null
-  // payload as "show a neutral placeholder", never raise a visible
-  // error to the visitor. Ordinary users should never see a stack
-  // trace or fetch error; only an internal owner/dev needs that.
   try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});if(r.ok)cb(await r.json());else cb(null); }catch{cb(null);}
 }
 async function warmUpServer(){
@@ -448,54 +622,36 @@ async function warmUpServer(){
   return hasWokenUp;
 }
 
-/* ══ TYPEWRITER — "Welcome to CYBER X dashboard" ══ */
+// ══ TYPEWRITER ══
 function startTypewriter(){
   const el = document.getElementById('typewriter-text');
   if(!el) return;
   const text = 'Welcome to CYBER X dashboard';
-  let i = 0;
-  el.textContent = '';
-  const speed = 55;
+  let i = 0; el.textContent = '';
   function tick(){
-    if(i <= text.length){
-      el.textContent = text.slice(0, i);
-      i++;
-      setTimeout(tick, speed);
-    } else {
-      // brief pause, then restart for a looping terminal feel
-      setTimeout(()=>{ i=0; tick(); }, 3000);
-    }
+    if(i <= text.length){ el.textContent = text.slice(0,i); i++; setTimeout(tick,55); }
+    else { setTimeout(()=>{ i=0; tick(); }, 3000); }
   }
   tick();
 }
 
-/* ══ GLOBAL SESSION COUNTER — X / (slotCount * capacity), glitch pulse ══ */
+// ══ GLOBAL SESSION COUNTER ══
 async function startGlobalCounter(){
   await updateGlobalCounter();
   setInterval(updateGlobalCounter, 10000);
-  // periodic glitch flicker on the number itself, independent of when
-  // the value actually changes — purely a visual hacker-terminal effect
   setInterval(()=>{
     const el = document.getElementById('global-counter-val');
     if(!el) return;
-    el.classList.remove('glitch-pulse');
-    // restart animation
-    void el.offsetWidth;
-    el.classList.add('glitch-pulse');
+    el.classList.remove('glitch-pulse'); void el.offsetWidth; el.classList.add('glitch-pulse');
   }, 2600);
 }
 async function updateGlobalCounter(){
   fetchData('/api/slots', d => {
     const el = document.getElementById('global-counter-val');
     if(!el) return;
-    if(!d || !Array.isArray(d.slots)){
-      // Never show an error to the visitor — just hold the last known
-      // value, or a neutral placeholder if we have nothing yet.
-      if(el.textContent.trim() === '' || el.textContent.includes('—')) el.textContent = '— / —';
-      return;
-    }
-    const totalConnected = d.slots.reduce((sum, s) => sum + (s.connected || 0), 0);
-    const totalCapacity  = (d.capacity || 50) * (d.slotCount || d.slots.length);
+    if(!d || !Array.isArray(d.slots)){ if(el.textContent.includes('—')) el.textContent='— / —'; return; }
+    const totalConnected = d.slots.reduce((sum,s)=>sum+(s.connected||0),0);
+    const totalCapacity  = (d.capacity||50)*(d.slotCount||d.slots.length);
     el.textContent = totalConnected + ' / ' + totalCapacity;
   });
 }
@@ -516,6 +672,8 @@ async function startServices(){
     document.getElementById('wa-status-icon').textContent='✅';document.getElementById('wa-status-text').textContent='Online';
     document.getElementById('svc-backup').innerHTML='<span class="ok">✅ Active</span>';
     document.getElementById('sec-backup').innerHTML='<span class="ok">✅ Verified</span>';
+    // also pull totalUsers if returned in health
+    if(d.totalUsers){ const fmt=Number(d.totalUsers).toLocaleString(); ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=fmt;}); }
   });
   pingService('/health',ok=>{
     if(!ok){
@@ -538,6 +696,8 @@ async function startServices(){
     }
   });
   setInterval(()=>{ if(currentPage==='servers') loadServers(); }, 15000);
+  // refresh total users every 30s
+  setInterval(loadTotalUsers, 30000);
 }
 
 async function checkPairingStatus(){
@@ -555,6 +715,7 @@ async function checkPairingStatus(){
   });
 }
 
+// ══ PAIR CODE ══
 async function requestPairCode(){
   const phone=document.getElementById('phone-input').value.trim().replace(/\D/g,'');
   const btn=document.getElementById('pair-btn');
@@ -577,6 +738,10 @@ async function requestPairCode(){
       document.getElementById('copy-btn').classList.remove('copied');
       let slotMsg=data.slot?(' Assigned to Server '+data.slot+'.'):'';
       status.innerHTML='<span class="ok">✅ Code generated!'+slotMsg+' Enter it in WhatsApp within 60 seconds.</span>';
+      // increment total users counter on server
+      try{ await fetch('/api/stats/increment', { method:'POST' }); }catch{}
+      // refresh counter display
+      setTimeout(loadTotalUsers, 1000);
     } else {
       status.innerHTML='<span class="fail">❌ '+(data.message||data.error||'Could not generate code. Try again.')+'</span>';
     }
@@ -592,19 +757,18 @@ function copyPairCode(){
   const code=display.textContent.trim();
   if(!code)return;
   const done=()=>{ btn.textContent='✓ COPIED';btn.classList.add('copied');setTimeout(()=>{btn.textContent='COPY';btn.classList.remove('copied');},2000); };
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(code).then(done).catch(()=>{ fallbackCopy(code,done); });
-  } else { fallbackCopy(code,done); }
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(code).then(done).catch(()=>{ fallbackCopy(code,done); }); }
+  else { fallbackCopy(code,done); }
 }
 function fallbackCopy(text,done){
   const ta=document.createElement('textarea');
   ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
   document.body.appendChild(ta);ta.select();
   try{ document.execCommand('copy'); }catch{}
-  document.body.removeChild(ta);
-  done();
+  document.body.removeChild(ta); done();
 }
 
+// ══ SESSIONS ══
 async function loadSessions(){
   const wrap=document.getElementById('session-cards');
   wrap.innerHTML='<div style="text-align:center;padding:20px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⟳ CONNECTING TO SESSIONS...</div>';
@@ -621,7 +785,7 @@ async function loadSessions(){
       const lastSeen=s.lastSeen||s.last_seen||'—';
       const backup=s.backup||s.redisBackup||s.redis||false;
       return `<div class="info-card" style="margin-bottom:10px;"><div class="info-card-title">💾 SESSION: ${phone}</div>
-        <div class="info-row"><span class="info-label">Connected</span><span class="info-val">${connected?'<span class="ok">✅ Yes</span>':'<span class="fail"> ❌ No</span>'}</span></div>
+        <div class="info-row"><span class="info-label">Connected</span><span class="info-val">${connected?'<span class="ok">✅ Yes</span>':'<span class="fail">❌ No</span>'}</span></div>
         <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${phone}</span></div>
         <div class="info-row"><span class="info-label">Status</span><span class="info-val"><span class="${connected?'ok':'fail'}">${status}</span></span></div>
         <div class="info-row"><span class="info-label">Last Seen</span><span class="info-val">${lastSeen}</span></div>
@@ -633,6 +797,7 @@ async function loadSessions(){
   }
 }
 
+// ══ SERVERS ══
 async function loadServers(){
   const wrap=document.getElementById('servers-grid');
   try{
@@ -683,44 +848,23 @@ function loadPanel(){
       document.getElementById('svc-backup').innerHTML='<span class="ok">✅ Active</span>';
       document.getElementById('svc-redis').innerHTML='<span class="ok">✅ Online</span>';
       document.getElementById('sec-backup').innerHTML='<span class="ok">✅ Verified</span>';
+      if(d.totalUsers){ const fmt=Number(d.totalUsers).toLocaleString(); ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=fmt;}); }
     }
   });
 }
 
+// ══ SHIVAN AI ══
 const SYSTEM_PROMPT=`You are Shivan — the AI assistant built into CYBER X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (charlescoding300).
+ABOUT CYBER X: Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys). Hosted on Render. Uses Upstash Redis for session persistence. Features: multi-session management, AI responses, antilink, welcome/goodbye, music/video download, Pokémon, slot machine, admin commands, sticker maker, antidelete, and more. Developer: Charles Chukwu, Nigeria.
+YOUR JOB: General-purpose conversational AI. Chat about anything. When asked about CYBER X or pairing, answer with the details above. Be honest about uncertainty. Match response length to what's needed.
+PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about CYBER X.`;
 
-ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated chat):
-- Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys)
-- Hosted on Render at https://cyber-x-y8yv.onrender.com
-- Uses Upstash Redis for session persistence and backups
-- Features: multi-session management, AI responses, antilink protection, welcome/goodbye messages, music/video download, Pokémon card game, slot machine, admin commands, sticker maker, auto-typing, auto-recording, anti-bad-word, antidelete, dynamic multi-server slot system, and more
-- Developer: Charles Chukwu — a skilled bot developer from Nigeria
-
-YOUR JOB:
-- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics. Chat about anything — jokes, advice, random questions, whatever.
-- When asked specifically about CYBER X or pairing, answer using the details above.
-- You remember earlier parts of this conversation across visits — use that naturally, like a friend who remembers, without making a big deal of it.
-- Be honest about uncertainty, especially for time-sensitive things — you don't have live internet access.
-- Match response length to what's actually needed — quick banter gets a quick reply.
-
-PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who happens to know everything about CYBER X.`;
-
-let chatHistory=[];
-let aiThinking=false;
-
-// ══ PERSISTENT BROWSER ID — used as the memory key server-side ══
-// No phone number required to chat with Shivan; a random ID stored in
-// localStorage gives the same person continuity across separate visits
-// without forcing any identity info out of them.
+let chatHistory=[],aiThinking=false;
 function getBrowserId(){
-  let id = localStorage.getItem('cyberx_browser_id');
-  if(!id){
-    id = 'b_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-    try{ localStorage.setItem('cyberx_browser_id', id); }catch{}
-  }
+  let id=localStorage.getItem('cyberx_browser_id');
+  if(!id){ id='b_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12); try{localStorage.setItem('cyberx_browser_id',id);}catch{} }
   return id;
 }
-
 function handleAIKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIMessage();} }
 async function sendAIMessage(){
   if(aiThinking)return;
@@ -736,11 +880,7 @@ async function sendAIMessage(){
   scrollChat();
   try{
     const messages=chatHistory.slice(-10).map(m=>({role:m.role,content:m.content}));
-    const r=await fetch('/api/ai/chat',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:text,history:messages,systemPrompt:SYSTEM_PROMPT,browserId:getBrowserId()}),
-      signal:AbortSignal.timeout(40000)
-    });
+    const r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:messages,systemPrompt:SYSTEM_PROMPT,browserId:getBrowserId()}),signal:AbortSignal.timeout(40000)});
     const data=await r.json();
     const reply=data.reply||data.response||'System error. Please try again.';
     chatHistory.push({role:'assistant',content:reply});

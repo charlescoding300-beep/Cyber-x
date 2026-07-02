@@ -281,7 +281,7 @@ setInterval(() => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMMAND REGISTRY — supports BOTH formats:
-//   OLD: { pattern: 'name', alias: [...] , run }
+//   OLD: { pattern: 'name', alias: [...], run }
 //   NEW: { name: 'name', aliases: [...], run }
 // ─────────────────────────────────────────────────────────────────────────────
 const registry = { map: new Map(), list: [], details: [], aliases: new Map() }
@@ -307,7 +307,6 @@ function loadFile(file) {
     }
     if (!isValidCmd(mod)) return false
 
-    // ── Support both naming styles ──
     const cmdName = mod.name || mod.pattern
     const key     = toKey(cmdName)
     registry.map.set(key, mod)
@@ -515,7 +514,9 @@ function loadMetaPhones() {
   return []
 }
 
-// ─── Ordinary (non-command) message side effects ──────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDINARY MESSAGE SIDE EFFECTS
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleOrdinaryMessage(state, sock, msg, from) {
   const s = state.settings
   if (s.get("autoTyping")) {
@@ -729,7 +730,7 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
-  // ── GLOBAL BAN CHECK — blocks banned users from ALL commands ──
+  // ── GLOBAL BAN CHECK ──────────────────────────────────────────────────────
   if (!fromMe && typeof global.__isBanned === 'function') {
     const sessionPhone = normalizeNum(sock.user?.id || '')
     const senderPhone  = normalizeNum(sender || from)
@@ -776,7 +777,6 @@ async function handleMessage(state, sock, msg) {
 
   try {
     await command.run({
-      // ── Both param names available: old commands use `msg`, new ones use `message` ──
       sock, from, msg, message: msg, sender, args,
       text: rest, full: body,
       commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
@@ -795,7 +795,7 @@ async function handleMessage(state, sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BOT START
+// BOT START — FIXED PAIRING CODE LOGIC
 // ─────────────────────────────────────────────────────────────────────────────
 async function startBot(phone) {
   let state = sessions.get(phone)
@@ -845,10 +845,7 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // GROUP WATCHDOG — detects joins/leaves, logs to terminal, sends
-  // welcome/goodbye messages using welcome.js / goodbye.js settings
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── GROUP WATCHDOG ────────────────────────────────────────────────────────
   sock.ev.on("group-participants.update", async (update) => {
     let meta = null
     try {
@@ -874,7 +871,6 @@ async function startBot(phone) {
     for (const participantJid of participants) {
       const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
 
-      // ── Terminal watchdog log — always fires regardless of welcome/goodbye settings ──
       const actionLabel = {
         add:     "🟢 JOINED",
         remove:  "🔴 LEFT",
@@ -886,7 +882,6 @@ async function startBot(phone) {
 
       if (action !== "add" && action !== "remove") continue
 
-      // ── Welcome/Goodbye message sending ──
       try {
         const welcomeCmd = require('./commands/welcome.js')
         const goodbyeCmd = require('./commands/goodbye.js')
@@ -897,7 +892,7 @@ async function startBot(phone) {
           pushName = contact?.notify || contact?.name || ""
         } catch {}
 
-        const type = action === "add" ? "welcome" : "goodbye"
+        const type      = action === "add" ? "welcome" : "goodbye"
         const cmdModule = type === "welcome" ? welcomeCmd : goodbyeCmd
 
         const greetData = cmdModule.loadGreet(phone, groupId)
@@ -922,19 +917,12 @@ async function startBot(phone) {
         try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
 
         if (ppUrl) {
-          await sock.sendMessage(groupId, {
-            image:    { url: ppUrl },
-            caption:  text,
-            mentions: [participantJid],
-          })
+          await sock.sendMessage(groupId, { image: { url: ppUrl }, caption: text, mentions: [participantJid] })
         } else {
-          await sock.sendMessage(groupId, {
-            text,
-            mentions: [participantJid],
-          })
+          await sock.sendMessage(groupId, { text, mentions: [participantJid] })
         }
 
-        console.log(`[WATCHDOG:${phone}] ${type === "welcome" ? "👋 Sent welcome" : "👣 Sent goodbye"} message for ${memberPhone} in ${groupName}`)
+        console.log(`[WATCHDOG:${phone}] ${type === "welcome" ? "👋 Sent welcome" : "👣 Sent goodbye"} for ${memberPhone} in ${groupName}`)
 
       } catch (e) {
         console.error(`[WATCHDOG:${phone}] send error for ${memberPhone}:`, e.message)
@@ -942,60 +930,38 @@ async function startBot(phone) {
     }
   })
 
+  // ── PAIRING CODE — FIXED ──────────────────────────────────────────────────
+  // Rules:
+  //   1. Only when creds are NOT registered yet
+  //   2. Fire ONLY on connection === "connecting", never on qr
+  //   3. 3s delay so Baileys finishes internal handshake before we request
+  //   4. Single-fire guard per startBot() call
+  // ─────────────────────────────────────────────────────────────────────────
   let pairingCodeRequested = false
-  if (!authState.creds.registered) {
-    sock.ev.on("connection.update", async (update) => {
-      const { connection, qr } = update
-      if (pairingCodeRequested) return
-      if (connection === "connecting" || !!qr) {
-        pairingCodeRequested = true
-        const number = phone.replace(/\D/g, "")
-        try {
-          const code = await sock.requestPairingCode(number)
-          console.log(`[${phone}] 📱 PAIRING CODE: ${code}`)
-          state.pairingCode = code
-        } catch (e) {
-          console.error(`[${phone}] PAIR ERR:`, e.message)
-          pairingCodeRequested = false
-        }
-      }
-    })
-  }
 
-  if (typeof lib.setSocket      === "function") lib.setSocket(sock)
-  if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update
 
-  try { lib.groupParticipants?.setStore?.({ groupMetadata: state.groupCache }) } catch {}
-
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return
-    for (const m of messages) {
-      const ts = Number(m.messageTimestamp) || 0
-      if (ts < BOT_START - 15) continue
-      if (m.key.remoteJid === "status@broadcast") {
-        handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
-        continue
+    if (
+      !authState.creds.registered &&
+      !pairingCodeRequested &&
+      connection === "connecting" &&
+      !qr
+    ) {
+      pairingCodeRequested = true
+      const number = phone.replace(/\D/g, "")
+      try {
+        await new Promise(r => setTimeout(r, 3000))
+        const code = await sock.requestPairingCode(number)
+        state.pairingCode = code
+        console.log(`[${phone}] 📱 PAIRING CODE: ${code}`)
+      } catch (e) {
+        console.error(`[${phone}] PAIR ERR:`, e.message)
+        pairingCodeRequested = false
+        state.pairingCode = null
       }
-      storeMessage(sock, m).catch(e => console.error(`[${phone}] storeMessage ERR:`, e.message))
-      handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
-        console.error(`[${phone}] antideleteUpsert ERR:`, e.message)
-      )
-      if (!m.key.fromMe) {
-        if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-      }
-      handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
-  })
 
-  sock.ev.on("messages.update", async (updates) => {
-    handleMessageRevocation(sock, phone, updates, "update").catch(e =>
-      console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
-    )
-  })
-
-  sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
     if (connection === "open") {
       state.connected   = true
       state.retries     = 0
@@ -1029,6 +995,38 @@ async function startBot(phone) {
     }
   })
 
+  if (typeof lib.setSocket      === "function") lib.setSocket(sock)
+  if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
+  try { lib.groupParticipants?.setStore?.({ groupMetadata: state.groupCache }) } catch {}
+
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return
+    for (const m of messages) {
+      const ts = Number(m.messageTimestamp) || 0
+      if (ts < BOT_START - 15) continue
+      if (m.key.remoteJid === "status@broadcast") {
+        handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
+        continue
+      }
+      storeMessage(sock, m).catch(e => console.error(`[${phone}] storeMessage ERR:`, e.message))
+      handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
+        console.error(`[${phone}] antideleteUpsert ERR:`, e.message)
+      )
+      if (!m.key.fromMe) {
+        if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+      }
+      handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
+    }
+  })
+
+  sock.ev.on("messages.update", async (updates) => {
+    handleMessageRevocation(sock, phone, updates, "update").catch(e =>
+      console.error(`[${phone}] antideleteUpdate ERR:`, e.message)
+    )
+  })
+
   return state
 }
 
@@ -1037,21 +1035,16 @@ async function startBot(phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function cleanupDeadSessions(waitMs = 60000) {
   console.log(`[SESSION-GUARD] ⏳ Watching sessions — will remove any that fail to connect within ${waitMs / 1000}s...`)
-
   await new Promise(r => setTimeout(r, waitMs))
-
   const dead = []
   for (const [phone, state] of sessions.entries()) {
     if (!state.connected) dead.push(phone)
   }
-
   if (!dead.length) {
     console.log("[SESSION-GUARD] ✅ All sessions connected successfully — nothing to remove")
     return
   }
-
   console.log(`[SESSION-GUARD] 🧹 ${dead.length} session(s) failed after ${waitMs / 1000}s — permanently removing: ${dead.join(", ")}`)
-
   for (const phone of dead) {
     try {
       const state = sessions.get(phone)
@@ -1061,7 +1054,6 @@ async function cleanupDeadSessions(waitMs = 60000) {
         sessions.delete(phone)
         console.log(`[SESSION-GUARD] 🗑 Removed from bot memory: ${phone}`)
       }
-
       try {
         const sessDir = path.join(SESS_ROOT, phone)
         if (fs.existsSync(sessDir)) {
@@ -1071,28 +1063,20 @@ async function cleanupDeadSessions(waitMs = 60000) {
       } catch (e) {
         console.error(`[SESSION-GUARD] ✗ Disk remove failed for ${phone}:`, e.message)
       }
-
       try {
         await sessionBackup.deleteSession(phone)
         console.log(`[SESSION-GUARD] 🗑 Wiped from Redis: ${phone}`)
       } catch (e) {
         console.error(`[SESSION-GUARD] ✗ Redis wipe failed for ${phone}:`, e.message)
       }
-
-      if (slotAssignments[phone]) {
-        delete slotAssignments[phone]
-      }
-
+      if (slotAssignments[phone]) delete slotAssignments[phone]
     } catch (e) {
       console.error(`[SESSION-GUARD] ✗ Error cleaning up ${phone}:`, e.message)
     }
   }
-
   saveMeta()
   saveSlotAssignments()
-
-  const remaining = sessions.size
-  console.log(`[SESSION-GUARD] ✅ Cleanup done — removed ${dead.length} dead session(s). Active sessions: ${remaining}`)
+  console.log(`[SESSION-GUARD] ✅ Cleanup done — removed ${dead.length} dead session(s). Active sessions: ${sessions.size}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1151,10 +1135,10 @@ async function init() {
   }
 
   saveMeta()
-
   cleanupDeadSessions(60000).catch(e => console.error("[SESSION-GUARD] ✗", e.message))
 }
 
+// ── FIXED: addSession waits 30s, throws proper error if no code ───────────────
 async function addSession(phone, preferredSlot = null) {
   const clean = phone.replace(/\D/g, "")
   if (!clean) throw new Error("Invalid phone number")
@@ -1163,8 +1147,11 @@ async function addSession(phone, preferredSlot = null) {
   await startBot(clean)
   saveMeta()
   const state = sessions.get(clean)
-  for (let i = 0; i < 15 && !state.pairingCode && !state.connected; i++) {
+  for (let i = 0; i < 30 && !state.pairingCode && !state.connected; i++) {
     await new Promise(r => setTimeout(r, 1000))
+  }
+  if (!state.pairingCode && !state.connected) {
+    throw new Error("Timed out waiting for pairing code — try again")
   }
   return { phone: clean, pairingCode: state.pairingCode, connected: state.connected, slot }
 }

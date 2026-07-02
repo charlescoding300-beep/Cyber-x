@@ -99,23 +99,8 @@ const MIME_TYPES = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHIVAN AI MEMORY — per-browser-ID conversation history, stored in the
-// same Upstash Redis account already used for sessions. Reuses the exact
-// REST API pattern from lib/sessionBackup.js (same env vars, same
-// https-based single-command request, same per-key isolation — one
-// browser's history failing to load/save never affects anyone else's).
-//
-// IDENTITY: the AI chat page never asks for a phone number, so a random
-// persistent browser ID (generated client-side, stored in localStorage)
-// is the memory key instead. Same continuity benefit across visits
-// without forcing a phone number just to chat with Shivan.
-//
-// Key format: ai:memory:<browserId> — a JSON array of {role, content}
-// messages, capped at AI_MEMORY_MAX_MESSAGES so one chatty visitor's
-// history can't grow unbounded in Redis.
+// UPSTASH REDIS HELPER — reused for AI memory AND total users counter
 // ─────────────────────────────────────────────────────────────────────────────
-const AI_MEMORY_MAX_MESSAGES = 40   // ~20 back-and-forth turns kept per visitor
-
 const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
 const aiMemoryEnabled = !!(UPSTASH_URL && UPSTASH_TOKEN)
@@ -124,17 +109,17 @@ if (!aiMemoryEnabled) {
   console.warn("[AI MEMORY] ⚠ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — Shivan won't remember conversations across visits")
 }
 
-function aiMemoryUpstashRequest(command, args) {
+function upstashRequest(command, args) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify([command, ...args])
-    const url  = new URL(UPSTASH_URL)
-    const req = https.request({
-      hostname: url.hostname,
-      path:     url.pathname || "/",
+    const u    = new URL(UPSTASH_URL)
+    const req  = https.request({
+      hostname: u.hostname,
+      path:     u.pathname || "/",
       method:   "POST",
       headers: {
-        "Authorization": `Bearer ${UPSTASH_TOKEN}`,
-        "Content-Type":  "application/json",
+        "Authorization":  `Bearer ${UPSTASH_TOKEN}`,
+        "Content-Type":   "application/json",
         "Content-Length": Buffer.byteLength(body),
       },
     }, res => {
@@ -151,10 +136,36 @@ function aiMemoryUpstashRequest(command, args) {
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOTAL USERS COUNTER — stored in Redis as cyberx:total_users
+// ─────────────────────────────────────────────────────────────────────────────
+const TOTAL_USERS_KEY = "cyberx:total_users"
+
+async function getTotalUsers() {
+  if (!aiMemoryEnabled) return 0
+  try {
+    const r = await upstashRequest("GET", [TOTAL_USERS_KEY])
+    return parseInt(r.result || "0", 10)
+  } catch { return 0 }
+}
+
+async function incrementTotalUsers() {
+  if (!aiMemoryEnabled) return 0
+  try {
+    const r = await upstashRequest("INCR", [TOTAL_USERS_KEY])
+    return r.result || 0
+  } catch { return 0 }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHIVAN AI MEMORY
+// ─────────────────────────────────────────────────────────────────────────────
+const AI_MEMORY_MAX_MESSAGES = 40
+
 async function loadAiMemory(browserId) {
   if (!aiMemoryEnabled || !browserId) return []
   try {
-    const res = await aiMemoryUpstashRequest("GET", [`ai:memory:${browserId}`])
+    const res = await upstashRequest("GET", [`ai:memory:${browserId}`])
     if (!res.result) return []
     const parsed = JSON.parse(res.result)
     return Array.isArray(parsed) ? parsed : []
@@ -168,7 +179,7 @@ async function saveAiMemory(browserId, messages) {
   if (!aiMemoryEnabled || !browserId) return
   try {
     const trimmed = messages.slice(-AI_MEMORY_MAX_MESSAGES)
-    await aiMemoryUpstashRequest("SET", [`ai:memory:${browserId}`, JSON.stringify(trimmed)])
+    await upstashRequest("SET", [`ai:memory:${browserId}`, JSON.stringify(trimmed)])
   } catch (e) {
     console.error("[AI MEMORY] save error:", e.message)
   }
@@ -182,13 +193,6 @@ async function callGroq(messages, systemPrompt) {
   if (!GROQ_KEY) return "⚠ Shivan AI is offline — GROQ_API_KEY not set on server."
 
   const body = JSON.stringify({
-    // FIX: llama3-8b-8192 was deprecated by Groq in 2025 in favor of
-    // llama-3.1-8b-instant, which was ITSELF deprecated on June 17, 2026
-    // in favor of openai/gpt-oss-20b. The old model ID returns a 400
-    // error JSON body (not a thrown exception), so the original code's
-    // `data?.choices?.[0]?.message?.content || fallback` silently fell
-    // through to the generic fallback text instead of surfacing the real
-    // "model_decommissioned" error — that's exactly what was happening.
     model: "openai/gpt-oss-20b",
     messages: [
       { role: "system", content: systemPrompt },
@@ -204,16 +208,14 @@ async function callGroq(messages, systemPrompt) {
       path:     "/openai/v1/chat/completions",
       method:   "POST",
       headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${GROQ_KEY}`,
+        "Content-Type":   "application/json",
+        "Authorization":  `Bearer ${GROQ_KEY}`,
         "Content-Length": Buffer.byteLength(body),
       }
     }, res => {
       let d = ""
       res.on("data", c => d += c)
       res.on("end",  () => {
-        // DEBUG: log the raw Groq response so we can see exactly what
-        // came back when the shape doesn't match what's expected.
         console.log("[GROQ DEBUG] status:", res.statusCode, "body:", d.slice(0, 500))
         try { resolve(JSON.parse(d)) } catch { resolve(null) }
       })
@@ -227,10 +229,6 @@ async function callGroq(messages, systemPrompt) {
   if (data?.choices?.[0]?.message?.content) {
     return data.choices[0].message.content
   }
-  // Surface the real reason instead of a silent generic fallback —
-  // this is exactly the gap that hid the model-decommissioned error
-  // earlier. If Groq ever changes/deprecates the model again, this will
-  // show up clearly in the chat instead of a useless "couldn't process".
   if (data?.error?.message) {
     console.error("[GROQ] API error:", data.error.message)
     return `⚠ Shivan hit an AI provider error: ${data.error.message}`
@@ -246,45 +244,35 @@ const server = http.createServer(async (req, res) => {
   const method = req.method
 
   setCors(res)
-
   if (method === "OPTIONS") { res.writeHead(204); return res.end() }
 
-  // ── Root ─────────────────────────────────────────────────────────────────
+  // ── Root ──────────────────────────────────────────────────────────────────
   if (url === "/" && method === "GET") {
     res.writeHead(200, { "Content-Type": "text/plain" })
     return res.end("⚡ CYBER X MULTI-BOT ONLINE")
   }
 
-  // ── /pair/:slot — pair directly into a specific server slot ───────────────
-  // If that slot is full, auto-redirect to the next available one instead
-  // of failing outright. Slot is passed through via ?slot=N once the page
-  // loads, so the pairing JS knows which slot to request.
+  // ── /pair/:slot ───────────────────────────────────────────────────────────
   const slotPairMatch = url.match(/^\/pair\/(\d+)$/)
   if (slotPairMatch && method === "GET") {
     const requestedSlot = parseInt(slotPairMatch[1], 10)
-
     if (requestedSlot < 1 || requestedSlot > SLOT_COUNT) {
       res.writeHead(302, { Location: "/pair" })
       return res.end()
     }
-
     const summary = getSlotsSummary()
     const target  = summary.find(s => s.slot === requestedSlot)
-
     if (target && target.full) {
       const nextSlot = getNextAvailableSlot()
       if (nextSlot) {
         res.writeHead(302, { Location: `/pair/${nextSlot}?redirected=1&from=${requestedSlot}` })
         return res.end()
       }
-      // every slot full — fall through and still serve the page, so the
-      // user sees the "all servers full" state instead of a dead end
     }
-
     return servePublicFile(res, "pair.html", "text/html")
   }
 
-  // ── /api/slots — live status of all 10 server slots ───────────────────────
+  // ── /api/slots ────────────────────────────────────────────────────────────
   if (url === "/api/slots" && method === "GET") {
     return json(res, {
       slots:     getSlotsSummary(),
@@ -293,37 +281,51 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
-  // ── /pair — serves HTML page OR returns pairing code JSON ─────────────────
+  // ── /pair — FIXED: correct field mapping + proper error on null code ───────
   if ((url === "/pair" || url === "/pair.html") && method === "GET") {
     const params     = new URL(req.url, "http://internal").searchParams
     const phoneParam = params.get("phone")
     const slotParam  = params.get("slot") ? parseInt(params.get("slot"), 10) : null
 
     if (phoneParam) {
-      // Phone param present → generate pairing code and return JSON
       const cleanPhone = phoneParam.replace(/\D/g, "")
       if (!cleanPhone || cleanPhone.length < 10) {
         return json(res, { status: false, error: "Invalid phone number — include country code" }, 400)
       }
       try {
         const result = await addSession(cleanPhone, slotParam)
+        const code   = result.pairingCode || null
+
+        if (!code) {
+          return json(res, {
+            status:    false,
+            error:     "Could not generate pairing code — try again",
+            connected: result.connected || false,
+          }, 500)
+        }
+
+        // Increment total users counter in Redis
+        incrementTotalUsers().then(total => {
+          console.log(`[STATS] 📊 Total users ever: ${total}`)
+        }).catch(() => {})
+
         return json(res, {
           status:      true,
-          code:        result.code || result.pairingCode || result.pairing_code,
-          pairingCode: result.code || result.pairingCode || result.pairing_code,
+          code,
+          pairingCode: code,
           phone:       cleanPhone,
-          ...result,
+          slot:        result.slot,
+          connected:   result.connected || false,
         })
       } catch (e) {
         return json(res, { status: false, error: e.message }, 500)
       }
     }
 
-    // No phone param → serve the HTML pairing page
     return servePublicFile(res, "pair.html", "text/html")
   }
 
-  // ── /pair POST (legacy support) ───────────────────────────────────────────
+  // ── /pair POST (legacy) ───────────────────────────────────────────────────
   if (url === "/pair" && method === "POST") {
     const { phone, slot } = await readBody(req)
     if (!phone) return json(res, { error: "phone required" }, 400)
@@ -357,6 +359,7 @@ const server = http.createServer(async (req, res) => {
     const days   = Math.floor(upSecs / 86400)
     const hrs    = Math.floor((upSecs % 86400) / 3600)
     const mins   = Math.floor((upSecs % 3600) / 60)
+    const totalUsers = await getTotalUsers()
     return json(res, {
       state:              "Operational",
       uptime:             `${days}d ${hrs}h ${mins}m`,
@@ -375,10 +378,24 @@ const server = http.createServer(async (req, res) => {
       backup:             sessionBackup.enabled,
       availability:       "99.98%",
       commandsLoaded:     global.__commandCount || "—",
+      totalUsers,
     })
   }
 
-  // ── /api/status — redis + service status ──────────────────────────────────
+  // ── /api/stats — total users ever paired ──────────────────────────────────
+  if (url === "/api/stats" && method === "GET") {
+    const totalUsers = await getTotalUsers()
+    return json(res, { totalUsers })
+  }
+
+  // ── /api/stats/increment — called by pair.html after code is shown ─────────
+  if (url === "/api/stats/increment" && method === "POST") {
+    const totalUsers = await incrementTotalUsers()
+    console.log(`[STATS] 📊 Total users: ${totalUsers}`)
+    return json(res, { totalUsers })
+  }
+
+  // ── /api/status ───────────────────────────────────────────────────────────
   if (url === "/api/status" && method === "GET") {
     return json(res, {
       status: "ok",
@@ -387,7 +404,7 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
-  // ── /api/sessions — list all active sessions (public) ─────────────────────
+  // ── /api/sessions ─────────────────────────────────────────────────────────
   if (url === "/api/sessions" && method === "GET") {
     return json(res, listBots().map(b => ({
       phone:     b.phone,
@@ -420,7 +437,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, found || { connected: false })
   }
 
-  // ── /backup/status — OWNER ONLY ───────────────────────────────────────────
+  // ── /backup/status ────────────────────────────────────────────────────────
   if (url === "/backup/status" && method === "GET") {
     if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
     return json(res, {
@@ -430,7 +447,7 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
-  // ── /backup/restore — OWNER ONLY ─────────────────────────────────────────
+  // ── /backup/restore ───────────────────────────────────────────────────────
   if (url === "/backup/restore" && method === "POST") {
     if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
     try {
@@ -441,7 +458,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // ── /backup/push — OWNER ONLY ─────────────────────────────────────────────
+  // ── /backup/push ──────────────────────────────────────────────────────────
   if (url === "/backup/push" && method === "POST") {
     if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)
     try {
@@ -525,7 +542,7 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
-  // ── /api/ai/chat — Shivan AI powered by Groq, with persistent memory ─────
+  // ── /api/ai/chat — Shivan AI ──────────────────────────────────────────────
   if (url === "/api/ai/chat" && method === "POST") {
     try {
       const { message, history = [], systemPrompt, browserId } = await readBody(req)
@@ -542,48 +559,35 @@ ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated 
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
 
 YOUR JOB:
-- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics. People can chat with you about literally anything — jokes, advice, random questions, deep conversations, whatever's on their mind.
-- When someone asks specifically about CYBER X, pairing, or its commands, answer using the details above and point them to https://cyber-x-y8yv.onrender.com/pair for pairing.
-- You remember earlier parts of this conversation across visits (the history you're given includes past sessions, not just this one) — use that naturally, like a friend who remembers what you talked about last time, without making a big deal out of "recalling memory."
-- Be honest about uncertainty rather than making things up, especially anything time-sensitive — you don't have live internet access through this chat.
-- Match response length to what the question needs — quick banter gets a quick reply, a real question gets a real answer.
+- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics.
+- When asked about CYBER X, pairing, or its commands, answer using the details above.
+- Use conversation history naturally like a friend who remembers past chats.
+- Be honest about uncertainty — you don't have live internet access.
+- Match response length to the question.
 
-PERSONALITY: Playful, warm, a little witty — like texting a clever friend who happens to know everything about CYBER X. Not stiff, not corporate, not over-explaining. Comfortable joking around, but switches to genuinely helpful and clear the moment someone needs real help.`
+PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about CYBER X.`
 
-      // Load this browser's saved memory (if any) and prepend it ahead of
-      // whatever history the client sent for the current page session —
-      // this is what gives Shivan continuity across separate visits,
-      // not just within one open tab.
-      const savedMemory = await loadAiMemory(browserId)
-
+      const savedMemory   = await loadAiMemory(browserId)
       const clientHistory = history.slice(-10).map(h => ({
         role:    h.role === "assistant" ? "assistant" : "user",
         content: h.content,
       }))
-
-      // Merge: saved memory first (older), then whatever the client has
-      // for this page load, deduplicated by simple recency trim below —
-      // Groq only sees the combined tail, so cost/latency stay bounded.
       const combined = [...savedMemory, ...clientHistory]
       const messages = combined.slice(-20)
       messages.push({ role: "user", content: message })
 
       const reply = await callGroq(messages, SHIVAN_SYSTEM)
 
-      // Persist updated memory for next time, including this exchange.
       const updatedMemory = [...combined, { role: "user", content: message }, { role: "assistant", content: reply }]
       saveAiMemory(browserId, updatedMemory).catch(() => {})
 
       return json(res, { reply, ai: "Shivan", model: "openai/gpt-oss-20b (Groq)" })
-
     } catch (e) {
       return json(res, { reply: "⚠ Shivan encountered an error: " + e.message })
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // AUTO STATIC FILE SERVER — drop any file into /public and it's live
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── AUTO STATIC FILE SERVER ───────────────────────────────────────────────
   if (method === "GET") {
     let filePath = decodeURIComponent(url)
     let fullPath = path.join(PUBLIC_DIR, filePath)
@@ -635,6 +639,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] 💾 Session backup: ${sessionBackup.enabled ? "ENABLED (" + process.env.GITHUB_BACKUP_REPO + ")" : "DISABLED"}`)
   console.log(`[WEB] 📁 Auto static: ${PUBLIC_DIR} — drop any HTML/CSS/JS/image and it's live instantly`)
   console.log(`[WEB] 🤖 Shivan AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq openai/gpt-oss-20b)" : "DISABLED — set GROQ_API_KEY"}`)
+  console.log(`[WEB] 📊 Total users counter: ${aiMemoryEnabled ? "ENABLED (Upstash Redis)" : "DISABLED — set UPSTASH env vars"}`)
 
   try {
     await init()
