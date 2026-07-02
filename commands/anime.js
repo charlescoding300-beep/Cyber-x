@@ -134,6 +134,7 @@ async function gifToMp4(gifBuffer) {
 }
 
 const run = async ({ sock, from, message, args }) => {
+    console.log('[ANIME-TEST] command triggered, node version:', process.version)
     const action = (args[0] || '').toLowerCase().trim()
     const reaction = REACTIONS[action]
 
@@ -212,4 +213,3 @@ module.exports = {
     usage: '.anime <reaction>',
     run
 }
-
