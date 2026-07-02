@@ -1,9 +1,5 @@
 const https = require('https')
 const http = require('http')
-const fs = require('fs')
-const os = require('os')
-const path = require('path')
-const crypto = require('crypto')
 const { execFile } = require('child_process')
 
 const REACTIONS = {
@@ -95,40 +91,33 @@ function fetchBuffer(url, redirects = 0) {
     })
 }
 
-function runFfmpeg(args) {
+function runFfmpegPiped(args, inputBuffer) {
     return new Promise((resolve, reject) => {
-        execFile('ffmpeg', args, { timeout: 30000 }, (err, stdout, stderr) => {
+        const proc = execFile('ffmpeg', args, { timeout: 30000, maxBuffer: 1024 * 1024 * 50, encoding: 'buffer' }, (err, stdout, stderr) => {
             if (err) return reject(new Error(stderr?.toString().slice(-500) || err.message))
-            resolve()
+            resolve(stdout)
         })
+        proc.stdin.write(inputBuffer)
+        proc.stdin.end()
     })
 }
 
-// Converts a GIF buffer into an MP4 buffer via ffmpeg. WhatsApp does not
-// reliably render raw GIF-encoded bytes sent as `image:` — that mismatch
-// is why nothing displayed before. Sending as `video:` with gifPlayback:true
-// is what makes it autoplay/loop in the chat like a real GIF.
+// Converts a GIF buffer into an MP4 buffer via ffmpeg, piped through stdin/
+// stdout — no temp files, no disk I/O, which is the slow part on Render's
+// free tier. WhatsApp does not reliably render raw GIF-encoded bytes sent
+// as `image:` — that mismatch is why nothing displayed before. Sending as
+// `video:` with gifPlayback:true is what makes it autoplay/loop like a GIF.
 async function gifToMp4(gifBuffer) {
-    const id = crypto.randomBytes(6).toString('hex')
-    const inPath = path.join(os.tmpdir(), `anime_in_${id}.gif`)
-    const outPath = path.join(os.tmpdir(), `anime_out_${id}.mp4`)
-
-    try {
-        fs.writeFileSync(inPath, gifBuffer)
-        await runFfmpeg([
-            '-i', inPath,
-            '-movflags', 'faststart',
-            '-pix_fmt', 'yuv420p',
-            '-vf', "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            '-an',
-            '-y',
-            outPath
-        ])
-        return fs.readFileSync(outPath)
-    } finally {
-        try { fs.unlinkSync(inPath) } catch (_) {}
-        try { fs.unlinkSync(outPath) } catch (_) {}
-    }
+    return runFfmpegPiped([
+        '-i', 'pipe:0',
+        '-movflags', 'frag_keyframe+empty_moov',
+        '-pix_fmt', 'yuv420p',
+        '-vf', "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        '-preset', 'ultrafast',
+        '-an',
+        '-f', 'mp4',
+        'pipe:1'
+    ], gifBuffer)
 }
 
 const run = async ({ sock, from, message, args }) => {
@@ -161,9 +150,9 @@ const run = async ({ sock, from, message, args }) => {
 
     const actionText = reaction.text(senderTag, targetTag)
 
-    await sock.sendMessage(from, { react: { text: reaction.emoji, key: message.key } }).catch(() => {})
-
+    const reactPromise = sock.sendMessage(from, { react: { text: reaction.emoji, key: message.key } }).catch(() => {})
     const gifUrl = await getGifUrl(action, sock, from, message)
+    await reactPromise
 
     const mentions = [senderJid]
     if (targetJid) mentions.push(targetJid)
