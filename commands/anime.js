@@ -1,5 +1,10 @@
 const https = require('https')
 const http = require('http')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const crypto = require('crypto')
+const { execFile } = require('child_process')
 
 const REACTIONS = {
     hug:       { emoji: '🤗', text: (a, b) => `${a} hugged ${b}` },
@@ -32,12 +37,22 @@ const REACTIONS = {
     yawn:      { emoji: '🥱', text: (a, b) => `${a} yawned` },
 }
 
-async function fetchBuffer(url) {
+// Only actions confirmed to exist on nekos.best — waifu.pics is unreliable
+// (DNS failed in testing), so nekos.best is now primary, waifu.pics is
+// kept only as a secondary attempt in case it resolves on Render's network.
+const NEKOS_BEST_ACTIONS = new Set([
+    'hug','kiss','cuddle','pat','handhold','slap','kick','punch','bite',
+    'tickle','poke','cry','laugh','blush','smile','wink','pout','angry',
+    'dance','wave','nom','sleep','yawn'
+])
+
+function fetchBuffer(url, redirects = 0) {
     return new Promise((resolve, reject) => {
+        if (redirects > 5) return reject(new Error('too many redirects'))
         const client = url.startsWith('https') ? https : http
         client.get(url, { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                fetchBuffer(res.headers.location).then(resolve).catch(reject)
+                fetchBuffer(res.headers.location, redirects + 1).then(resolve).catch(reject)
                 return
             }
             if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
@@ -50,23 +65,72 @@ async function fetchBuffer(url) {
 }
 
 async function getGifUrl(action) {
-    const apis = [
-        `https://api.waifu.pics/sfw/${action}`,
-        `https://nekos.best/api/v2/${action}`,
-    ]
+    const apis = []
+    if (NEKOS_BEST_ACTIONS.has(action)) {
+        apis.push({ name: 'nekos.best', url: `https://nekos.best/api/v2/${action}` })
+    }
+    apis.push({ name: 'waifu.pics', url: `https://api.waifu.pics/sfw/${action}` })
 
-    for (const apiUrl of apis) {
+    for (const api of apis) {
         try {
-            const res = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) })
-            if (!res.ok) continue
+            const res = await fetch(api.url, {
+                signal: AbortSignal.timeout(15000),
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            })
+            console.log(`[ANIME] ${api.name} status:`, res.status)
+            if (!res.ok) {
+                console.log(`[ANIME] ${api.name} non-200:`, res.status, res.statusText)
+                continue
+            }
             const json = await res.json()
             const gifUrl = json.url || json.results?.[0]?.url
-            if (gifUrl) return gifUrl
+            if (gifUrl) {
+                console.log(`[ANIME] ${api.name} success:`, gifUrl)
+                return gifUrl
+            }
+            console.log(`[ANIME] ${api.name} returned no url:`, JSON.stringify(json))
         } catch (e) {
-            console.log(`[ANIME] API failed (${apiUrl}):`, e.message)
+            console.log(`[ANIME] ${api.name} threw:`, e.name, '-', e.message)
         }
     }
+    console.log('[ANIME] all APIs failed for action:', action)
     return null
+}
+
+function runFfmpeg(args) {
+    return new Promise((resolve, reject) => {
+        execFile('ffmpeg', args, { timeout: 30000 }, (err, stdout, stderr) => {
+            if (err) return reject(new Error(stderr?.toString().slice(-500) || err.message))
+            resolve()
+        })
+    })
+}
+
+// Converts a GIF buffer into an MP4 buffer via ffmpeg. WhatsApp does not
+// reliably render raw GIF-encoded bytes sent as `image:` — that mismatch
+// is why nothing displayed before. Sending as `video:` with gifPlayback:true
+// is what makes it autoplay/loop in the chat like a real GIF.
+async function gifToMp4(gifBuffer) {
+    const id = crypto.randomBytes(6).toString('hex')
+    const inPath = path.join(os.tmpdir(), `anime_in_${id}.gif`)
+    const outPath = path.join(os.tmpdir(), `anime_out_${id}.mp4`)
+
+    try {
+        fs.writeFileSync(inPath, gifBuffer)
+        await runFfmpeg([
+            '-i', inPath,
+            '-movflags', 'faststart',
+            '-pix_fmt', 'yuv420p',
+            '-vf', "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            '-an',
+            '-y',
+            outPath
+        ])
+        return fs.readFileSync(outPath)
+    } finally {
+        try { fs.unlinkSync(inPath) } catch (_) {}
+        try { fs.unlinkSync(outPath) } catch (_) {}
+    }
 }
 
 const run = async ({ sock, from, message, args }) => {
@@ -87,6 +151,9 @@ const run = async ({ sock, from, message, args }) => {
         }, { quoted: message })
     }
 
+    // senderJid / targetJid are real WhatsApp JIDs (number@s.whatsapp.net).
+    // Tagging like this is what makes WhatsApp render the saved contact
+    // name client-side instead of a raw number — this part was already correct.
     const senderJid = message.key.participant || message.key.remoteJid
     const senderTag = `@${senderJid.split('@')[0]}`
     const quoted = message.message?.extendedTextMessage?.contextInfo
@@ -105,30 +172,33 @@ const run = async ({ sock, from, message, args }) => {
     const caption = `${reaction.emoji} *${actionText}*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
 
     if (!gifUrl) {
-        return sock.sendMessage(from, { text: caption }, { quoted: message })
+        return sock.sendMessage(from, { text: caption, mentions }, { quoted: message })
+    }
+
+    let gifBuffer
+    try {
+        gifBuffer = await fetchBuffer(gifUrl)
+    } catch (err) {
+        console.error('[ANIME] fetchBuffer failed:', err.message)
+        return sock.sendMessage(from, { image: { url: gifUrl }, caption, mentions }, { quoted: message }).catch(async () => {
+            await sock.sendMessage(from, { text: caption, mentions }, { quoted: message })
+        })
     }
 
     try {
-        const buf = await fetchBuffer(gifUrl)
-        // ── Send as image, not mislabeled video/mp4 ──
-        // waifu.pics/nekos.best return real .gif bytes, and WhatsApp
-        // can't decode gif-bytes wrapped as video/mp4 — that mismatch
-        // is exactly why nothing was rendering before.
+        const mp4Buffer = await gifToMp4(gifBuffer)
         await sock.sendMessage(from, {
-            image: buf,
+            video: mp4Buffer,
+            gifPlayback: true,
             caption,
             mentions,
         }, { quoted: message })
     } catch (err) {
-        console.error('[ANIME]', err.message)
+        console.error('[ANIME] gif conversion failed:', err.message)
         try {
-            await sock.sendMessage(from, {
-                image: { url: gifUrl },
-                caption,
-                mentions,
-            }, { quoted: message })
+            await sock.sendMessage(from, { image: gifBuffer, caption, mentions }, { quoted: message })
         } catch (err2) {
-            console.error('[ANIME] fallback also failed:', err2.message)
+            console.error('[ANIME] image fallback also failed:', err2.message)
             await sock.sendMessage(from, { text: caption, mentions }, { quoted: message })
         }
     }
@@ -142,3 +212,4 @@ module.exports = {
     usage: '.anime <reaction>',
     run
 }
+
