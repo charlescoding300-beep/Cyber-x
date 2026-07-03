@@ -750,127 +750,6 @@ async function handleMessageRevocation(sock, phone, payload, source) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ANTIBOT — detects FOREIGN WhatsApp bots posting in monitored groups and
-// takes action (kick/delete/warn) regardless of the sender's role — member,
-// admin, super admin, or group owner all get the same treatment. The ONLY
-// exemption is a message that came from one of THIS server's own paired
-// CYBER X sessions. Fully persistent via commands/antibot.js (disk-backed
-// per-group JSON), so config survives Render restarts automatically.
-// ─────────────────────────────────────────────────────────────────────────────
-async function handleAntibotDetection(sock, phone, msg) {
-  const from = msg.key.remoteJid
-  if (!from?.endsWith("@g.us")) return
-
-  let antibotCmd
-  try {
-    antibotCmd = require('./commands/antibot.js')
-  } catch { return }
-
-  const config = antibotCmd.loadConfig(from)
-  if (!config.mode || config.mode === "off") return
-
-  const messageId = msg.key.id
-  if (!antibotCmd.isBaileysMessageId(messageId)) return
-
-  const sender = msg.key.participant || from
-  const senderNorm = normalizeNum(sender)
-
-  // ── ONLY exemption: this message came from one of OUR OWN CYBER X
-  // sessions. Role (member/admin/superadmin/owner) is never checked —
-  // detection acts on everyone except our own bot sessions.
-  const isOwnCyberXSession = messageId.endsWith("CYBERX")
-  if (isOwnCyberXSession) return
-
-  const selfNum = normalizeNum(sock.user?.id || "")
-  if (senderNorm === selfNum) return
-
-  let meta
-  try { meta = await sock.groupMetadata(from) } catch (e) {
-    console.error(`[ANTIBOT:${phone}] metadata fetch failed:`, e.message)
-    return
-  }
-
-  const botJid = sock.user?.id
-  const botNorm = normalizeNum(botJid || "")
-  const botParticipant = meta.participants?.find(p => normalizeNum(p.id) === botNorm)
-  const botIsAdmin = botParticipant?.admin === "admin" || botParticipant?.admin === "superadmin"
-
-if (!botIsAdmin) {
-    console.log(`[ANTIBOT:${phone}] Detected foreign bot ${senderNorm} in ${from} but I'm not admin — cannot act`)
-    if (!antibotCmd.hasNotifiedNotAdmin(from)) {
-      antibotCmd.markNotifiedNotAdmin(from)
-      try {
-        await sock.sendMessage(from, {
-          text: `⚠️ *Anti-Bot Alert*\n\nDetected a foreign bot account in this group, but I'm not an admin so I can't take action.\n\n👉 Please make me an admin to enable protection.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
-        })
-      } catch (e) {
-        console.error(`[ANTIBOT:${phone}] notAdmin notify failed:`, e.message)
-      }
-    }
-    return
-  }
-
-  const targetParticipant = meta.participants?.find(p => normalizeNum(p.id) === senderNorm)
-  const targetRole = targetParticipant?.admin === "superadmin" ? "SUPER ADMIN"
-    : targetParticipant?.admin === "admin" ? "ADMIN"
-    : "MEMBER"
-
-  console.log(`[ANTIBOT:${phone}] 🛡️ Detected FOREIGN bot from ${senderNorm} (role: ${targetRole}) in "${meta.subject}" — mode: ${config.mode} — taking action regardless of role`)
-
-  try {
-    await sock.sendMessage(from, { delete: msg.key })
-  } catch (e) {
-    console.error(`[ANTIBOT:${phone}] delete failed:`, e.message)
-  }
-
-  if (config.mode === "delete") return
-
-  if (config.mode === "kick") {
-    try {
-      await sock.groupParticipantsUpdate(from, [sender], "remove")
-      await sock.sendMessage(from, {
-        text: `✅ *Foreign Bot Removed*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\n📋 Reason: Detected as unauthorized foreign bot account\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
-        mentions: [sender]
-      })
-      console.log(`[ANTIBOT:${phone}] Kicked foreign bot ${senderNorm} (${targetRole}) from ${meta.subject}`)
-    } catch (e) {
-      console.error(`[ANTIBOT:${phone}] kick failed:`, e.message)
-    }
-    return
-  }
-
-  if (config.mode === "warn") {
-    config.warnings = config.warnings || {}
-    config.warnings[senderNorm] = (config.warnings[senderNorm] || 0) + 1
-    const count = config.warnings[senderNorm]
-    antibotCmd.saveConfig(from, config)
-
-    if (count >= antibotCmd.MAX_WARNINGS) {
-      try {
-        await sock.sendMessage(from, {
-          text: `⚠️ *Final Warning Reached (${count}/${antibotCmd.MAX_WARNINGS})*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\nRemoving automatically.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
-          mentions: [sender]
-        })
-        await sock.groupParticipantsUpdate(from, [sender], "remove")
-        config.warnings[senderNorm] = 0
-        antibotCmd.saveConfig(from, config)
-        console.log(`[ANTIBOT:${phone}] Auto-kicked foreign bot ${senderNorm} (${targetRole}) after ${count} warnings`)
-      } catch (e) {
-        console.error(`[ANTIBOT:${phone}] warn-kick failed:`, e.message)
-      }
-    } else {
-      try {
-        await sock.sendMessage(from, {
-          text: `⚠️ *Foreign Bot Warning (${count}/${antibotCmd.MAX_WARNINGS})*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\nReason: Suspicious bot-pattern message detected & deleted.\n${antibotCmd.MAX_WARNINGS - count} more and this account is auto-removed — role doesn't matter.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
-          mentions: [sender]
-        })
-      } catch (e) {
-        console.error(`[ANTIBOT:${phone}] warn message failed:`, e.message)
-      }
-    }
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MESSAGE HANDLER
@@ -1208,9 +1087,7 @@ async function startBot(phone) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-        handleAntibotDetection(sock, phone, m).catch(e =>
-          console.error(`[ANTIBOT:${phone}] detection error:`, e.message)
-        )
+        if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody).catch(() => {})
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
