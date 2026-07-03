@@ -907,7 +907,21 @@ async function startBot(phone) {
     const groupName   = meta?.subject || groupId
     const memberCount = (meta?.participants || []).length
 
-    for (const participantJid of participants) {
+    for (const rawParticipant of participants) {
+      // WhatsApp sometimes sends participants as plain JID strings, and
+      // sometimes as objects like { id, phoneNumber, admin } (seen with
+      // @lid identity-linked accounts). Normalize both shapes here so
+      // .replace() never gets called on a non-string and crashes this
+      // whole handler (which was silently killing detection downstream).
+      const participantJid = typeof rawParticipant === "string"
+        ? rawParticipant
+        : (rawParticipant?.phoneNumber || rawParticipant?.id || "")
+
+      if (!participantJid) {
+        console.warn(`[WATCHDOG:${phone}] Skipping participant with no resolvable JID:`, JSON.stringify(rawParticipant))
+        continue
+      }
+
       const memberPhone = participantJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
 
       const actionLabel = {
