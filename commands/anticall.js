@@ -4,7 +4,7 @@
 // commands/anticall.js  —  CYBER X  |  Anti-call toggle
 //
 // USAGE (owner only):
-//   .anticall on      → enable: incoming calls get rejected + caller blocked
+//   .anticall on      → enable: incoming calls get rejected only (no block)
 //   .anticall off     → disable
 //   .anticall status  → check current state
 //
@@ -21,7 +21,7 @@ const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
 module.exports = {
   pattern:  'anticall',
   alias:    ['acall'],
-  desc:     'Auto-reject and block incoming WhatsApp calls',
+  desc:     'Auto-reject incoming WhatsApp calls',
   usage:    '.anticall on | .anticall off | .anticall status',
   category: 'settings',
 
@@ -37,7 +37,7 @@ module.exports = {
     if (action === 'on') {
       settings.set('anticall', true)
       return sock.sendMessage(from, {
-        text: `📵 *Anticall enabled.*\nIncoming calls will be auto-rejected and the caller blocked.\n\n${CREDIT}`,
+        text: `📵 *Anticall enabled.*\nIncoming calls will be auto-rejected.\n\n${CREDIT}`,
       }, { quoted: msg })
     }
 
@@ -58,7 +58,7 @@ module.exports = {
     return sock.sendMessage(from, {
       text:
         `📵 *Anticall Commands*\n\n` +
-        `• *.anticall on* — reject + block incoming calls\n` +
+        `• *.anticall on* — reject incoming calls\n` +
         `• *.anticall off* — allow calls normally\n` +
         `• *.anticall status* — check current state\n\n` +
         `*Current:* ${settings.get('anticall') ? '📵 Enabled' : '✅ Disabled'}\n\n${CREDIT}`,
