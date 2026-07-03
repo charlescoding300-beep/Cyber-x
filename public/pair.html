@@ -72,7 +72,7 @@
   .pair-btn:hover { background:rgba(0,255,65,0.07);box-shadow:0 0 20px rgba(0,255,65,0.2); }
   .pair-btn:disabled { opacity:0.4;cursor:not-allowed; }
   .pair-code-wrap { position:relative;display:none;margin:16px 0; }
-  .pair-code-display { font-family:'Orbitron',monospace;font-size:clamp(22px,6vw,36px);font-weight:900;color:var(--g);text-shadow:0 0 20px var(--g);letter-spacing:10px;padding:20px 50px 20px 20px;border:1px solid var(--dg);background:#000800;word-break:break-all;animation:flicker 3s infinite; }
+  .pair-code-display { font-family:'Orbitron',monospace;font-size:clamp(22px,6vw,36px);font-weight:900;color:var(--g);text-shadow:0 0 20px var(--g);letter-spacing:10px;padding:20px 50px 20px 20px;border:1px solid var(--dg);background:#000800;word-break:break-all;animation:flicker 3s infinite;transition:opacity 0.3s; }
   .copy-btn { position:absolute;top:50%;right:10px;transform:translateY(-50%);background:transparent;border:1px solid var(--dg);color:var(--g);font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 10px;cursor:pointer;letter-spacing:1px;border-radius:3px;transition:background 0.2s,border-color 0.2s; }
   .copy-btn:hover { background:rgba(0,255,65,0.1);border-color:var(--g); }
   .copy-btn.copied { border-color:var(--cyan);color:var(--cyan); }
@@ -335,6 +335,7 @@
             <div class="pair-code-display" id="pair-code-display"></div>
             <button class="copy-btn" id="copy-btn" onclick="copyPairCode()">COPY</button>
           </div>
+          <div id="pair-countdown" style="font-size:12px;letter-spacing:2px;margin-top:8px;font-family:'Share Tech Mono',monospace;"></div>
           <div id="pair-status" style="font-size:11px;color:var(--ddg);margin-top:8px;letter-spacing:1px;"></div>
         </div>
         <div class="pair-warning">⚠ SECURITY NOTICE: Pairing codes expire in 60 seconds. Never share your code with anyone. CYBER X will never ask for your password.</div>
@@ -716,6 +717,56 @@ async function checkPairingStatus(){
 }
 
 // ══ PAIR CODE ══
+let pairCountdownInterval = null;
+
+// ══ VOICE COUNTDOWN (free browser TTS — no API key needed) ══════════════
+let voiceEnabled = true;
+
+function speakSecond(seconds){
+  if(!voiceEnabled) return;
+  if(!window.speechSynthesis) return; // unsupported browser — silently skip
+  if(document.visibilityState !== 'visible') return; // tab backgrounded — stay silent
+  // Speak at 60, every 10s, then every second from 10 down — avoids talking constantly
+  const shouldSpeak = seconds === 60 || seconds % 10 === 0 || seconds <= 10;
+  if(!shouldSpeak) return;
+  const utter = new SpeechSynthesisUtterance(String(seconds));
+  utter.rate = 1.05; utter.pitch = 1; utter.volume = 0.85;
+  window.speechSynthesis.speak(utter);
+}
+function stopVoice(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+/**
+ * Live 60s countdown next to the pairing code. Backed by the actual
+ * server-side expiry (expiresInMs from /pair), not just a client-side
+ * guess — if the server says the code already expired, this reflects that.
+ * Also speaks the countdown aloud (stops automatically if the tab is hidden).
+ */
+function startPairCountdown(expiresInMs){
+  if(pairCountdownInterval) clearInterval(pairCountdownInterval);
+  const el = document.getElementById('pair-countdown');
+  const display = document.getElementById('pair-code-display');
+  let remainingMs = expiresInMs > 0 ? expiresInMs : 60000;
+  const tick = () => {
+    if(remainingMs <= 0){
+      clearInterval(pairCountdownInterval);
+      el.innerHTML = '<span class="fail">⌛ Code expired — generate a new one</span>';
+      if(display) display.style.opacity = '0.4';
+      stopVoice();
+      return;
+    }
+    const seconds = Math.ceil(remainingMs / 1000);
+    el.innerHTML = seconds <= 10
+      ? '<span class="fail">⏱ Expires in '+seconds+'s</span>'
+      : '<span class="ok">⏱ Expires in '+seconds+'s</span>';
+    speakSecond(seconds);
+    remainingMs -= 1000;
+  };
+  tick();
+  pairCountdownInterval = setInterval(tick, 1000);
+}
+
 async function requestPairCode(){
   const phone=document.getElementById('phone-input').value.trim().replace(/\D/g,'');
   const btn=document.getElementById('pair-btn');
@@ -726,6 +777,8 @@ async function requestPairCode(){
   btn.disabled=true;btn.textContent='⟳ GENERATING...';
   status.innerHTML='<span class="warn">⟳ Requesting pairing code from CYBER X server...</span>';
   codeWrap.style.display='none';
+  if(pairCountdownInterval) clearInterval(pairCountdownInterval);
+  document.getElementById('pair-countdown').innerHTML='';
   let pairUrl='/pair?phone='+phone;
   if(preselectedSlot) pairUrl+='&slot='+preselectedSlot;
   try{
@@ -734,10 +787,12 @@ async function requestPairCode(){
     const code=data.code||data.pairingCode||data.pairing_code;
     if(code){
       display.textContent=code;codeWrap.style.display='block';
+      display.style.opacity='1';
       document.getElementById('copy-btn').textContent='COPY';
       document.getElementById('copy-btn').classList.remove('copied');
       let slotMsg=data.slot?(' Assigned to Server '+data.slot+'.'):'';
       status.innerHTML='<span class="ok">✅ Code generated!'+slotMsg+' Enter it in WhatsApp within 60 seconds.</span>';
+      startPairCountdown(data.expiresInMs || 60000);
       // increment total users counter on server
       try{ await fetch('/api/stats/increment', { method:'POST' }); }catch{}
       // refresh counter display
@@ -912,6 +967,27 @@ var ytPlayer,musicReady=false,hasUnmuted=false,YT_VIDEO_ID='wUQAlBR7-K4';
 (function(){var tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';document.head.appendChild(tag);})();
 function onYouTubeIframeAPIReady(){ytPlayer=new YT.Player('yt-player',{height:'1',width:'1',videoId:YT_VIDEO_ID,playerVars:{autoplay:1,loop:1,playlist:YT_VIDEO_ID,controls:0,disablekb:1,mute:1,playsinline:1,modestbranding:1,rel:0},events:{onReady:function(e){musicReady=true;e.target.mute();e.target.playVideo();},onStateChange:function(e){if(e.data===YT.PlayerState.ENDED)ytPlayer.playVideo();}}});}
 document.addEventListener('click',function(){if(musicReady&&!hasUnmuted&&ytPlayer){ytPlayer.unMute();ytPlayer.setVolume(70);hasUnmuted=true;}if(musicReady&&ytPlayer){var s=ytPlayer.getPlayerState();if(s!==1)ytPlayer.playVideo();}},{passive:true});
+
+// ══ TAB VISIBILITY — stop voice countdown + pause music when user leaves ══
+var musicWasPlayingBeforeHide = false;
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    if(window.speechSynthesis) window.speechSynthesis.cancel();
+    if(musicReady && ytPlayer && typeof ytPlayer.getPlayerState === 'function'){
+      try{
+        var state = ytPlayer.getPlayerState();
+        musicWasPlayingBeforeHide = (state === 1); // 1 = YT.PlayerState.PLAYING
+        if(musicWasPlayingBeforeHide) ytPlayer.pauseVideo();
+      }catch(e){}
+    }
+  } else if(document.visibilityState === 'visible'){
+    if(musicReady && ytPlayer && musicWasPlayingBeforeHide){
+      try{ ytPlayer.playVideo(); }catch(e){}
+      musicWasPlayingBeforeHide = false;
+    }
+  }
+});
+
 </script>
 </body>
 </html>
