@@ -271,10 +271,26 @@ setInterval(cleanupTempDir, 15 * 60 * 1000)
 // ── Memory guard ──────────────────────────────────────────────────────────────
 setInterval(() => { if (global.gc) global.gc() }, 60_000)
 
-setInterval(() => {
-  const usedMB = process.memoryUsage().rss / 1024 / 1024
-  if (usedMB > (parseInt(process.env.MAX_RAM_MB || "450", 10))) {
-    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB) — exiting for clean restart`)
+let memoryShutdownInProgress = false
+setInterval(async () => {
+  const usedMB  = process.memoryUsage().rss / 1024 / 1024
+  const limitMB = parseInt(process.env.MAX_RAM_MB || "450", 10)
+
+  if (usedMB > limitMB && !memoryShutdownInProgress) {
+    memoryShutdownInProgress = true
+    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB) — pushing backup then exiting for clean restart`)
+
+    try {
+      await Promise.race([
+        sessionBackup.pushAll(),
+        new Promise(resolve => setTimeout(resolve, 8000)),
+      ])
+      console.log("[MEMORY] ✔ Final backup pushed before restart")
+    } catch (e) {
+      console.error("[MEMORY] ✗ Backup push failed before restart:", e.message)
+    }
+
+    console.log("[MEMORY] 🔄 Exiting now for clean restart")
     process.exit(1)
   }
 }, 30_000)
@@ -493,11 +509,29 @@ function makeSessionState(phone) {
     settings:      makeSessionSettings(phone),
     groupCache:    {},
     retries:       0,
-    sock:          null,
-    connected:     false,
-    pairingCode:   null,
-    presenceTimer: null,
+    sock:                 null,
+    connected:            false,
+    pairingCode:          null,
+    pairingCodeExpiresAt: null,
+    presenceTimer:        null,
   }
+}
+
+function nowWAT() {
+  return new Date().toLocaleString("en-NG", { timeZone: "Africa/Lagos" })
+}
+
+const PAIRING_CODE_TTL_MS = 60 * 1000
+
+function getValidPairingCode(state) {
+  if (!state.pairingCode) return null
+  if (!state.pairingCodeExpiresAt || Date.now() > state.pairingCodeExpiresAt) {
+    console.log(`[${state.phone}] ⌛ Pairing code expired (60s) at ${nowWAT()} WAT`)
+    state.pairingCode = null
+    state.pairingCodeExpiresAt = null
+    return null
+  }
+  return state.pairingCode
 }
 
 function saveMeta() {
@@ -717,6 +751,118 @@ async function handleMessageRevocation(sock, phone, payload, source) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ANTIBOT — detects FOREIGN WhatsApp bots posting in monitored groups and
+// takes action (kick/delete/warn) regardless of the sender's role — member,
+// admin, super admin, or group owner all get the same treatment. The ONLY
+// exemption is a message that came from one of THIS server's own paired
+// CYBER X sessions. Fully persistent via commands/antibot.js (disk-backed
+// per-group JSON), so config survives Render restarts automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleAntibotDetection(sock, phone, msg) {
+  const from = msg.key.remoteJid
+  if (!from?.endsWith("@g.us")) return
+
+  let antibotCmd
+  try {
+    antibotCmd = require('./commands/antibot.js')
+  } catch { return }
+
+  const config = antibotCmd.loadConfig(from)
+  if (!config.mode || config.mode === "off") return
+
+  const messageId = msg.key.id
+  if (!antibotCmd.isBaileysMessageId(messageId)) return
+
+  const sender = msg.key.participant || from
+  const senderNorm = normalizeNum(sender)
+
+  // ── ONLY exemption: this message came from one of OUR OWN CYBER X
+  // sessions. Role (member/admin/superadmin/owner) is never checked —
+  // detection acts on everyone except our own bot sessions.
+  const isOwnCyberXSession = sessions.has(senderNorm) || messageId.endsWith("CYBERX")
+  if (isOwnCyberXSession) return
+
+  const selfNum = normalizeNum(sock.user?.id || "")
+  if (senderNorm === selfNum) return
+
+  let meta
+  try { meta = await sock.groupMetadata(from) } catch (e) {
+    console.error(`[ANTIBOT:${phone}] metadata fetch failed:`, e.message)
+    return
+  }
+
+  const botJid = sock.user?.id
+  const botNorm = normalizeNum(botJid || "")
+  const botParticipant = meta.participants?.find(p => normalizeNum(p.id) === botNorm)
+  const botIsAdmin = botParticipant?.admin === "admin" || botParticipant?.admin === "superadmin"
+
+  if (!botIsAdmin) {
+    console.log(`[ANTIBOT:${phone}] Detected foreign bot ${senderNorm} in ${from} but I'm not admin — cannot act`)
+    return
+  }
+
+  const targetParticipant = meta.participants?.find(p => normalizeNum(p.id) === senderNorm)
+  const targetRole = targetParticipant?.admin === "superadmin" ? "SUPER ADMIN"
+    : targetParticipant?.admin === "admin" ? "ADMIN"
+    : "MEMBER"
+
+  console.log(`[ANTIBOT:${phone}] 🛡️ Detected FOREIGN bot from ${senderNorm} (role: ${targetRole}) in "${meta.subject}" — mode: ${config.mode} — taking action regardless of role`)
+
+  try {
+    await sock.sendMessage(from, { delete: msg.key })
+  } catch (e) {
+    console.error(`[ANTIBOT:${phone}] delete failed:`, e.message)
+  }
+
+  if (config.mode === "delete") return
+
+  if (config.mode === "kick") {
+    try {
+      await sock.groupParticipantsUpdate(from, [sender], "remove")
+      await sock.sendMessage(from, {
+        text: `✅ *Foreign Bot Removed*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\n📋 Reason: Detected as unauthorized foreign bot account\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
+        mentions: [sender]
+      })
+      console.log(`[ANTIBOT:${phone}] Kicked foreign bot ${senderNorm} (${targetRole}) from ${meta.subject}`)
+    } catch (e) {
+      console.error(`[ANTIBOT:${phone}] kick failed:`, e.message)
+    }
+    return
+  }
+
+  if (config.mode === "warn") {
+    config.warnings = config.warnings || {}
+    config.warnings[senderNorm] = (config.warnings[senderNorm] || 0) + 1
+    const count = config.warnings[senderNorm]
+    antibotCmd.saveConfig(from, config)
+
+    if (count >= antibotCmd.MAX_WARNINGS) {
+      try {
+        await sock.sendMessage(from, {
+          text: `⚠️ *Final Warning Reached (${count}/${antibotCmd.MAX_WARNINGS})*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\nRemoving automatically.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
+          mentions: [sender]
+        })
+        await sock.groupParticipantsUpdate(from, [sender], "remove")
+        config.warnings[senderNorm] = 0
+        antibotCmd.saveConfig(from, config)
+        console.log(`[ANTIBOT:${phone}] Auto-kicked foreign bot ${senderNorm} (${targetRole}) after ${count} warnings`)
+      } catch (e) {
+        console.error(`[ANTIBOT:${phone}] warn-kick failed:`, e.message)
+      }
+    } else {
+      try {
+        await sock.sendMessage(from, {
+          text: `⚠️ *Foreign Bot Warning (${count}/${antibotCmd.MAX_WARNINGS})*\n\n👤 User: @${senderNorm}\n🏷️ Role: ${targetRole}\nReason: Suspicious bot-pattern message detected & deleted.\n${antibotCmd.MAX_WARNINGS - count} more and this account is auto-removed — role doesn't matter.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`,
+          mentions: [sender]
+        })
+      } catch (e) {
+        console.error(`[ANTIBOT:${phone}] warn message failed:`, e.message)
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MESSAGE HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
 async function handleMessage(state, sock, msg) {
@@ -730,7 +876,6 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
-  // ── GLOBAL BAN CHECK ──────────────────────────────────────────────────────
   if (!fromMe && typeof global.__isBanned === 'function') {
     const sessionPhone = normalizeNum(sock.user?.id || '')
     const senderPhone  = normalizeNum(sender || from)
@@ -795,7 +940,7 @@ async function handleMessage(state, sock, msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BOT START — FIXED PAIRING CODE LOGIC
+// BOT START
 // ─────────────────────────────────────────────────────────────────────────────
 async function startBot(phone) {
   let state = sessions.get(phone)
@@ -845,7 +990,12 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
-  // ── GROUP WATCHDOG ────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // GROUP WATCHDOG — logs joins/leaves/promotions/demotions to terminal,
+  // AND forwards welcome/goodbye messages into the actual WhatsApp group
+  // (real sendMessage to groupId — not log-only) when .welcome on /
+  // .goodbye on has been set for that specific group.
+  // ─────────────────────────────────────────────────────────────────────────
   sock.ev.on("group-participants.update", async (update) => {
     let meta = null
     try {
@@ -899,7 +1049,7 @@ async function startBot(phone) {
         const settings  = type === "welcome" ? greetData.welcome : greetData.goodbye
 
         if (!settings?.enabled) {
-          console.log(`[WATCHDOG:${phone}] ${type} message disabled for this group — skipping send`)
+          console.log(`[WATCHDOG:${phone}] ⚠️ ${type} is DISABLED for "${groupName}" — nothing sent. Run .${type} on to enable.`)
           continue
         }
 
@@ -922,7 +1072,7 @@ async function startBot(phone) {
           await sock.sendMessage(groupId, { text, mentions: [participantJid] })
         }
 
-        console.log(`[WATCHDOG:${phone}] ${type === "welcome" ? "👋 Sent welcome" : "👣 Sent goodbye"} for ${memberPhone} in ${groupName}`)
+        console.log(`[WATCHDOG:${phone}] ✅ ${type === "welcome" ? "Sent WELCOME" : "Sent GOODBYE"} to "${groupName}" for ${memberPhone}`)
 
       } catch (e) {
         console.error(`[WATCHDOG:${phone}] send error for ${memberPhone}:`, e.message)
@@ -930,13 +1080,48 @@ async function startBot(phone) {
     }
   })
 
-  // ── PAIRING CODE — FIXED ──────────────────────────────────────────────────
-  // Rules:
-  //   1. Only when creds are NOT registered yet
-  //   2. Fire ONLY on connection === "connecting", never on qr
-  //   3. 3s delay so Baileys finishes internal handshake before we request
-  //   4. Single-fire guard per startBot() call
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── ANTICALL ──────────────────────────────────────────────────────────────
+  const antiCallNotified = new Set()
+
+  sock.ev.on("call", async (calls) => {
+    try {
+      if (!state.settings.get("anticall")) return
+      for (const call of calls) {
+        const callerJid = call.from || call.peerJid || call.chatId
+        if (!callerJid) continue
+
+        try {
+          if (typeof sock.rejectCall === "function" && call.id) {
+            await sock.rejectCall(call.id, callerJid)
+          } else if (typeof sock.sendCallOfferAck === "function" && call.id) {
+            await sock.sendCallOfferAck(call.id, callerJid, "reject")
+          }
+        } catch (e) {
+          console.error(`[ANTICALL:${phone}] reject failed:`, e.message)
+        }
+
+        if (!antiCallNotified.has(callerJid)) {
+          antiCallNotified.add(callerJid)
+          setTimeout(() => antiCallNotified.delete(callerJid), 60000)
+          try {
+            await sock.sendMessage(callerJid, {
+              text: "📵 Anticall is enabled. Your call was rejected and you will be blocked.",
+            })
+          } catch {}
+        }
+
+        setTimeout(async () => {
+          try { await sock.updateBlockStatus(callerJid, "block") } catch (e) {
+            console.error(`[ANTICALL:${phone}] block failed:`, e.message)
+          }
+        }, 800)
+      }
+    } catch (e) {
+      console.error(`[ANTICALL:${phone}] handler error:`, e.message)
+    }
+  })
+
+  // ── PAIRING CODE ──────────────────────────────────────────────────────────
   let pairingCodeRequested = false
 
   sock.ev.on("connection.update", async (update) => {
@@ -953,20 +1138,23 @@ async function startBot(phone) {
       try {
         await new Promise(r => setTimeout(r, 3000))
         const code = await sock.requestPairingCode(number)
-        state.pairingCode = code
-        console.log(`[${phone}] 📱 PAIRING CODE: ${code}`)
+        state.pairingCode          = code
+        state.pairingCodeExpiresAt = Date.now() + PAIRING_CODE_TTL_MS
+        console.log(`[${phone}] 📱 PAIRING CODE: ${code} (generated ${nowWAT()} WAT — expires in 60s)`)
       } catch (e) {
         console.error(`[${phone}] PAIR ERR:`, e.message)
         pairingCodeRequested = false
-        state.pairingCode = null
+        state.pairingCode          = null
+        state.pairingCodeExpiresAt = null
       }
     }
 
     if (connection === "open") {
-      state.connected   = true
-      state.retries     = 0
-      state.pairingCode = null
-      console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"}`)
+      state.connected            = true
+      state.retries              = 0
+      state.pairingCode          = null
+      state.pairingCodeExpiresAt = null
+      console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"} at ${nowWAT()} WAT`)
       const allSettings = state.settings.getAll()
       const settingKeys = Object.keys(allSettings)
       if (settingKeys.length > 0) {
@@ -1016,6 +1204,9 @@ async function startBot(phone) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+        handleAntibotDetection(sock, phone, m).catch(e =>
+          console.error(`[ANTIBOT:${phone}] detection error:`, e.message)
+        )
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
@@ -1087,6 +1278,21 @@ async function init() {
   watchCommands()
   watchSupportDirs()
 
+  // ── ANTIBOT UPKEEPER — confirms persistent config survived restart,
+  // detection is live for every group that had it enabled the moment
+  // sessions reconnect below, no manual re-run of .antibot needed ──
+  try {
+    const antibotCmd = require('./commands/antibot.js')
+    const configs = antibotCmd.listAllConfigs()
+    const active = configs.filter(c => c.mode !== 'off')
+    console.log(`[ANTIBOT] 🛡️ Upkeeper online — ${configs.length} group config(s) on disk, ${active.length} actively enforcing`)
+    if (active.length > 0) {
+      for (const c of active) console.log(`[ANTIBOT]   ↳ ${c.file} → mode: ${c.mode}`)
+    }
+  } catch (e) {
+    console.warn('[ANTIBOT] ⚠ Upkeeper check failed:', e.message)
+  }
+
   try {
     const persist = require("./lib/persist")
     await persist.restoreAllData()
@@ -1138,7 +1344,6 @@ async function init() {
   cleanupDeadSessions(60000).catch(e => console.error("[SESSION-GUARD] ✗", e.message))
 }
 
-// ── FIXED: addSession waits 30s, throws proper error if no code ───────────────
 async function addSession(phone, preferredSlot = null) {
   const clean = phone.replace(/\D/g, "")
   if (!clean) throw new Error("Invalid phone number")
@@ -1153,7 +1358,13 @@ async function addSession(phone, preferredSlot = null) {
   if (!state.pairingCode && !state.connected) {
     throw new Error("Timed out waiting for pairing code — try again")
   }
-  return { phone: clean, pairingCode: state.pairingCode, connected: state.connected, slot }
+  return {
+    phone:       clean,
+    pairingCode: getValidPairingCode(state),
+    expiresInMs: state.pairingCodeExpiresAt ? Math.max(0, state.pairingCodeExpiresAt - Date.now()) : 0,
+    connected:   state.connected,
+    slot,
+  }
 }
 
 async function removeSession(phone) {
@@ -1176,7 +1387,8 @@ function listBots() {
   return [...sessions.entries()].map(([phone, state]) => ({
     phone,
     connected:     state.connected,
-    pairingCode:   state.pairingCode,
+    pairingCode:   getValidPairingCode(state),
+    expiresInMs:   state.pairingCodeExpiresAt ? Math.max(0, state.pairingCodeExpiresAt - Date.now()) : 0,
     groups:        Object.keys(state.groupCache || {}).length,
     savedSettings: Object.keys(state.settings.getAll()).length,
     slot:          slotAssignments[phone] || null,
