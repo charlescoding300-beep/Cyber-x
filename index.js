@@ -779,7 +779,7 @@ async function handleAntibotDetection(sock, phone, msg) {
   // ── ONLY exemption: this message came from one of OUR OWN CYBER X
   // sessions. Role (member/admin/superadmin/owner) is never checked —
   // detection acts on everyone except our own bot sessions.
-  const isOwnCyberXSession = sessions.has(senderNorm) || messageId.endsWith("CYBERX")
+  const isOwnCyberXSession = messageId.endsWith("CYBERX")
   if (isOwnCyberXSession) return
 
   const selfNum = normalizeNum(sock.user?.id || "")
