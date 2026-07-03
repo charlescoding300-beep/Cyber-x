@@ -571,7 +571,7 @@ async function handleStatus(state, sock, msg) {
   const s = state.settings
   if (s.get("autoViewStatus")) { try { await sock.readMessages([msg.key]) } catch {} }
   if (s.get("autoReactStatus")) {
-    const emoji = s.get("statusReactEmoji") || "🔥"
+    const emoji = s.get("statusReactEmoji") || "🙃"
     try {
       await sock.sendMessage("status@broadcast", { react: { text: emoji, key: msg.key } }, {
         statusJidList: [msg.key.participant, sock.user?.id].filter(Boolean)
@@ -796,8 +796,18 @@ async function handleAntibotDetection(sock, phone, msg) {
   const botParticipant = meta.participants?.find(p => normalizeNum(p.id) === botNorm)
   const botIsAdmin = botParticipant?.admin === "admin" || botParticipant?.admin === "superadmin"
 
-  if (!botIsAdmin) {
+if (!botIsAdmin) {
     console.log(`[ANTIBOT:${phone}] Detected foreign bot ${senderNorm} in ${from} but I'm not admin — cannot act`)
+    if (!antibotCmd.hasNotifiedNotAdmin(from)) {
+      antibotCmd.markNotifiedNotAdmin(from)
+      try {
+        await sock.sendMessage(from, {
+          text: `⚠️ *Anti-Bot Alert*\n\nDetected a foreign bot account in this group, but I'm not an admin so I can't take action.\n\n👉 Please make me an admin to enable protection.\n\n> © 𝕮𝖄𝕭𝙀𝙍 𝖃 ™`
+        })
+      } catch (e) {
+        console.error(`[ANTIBOT:${phone}] notAdmin notify failed:`, e.message)
+      }
+    }
     return
   }
 
@@ -1105,16 +1115,10 @@ async function startBot(phone) {
           setTimeout(() => antiCallNotified.delete(callerJid), 60000)
           try {
             await sock.sendMessage(callerJid, {
-              text: "📵 Anticall is enabled. Your call was rejected and you will be blocked.",
+              text: "📵 Anticall is enabled. Your call was rejected.",
             })
           } catch {}
         }
-
-        setTimeout(async () => {
-          try { await sock.updateBlockStatus(callerJid, "block") } catch (e) {
-            console.error(`[ANTICALL:${phone}] block failed:`, e.message)
-          }
-        }, 800)
       }
     } catch (e) {
       console.error(`[ANTICALL:${phone}] handler error:`, e.message)

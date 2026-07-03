@@ -6,6 +6,20 @@ const DATA_DIR = path.join(__dirname, '..', 'data', 'antibot')
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
 
 const MAX_WARNINGS = 3
+// ── Throttle: only send the not-admin alert once per group per 10 minutes,
+// so it doesn't spam the group every time a bot posts ──
+const notAdminNotifyCache = new Map()
+const NOTAdMIN_COOLDOWN_MS = 10 * 60 * 1000
+
+function hasNotifiedNotAdmin(groupId) {
+    const last = notAdminNotifyCache.get(groupId)
+    return last && (Date.now() - last) < NOTAdMIN_COOLDOWN_MS
+}
+
+function markNotifiedNotAdmin(groupId) {
+    notAdminNotifyCache.set(groupId, Date.now())
+}
+
 
 function configFile(groupId) {
     return path.join(DATA_DIR, `${groupId.replace(/[^a-z0-9]/gi, '_')}.json`)
@@ -131,5 +145,7 @@ module.exports = {
     saveConfig,
     listAllConfigs,
     isBaileysMessageId,
+    hasNotifiedNotAdmin,
+    markNotifiedNotAdmin,
     MAX_WARNINGS,
 }
