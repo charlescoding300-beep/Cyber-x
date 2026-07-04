@@ -390,6 +390,7 @@ async function loadCommands() {
   rebuildLists()
   global.__commandCount = ok
   console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped`)
+  console.log(`[ANTIBOT-CHECK] lib.handleAntibot is: ${typeof lib.handleAntibot}`)
   logCommandTable()
 }
 
