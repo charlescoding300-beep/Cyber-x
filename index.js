@@ -957,6 +957,17 @@ async function startBot(phone) {
           continue
         }
 
+        // ── Cross-session dedup: if 2+ CYBER X sessions are in the same
+        // group, WhatsApp notifies each independently. Only the session
+        // that wins this Redis claim actually sends — prevents duplicate
+        // welcome/goodbye messages when multiple sessions overlap.
+        const greetLock = require('./lib/greetLock.js')
+        const claimed = await greetLock.claimGreetEvent(groupId, participantJid, action)
+        if (!claimed) {
+          console.log(`[WATCHDOG:${phone}] 🔒 Another session already claimed this ${type} event for ${memberPhone} — skipping to avoid duplicate`)
+          continue
+        }
+
         const defaultMsg = type === "welcome"
           ? "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members."
           : "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
