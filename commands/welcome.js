@@ -52,7 +52,12 @@ module.exports = {
       })
     }
 
-    const phone = sender.replace(/[^0-9]/g, '')
+    // ── FIX: use THIS SESSION's own linked number, not the sender's.
+    // The watchdog in index.js reads/writes greet config keyed by the
+    // bot session's phone (startBot(phone)'s own number), so this
+    // command must save under that same key or the two never match —
+    // that mismatch was why custom messages always fell back to default.
+    const phone = (sock.user?.id || '').split(':')[0].split('@')[0]
     const data = loadGreet(phone, from)
 
     const cmd = args[0]?.toLowerCase()

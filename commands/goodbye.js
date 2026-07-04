@@ -51,7 +51,7 @@ module.exports = {
       })
     }
 
-    const phone = sender.replace(/[^0-9]/g, '')
+    const phone = (sock.user?.id || '').split(':')[0].split('@')[0]
     const data = loadGreet(phone, from)
 
     const cmd = args[0]?.toLowerCase()
