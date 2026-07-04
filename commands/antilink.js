@@ -2,12 +2,12 @@
 // commands/antilink.js — CYBER X ANTILINK COMMAND
 //
 // Usage:
-//   .antilink on          → enable (warn mode)
+//   .antilink on          → enable (warn mode) + OCR auto-enabled
 //   .antilink off         → disable
-//   .antilink delete      → delete links only, no warning
-//   .antilink warn        → warn 3x then kick
-//   .antilink kick        → instant kick on first link, no warnings
-//   .antilink ocr on/off  → enable/disable image link scanning
+//   .antilink delete      → delete links only, no warning + OCR auto-enabled
+//   .antilink warn        → warn 3x then kick + OCR auto-enabled
+//   .antilink kick        → instant kick on first link + OCR auto-enabled
+//   .antilink ocr on/off  → manually enable/disable image link scanning
 //   .antilink status      → show current settings
 //   .antilink reset @user → reset a user's warnings
 // ─────────────────────────────────────────────────────────
@@ -26,19 +26,6 @@ module.exports = {
       })
     }
 
-    // ── Independent admin re-check ─────────────────────────
-    // BUG FIX: this command was calling lib.isAdmin(sock, from, sender) —
-    // wrong argument order for lib/isAdmin.js's real signature
-    // isAdmin(groupCache, from, sender, sock, ownerJid, senderAlt). That
-    // meant `sock` was being passed in as `groupCache`, which has no
-    // participant data on it — buildAdminSet() always returned an empty
-    // set, so every admin was rejected regardless of real status.
-    //
-    // Fixed two ways for a stronger layer, same pattern as mute.js/unmute.js:
-    //   1. Use the isAdmin flag already correctly computed by index.js
-    //      and passed into run() — no need to re-call lib.isAdmin at all.
-    //   2. ALSO independently re-verify via fresh groupMetadata, so this
-    //      command doesn't depend on index.js's flag being correct either.
     let verifiedAdmin = isOwner || isAdmin
     if (!verifiedAdmin) {
       try {
@@ -49,7 +36,7 @@ module.exports = {
           return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
         })
       } catch (e) {
-        verifiedAdmin = false   // fail closed if we can't verify
+        verifiedAdmin = false
       }
     }
 
@@ -66,6 +53,7 @@ module.exports = {
     // ── .antilink on ──
     if (sub === "on") {
       lib.enableAntilink(from, "warn")
+      lib.enableOcr(from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -75,11 +63,10 @@ module.exports = {
 ┌─────〔 ✅ *ENABLED* 〕─────
 │ 🔗 Links are now *blocked*
 │ ⚙️ Mode: *warn* (3 warns = kick)
-│ 🔍 OCR: *${lib.isOcrEnabled(from) ? "ON" : "OFF"}* (image scanning)
+│ 🔍 OCR: *${lib.isOcrEnabled(from) ? "ON" : "OFF"}* (image scanning — auto-enabled)
 │
 │ 💡 Commands:
 │  *.antilink delete/warn/kick*
-│  *.antilink ocr on* — scan images
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
@@ -107,6 +94,7 @@ module.exports = {
     // ── .antilink delete ──
     if (sub === "delete") {
       lib.enableAntilink(from, "delete")
+      lib.enableOcr(from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -116,6 +104,7 @@ module.exports = {
 ┌─────〔 ⚙️ *MODE SET* 〕─────
 │ 🔗 Links deleted silently
 │ 👤 No warnings, no kicks
+│ 🔍 OCR: auto-enabled
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
@@ -125,6 +114,7 @@ module.exports = {
     // ── .antilink warn ──
     if (sub === "warn") {
       lib.enableAntilink(from, "warn")
+      lib.enableOcr(from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -134,6 +124,7 @@ module.exports = {
 ┌─────〔 ⚙️ *MODE SET* 〕─────
 │ ⚠️ User gets *3 warnings*
 │ 👢 3rd warning = *kicked*
+│ 🔍 OCR: auto-enabled
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
@@ -143,6 +134,7 @@ module.exports = {
     // ── .antilink kick ──
     if (sub === "kick") {
       lib.enableAntilink(from, "kick")
+      lib.enableOcr(from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -153,13 +145,14 @@ module.exports = {
 │ ⚡ *Instant kick* — no warnings
 │ 🔗 First link = *removed immediately*
 │ 🚫 Links are strictly *banned*
+│ 🔍 OCR: auto-enabled
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
       })
     }
 
-    // ── .antilink ocr on/off ──
+    // ── .antilink ocr on/off (manual override, still available) ──
     if (sub === "ocr") {
       if (sub2 === "on") {
         lib.enableOcr(from)
