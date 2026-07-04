@@ -1174,21 +1174,6 @@ async function init() {
   watchCommands()
   watchSupportDirs()
 
-  // ── ANTIBOT UPKEEPER — confirms persistent config survived restart,
-  // detection is live for every group that had it enabled the moment
-  // sessions reconnect below, no manual re-run of .antibot needed ──
-  try {
-    const antibotCmd = require('./commands/antibot.js')
-    const configs = antibotCmd.listAllConfigs()
-    const active = configs.filter(c => c.mode !== 'off')
-    console.log(`[ANTIBOT] 🛡️ Upkeeper online — ${configs.length} group config(s) on disk, ${active.length} actively enforcing`)
-    if (active.length > 0) {
-      for (const c of active) console.log(`[ANTIBOT]   ↳ ${c.file} → mode: ${c.mode}`)
-    }
-  } catch (e) {
-    console.warn('[ANTIBOT] ⚠ Upkeeper check failed:', e.message)
-  }
-
   try {
     const persist = require("./lib/persist")
     await persist.restoreAllData()
