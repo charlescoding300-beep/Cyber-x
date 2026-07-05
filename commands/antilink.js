@@ -1,23 +1,26 @@
 // ─────────────────────────────────────────────────────────
-// commands/antilink.js — CYBER X ANTILINK COMMAND
+// commands/antilink.js — CYBER X ANTILINK COMMAND (per-session)
 //
 // Usage:
-//   .antilink on          → enable (warn mode) + OCR auto-enabled
+//   .antilink on          → enable (warn mode), OCR auto-active if installed
 //   .antilink off         → disable
-//   .antilink delete      → delete links only, no warning + OCR auto-enabled
-//   .antilink warn        → warn 3x then kick + OCR auto-enabled
-//   .antilink kick        → instant kick on first link + OCR auto-enabled
-//   .antilink ocr on/off  → manually enable/disable image link scanning
-//   .antilink status      → show current settings
+//   .antilink delete      → delete links only, no warning
+//   .antilink warn        → warn 3x then kick
+//   .antilink kick        → instant kick on first link
+//   .antilink status      → show current settings for THIS session
 //   .antilink reset @user → reset a user's warnings
+//
+// Settings are isolated per WhatsApp session (phone number) — if you
+// run multiple sessions in the same group, each has its own antilink
+// config, independent of the others.
 // ─────────────────────────────────────────────────────────
 
 module.exports = {
   pattern:  "antilink",
-  desc:     "Ultra antilink — detects every link + hidden/obfuscated/image links",
+  desc:     "Antilink — detects links (including obfuscated/image links via OCR)",
   category: 'group/admin',
 
-  async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup, groupCache }) {
+  async run({ sock, from, msg, sender, args, lib, isAdmin, isOwner, isGroup }) {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
@@ -47,13 +50,17 @@ module.exports = {
       })
     }
 
-    const sub  = (args[0] || "").toLowerCase()
-    const sub2 = (args[1] || "").toLowerCase()
+    // Every session (WhatsApp number) manages its own antilink config,
+    // even inside the same group — derived from the bot's own JID.
+    const phone = lib.normalizeNum(sock.user?.id || "")
 
-    // ── .antilink on ──
+    const sub  = (args[0] || "").toLowerCase()
+    const ocrLine = lib.OCR_AVAILABLE
+      ? "🔍 OCR: *ON* (auto — scans images for links)"
+      : "🔍 OCR: *unavailable* (run: npm install tesseract.js)"
+
     if (sub === "on") {
-      lib.enableAntilink(from, "warn")
-      lib.enableOcr(from)
+      lib.enableAntilink(phone, from, "warn")
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -63,7 +70,7 @@ module.exports = {
 ┌─────〔 ✅ *ENABLED* 〕─────
 │ 🔗 Links are now *blocked*
 │ ⚙️ Mode: *warn* (3 warns = kick)
-│ 🔍 OCR: *${lib.isOcrEnabled(from) ? "ON" : "OFF"}* (image scanning — auto-enabled)
+│ ${ocrLine}
 │
 │ 💡 Commands:
 │  *.antilink delete/warn/kick*
@@ -73,9 +80,8 @@ module.exports = {
       })
     }
 
-    // ── .antilink off ──
     if (sub === "off") {
-      lib.disableAntilink(from)
+      lib.disableAntilink(phone, from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -91,10 +97,8 @@ module.exports = {
       })
     }
 
-    // ── .antilink delete ──
     if (sub === "delete") {
-      lib.enableAntilink(from, "delete")
-      lib.enableOcr(from)
+      lib.enableAntilink(phone, from, "delete")
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -104,17 +108,15 @@ module.exports = {
 ┌─────〔 ⚙️ *MODE SET* 〕─────
 │ 🔗 Links deleted silently
 │ 👤 No warnings, no kicks
-│ 🔍 OCR: auto-enabled
+│ ${ocrLine}
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
       })
     }
 
-    // ── .antilink warn ──
     if (sub === "warn") {
-      lib.enableAntilink(from, "warn")
-      lib.enableOcr(from)
+      lib.enableAntilink(phone, from, "warn")
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -124,17 +126,15 @@ module.exports = {
 ┌─────〔 ⚙️ *MODE SET* 〕─────
 │ ⚠️ User gets *3 warnings*
 │ 👢 3rd warning = *kicked*
-│ 🔍 OCR: auto-enabled
+│ ${ocrLine}
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
       })
     }
 
-    // ── .antilink kick ──
     if (sub === "kick") {
-      lib.enableAntilink(from, "kick")
-      lib.enableOcr(from)
+      lib.enableAntilink(phone, from, "kick")
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
@@ -145,60 +145,13 @@ module.exports = {
 │ ⚡ *Instant kick* — no warnings
 │ 🔗 First link = *removed immediately*
 │ 🚫 Links are strictly *banned*
-│ 🔍 OCR: auto-enabled
+│ ${ocrLine}
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         quoted: msg
       })
     }
 
-    // ── .antilink ocr on/off (manual override, still available) ──
-    if (sub === "ocr") {
-      if (sub2 === "on") {
-        lib.enableOcr(from)
-        return sock.sendMessage(from, {
-          text:
-`╔════════════════════╗
-║  🔍 *OCR ENABLED*  ║
-╚════════════════════╝
-
-┌─────〔 ✅ *IMAGE SCAN ON* 〕─────
-│ 🔍 Bot will now *scan images* for hidden links
-│ 📩 Detects links in:
-│  • Invitation cards
-│  • Screenshots
-│  • Forwarded images
-│  • View-once photos
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-          quoted: msg
-        })
-      }
-
-      if (sub2 === "off") {
-        lib.disableOcr(from)
-        return sock.sendMessage(from, {
-          text:
-`╔════════════════════╗
-║  🔍 *OCR DISABLED* ║
-╚════════════════════╝
-
-┌─────〔 ❌ *IMAGE SCAN OFF* 〕─────
-│ 🔍 Image scanning is now *off*
-│ ℹ️ Use *.antilink ocr on* to re-enable
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-          quoted: msg
-        })
-      }
-
-      return sock.sendMessage(from, {
-        text: "❓ Usage: *.antilink ocr on* or *.antilink ocr off*",
-        quoted: msg
-      })
-    }
-
-    // ── .antilink reset @user ──
     if (sub === "reset") {
       const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]
       if (!mentioned) {
@@ -207,7 +160,7 @@ module.exports = {
           quoted: msg
         })
       }
-      lib.resetWarnings(from, mentioned)
+      lib.resetWarnings(phone, from, mentioned)
       const tag = mentioned.split("@")[0]
       return sock.sendMessage(from, {
         text: `✅ Warnings reset for @${tag}`,
@@ -216,38 +169,30 @@ module.exports = {
       })
     }
 
-    // ── .antilink status / no args ──
     if (sub === "status" || sub === "") {
-      const enabled = lib.isAntilinkEnabled(from)
-      const action  = lib.getAction(from)
-      const ocr     = lib.isOcrEnabled(from)
+      const enabled = lib.isAntilinkEnabled(phone, from)
+      const action  = lib.getAction(phone, from)
       return sock.sendMessage(from, {
         text:
 `╔════════════════════╗
 ║  📊 *ANTILINK STATUS* ║
 ╚════════════════════╝
 
-┌─────〔 ℹ️ *INFO* 〕─────
+┌─────〔 ℹ️ *INFO (this session)* 〕─────
 │ 🛡️ *Status:* ${enabled ? "✅ ENABLED" : "❌ DISABLED"}
 │ ⚙️ *Mode:*   ${action.toUpperCase()}
-│ 🔍 *OCR:*    ${ocr ? "✅ ON (image scan)" : "❌ OFF"}
+│ ${ocrLine}
 │
 │ 📌 *What it detects:*
 │  • All http/https/ftp links
 │  • WhatsApp & Telegram invites
-│  • 40+ short URL services
 │  • Bare domains (google.com)
-│  • IP address links
-│  • Obfuscated links (g o o g l e)
-│  • Hidden unicode tricks
-│  • Base64 encoded URLs
+│  • Links inside images (OCR, automatic)
 │  • Links in quoted messages
-│  • Image links via OCR (if on)
 │
 │ 📌 *Commands:*
 │  *.antilink on/off*
 │  *.antilink delete/warn/kick*
-│  *.antilink ocr on/off*
 │  *.antilink reset @user*
 └──────────────────────────
 > © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
@@ -255,7 +200,6 @@ module.exports = {
       })
     }
 
-    // ── Unknown ──
     return sock.sendMessage(from, {
       text:
 `❓ *Unknown option.*
@@ -263,7 +207,6 @@ module.exports = {
 Usage:
 • *.antilink on/off*
 • *.antilink delete/warn/kick*
-• *.antilink ocr on/off*
 • *.antilink status*
 • *.antilink reset @user*`,
       quoted: msg
