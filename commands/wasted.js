@@ -25,9 +25,29 @@ module.exports = {
     const targetNum = targetJid.split('@')[0]
     const targetTag  = `@${targetNum}`
 
+    // Resolve the real JID via group metadata if we got a @lid instead of
+    // a real number — profilePictureUrl() can hang for minutes on a @lid
+    // it can't resolve, instead of failing fast.
+    if (targetJid.endsWith('@lid')) {
+      try {
+        const gm = await sock.groupMetadata(from)
+        const match = gm.participants.find(p => p.id === targetJid || p.lid === targetJid)
+        if (match?.id && !match.id.endsWith('@lid')) {
+          targetJid = match.id
+        }
+      } catch {
+        console.log('[WASTED] groupMetadata lookup failed, using original JID')
+      }
+    }
+
+    const withTimeout = (promise, ms) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+    ])
+
     let ppUrl = null
     try {
-      ppUrl = await sock.profilePictureUrl(targetJid, 'image')
+      ppUrl = await withTimeout(sock.profilePictureUrl(targetJid, 'image'), 8000)
     } catch {
       console.log(`[WASTED] No PP for ${targetNum}`)
     }
@@ -53,22 +73,29 @@ module.exports = {
       const W = meta.width || 512
       const H = meta.height || 512
 
-      // GTA-style "WASTED" text as SVG overlay
+      // GTA-style "wasted" text as SVG overlay — lowercase, bold red,
+      // with a dark drop-shadow copy behind it (matches the in-game look)
+      const fontSize  = Math.floor(W * 0.15)
+      const shadowOff = Math.max(2, Math.floor(W * 0.01))
+      const cx = W / 2
+      const cy = H * 0.52
       const svg = `
         <svg width="${W}" height="${H}">
           <style>
             .txt {
-              fill: #b30000;
               font-family: Arial, Helvetica, sans-serif;
               font-weight: 900;
-              font-style: italic;
-              letter-spacing: ${Math.floor(W * 0.02)}px;
+              letter-spacing: ${Math.floor(W * 0.005)}px;
             }
           </style>
-          <text x="50%" y="52%" text-anchor="middle" class="txt"
-                font-size="${Math.floor(W * 0.16)}"
-                stroke="black" stroke-width="${Math.max(2, Math.floor(W * 0.004))}">
-            WASTED
+          <text x="${cx + shadowOff}" y="${cy + shadowOff}"
+                text-anchor="middle" class="txt"
+                font-size="${fontSize}" fill="#000000" opacity="0.55">
+            wasted
+          </text>
+          <text x="${cx}" y="${cy}" text-anchor="middle" class="txt"
+                font-size="${fontSize}" fill="#e0201a">
+            wasted
           </text>
         </svg>`
 
