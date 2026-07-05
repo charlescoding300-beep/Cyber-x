@@ -40,7 +40,7 @@ module.exports = {
       return
     }
 
-    const baseMsg = await sock.sendMessage(from, {
+    await sock.sendMessage(from, {
       text: `💀 *Applying WASTED effect on ${targetTag}...*`
     }, { quoted: msg })
 
@@ -79,28 +79,24 @@ module.exports = {
         .png()
         .toBuffer()
 
+      // NOTE: send as a NEW message — do not try to `edit` a text message
+      // into an image message, WhatsApp only supports text→text edits and
+      // will hang the sendMessage promise forever if you try.
       await sock.sendMessage(from, {
         image:    outBuf,
         caption:  `💀 *${targetTag} got WASTED!*\n\n${CREDIT}`,
         mimetype: 'image/png',
-        mentions: [targetJid],
-        edit:     baseMsg.key
-      })
+        mentions: [targetJid]
+      }, { quoted: msg })
 
-      await sock.sendMessage(from, { react: { text: ' ✅', key: msg.key } }).catch(() => {})
+      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
 
     } catch (e) {
       console.warn('[WASTED] Local render failed:', e.message)
       await sock.sendMessage(from, {
         text: `╔════════════════════════╗\n║  💀 *WASTED* 💀        ║\n╚════════════════════════╝\n\n❌ *Could not apply wasted effect*\n${e.message}\n\n${CREDIT}`,
-        mentions: [targetJid],
-        edit: baseMsg.key
-      }).catch(async () => {
-        await sock.sendMessage(from, {
-          text: `❌ *Could not apply wasted effect*\n${e.message}\n\n${CREDIT}`,
-          mentions: [targetJid]
-        }, { quoted: msg })
-      })
+        mentions: [targetJid]
+      }, { quoted: msg }).catch(() => {})
       await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
     }
   }
