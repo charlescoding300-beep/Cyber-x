@@ -901,12 +901,13 @@ async function startBot(phone) {
       )
     }
 
-    const { id: groupId, participants, action } = update
+    const { id: groupId, participants, action, author } = update
     if (!groupId?.endsWith("@g.us")) return
     if (!["add", "remove", "promote", "demote"].includes(action)) return
 
     const groupName   = meta?.subject || groupId
     const memberCount = (meta?.participants || []).length
+    const adminCount  = (meta?.participants || []).filter(p => p.admin === "admin" || p.admin === "superadmin").length
 
     for (const rawParticipant of participants) {
       // WhatsApp sometimes sends participants as plain JID strings, and
@@ -933,6 +934,43 @@ async function startBot(phone) {
       }[action] || action.toUpperCase()
 
       console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in "${groupName}" (${groupId}) | members now: ${memberCount}`)
+
+      // ── PROMOTE / DEMOTE ANNOUNCEMENTS ──────────────────────────────────
+      // Controlled independently via .promotemsg on/off and .demotemsg
+      // on/off (commands/promotemsg.js, commands/demotemsg.js). Reads
+      // Baileys' own `author` field on the event — the JID of whoever
+      // performed the action — officially documented in BaileysEventMap.
+      if (action === "promote" || action === "demote") {
+        try {
+          const section = lib.userDb?.getSection?.(phone, "adminlog") || { groups: {} }
+          const groupSettings = section.groups?.[groupId] || {}
+          const enabled = action === "promote" ? groupSettings.promoteEnabled : groupSettings.demoteEnabled
+
+          if (enabled) {
+            const actorPhone = author ? author.replace("@s.whatsapp.net", "").replace(/:\d+$/, "") : null
+            const actorJid   = author || null
+
+            const boxTitle = action === "promote" ? "⬆️ ADMIN PROMOTION" : "⬇️ ADMIN DEMOTED"
+            const verb     = action === "promote" ? "promoted to" : "demoted from"
+
+            const text =
+              `╔═══════════════════════════╗\n` +
+              `║   ${boxTitle}${" ".repeat(Math.max(0, 21 - boxTitle.length))}║\n` +
+              `╚═══════════════════════════╝\n\n` +
+              `👤 @${memberPhone} has been ${verb} *Admin*\n` +
+              `🛡️ ${action === "promote" ? "Promoted" : "Demoted"} by: ${actorJid ? "@" + actorPhone : "Unknown"}\n` +
+              `📊 Total Admins: ${adminCount}\n\n` +
+              `> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
+
+            const mentions = [participantJid, ...(actorJid ? [actorJid] : [])]
+
+            await sock.sendMessage(groupId, { text, mentions })
+            console.log(`[WATCHDOG:${phone}] ✅ Sent ${action.toUpperCase()} announcement to "${groupName}" for ${memberPhone}`)
+          }
+        } catch (e) {
+          console.error(`[WATCHDOG:${phone}] ${action} announcement error:`, e.message)
+        }
+      }
 
       if (action !== "add" && action !== "remove") continue
 
@@ -1103,7 +1141,13 @@ async function startBot(phone) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody).catch(() => {})
+        // FIX: pass `lib` as the 4th argument so commands/antibot.js can
+        // read/write per-group antibot state via lib.userDb.getSection/
+        // setSection. Previously this called handleAntibot(sock, m,
+        // extractBody) with no way to reach lib.userDb at all, so the
+        // handler had nothing to read group mode/exempt list from and
+        // could never take any action.
+        if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
@@ -1174,6 +1218,20 @@ async function init() {
   await loadCommands()
   watchCommands()
   watchSupportDirs()
+
+  // Wire the ban check used in handleMessage(). Previously global.__isBanned
+  // was called but never assigned anywhere, so the ban check silently
+  // never fired — banned users could still use the bot. loadCommands()
+  // already merges every command's named function exports onto `lib`
+  // (see loadFile()), so commands/ban.js's `isBanned` export lands at
+  // lib.isBanned automatically; this just exposes it globally where
+  // handleMessage() expects to find it.
+  if (typeof lib.isBanned === "function") {
+    global.__isBanned = lib.isBanned
+    console.log("[BAN] ✔ Ban check wired up (per-session)")
+  } else {
+    console.warn("[BAN] ⚠ commands/ban.js not found or isBanned not exported — ban system inactive")
+  }
 
   try {
     const persist = require("./lib/persist")
