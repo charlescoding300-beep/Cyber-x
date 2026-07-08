@@ -383,13 +383,14 @@ function logCommandTable() {
 
 async function loadCommands() {
   if (!fs.existsSync(CMD_DIR)) return
+  const startedAt = Date.now()
   registry.map.clear(); registry.aliases.clear()
   const files = fs.readdirSync(CMD_DIR).filter(f => f.endsWith(".js")).sort()
   let ok = 0, fail = 0
   for (const f of files) { if (loadFile(f)) ok++; else fail++ }
   rebuildLists()
   global.__commandCount = ok
-  console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped`)
+  console.log(`[CMD] ⚡ ${ok} loaded | ${fail} skipped | ${Date.now() - startedAt}ms`)
   console.log(`[ANTIBOT-CHECK] lib.handleAntibot is: ${typeof lib.handleAntibot}`)
   logCommandTable()
 }
@@ -414,6 +415,38 @@ function watchCommands() {
 // ─────────────────────────────────────────────────────────────────────────────
 function normalizeNum(raw = "") {
   return raw.replace(/@.+$/, "").replace(/:\d+$/, "").replace(/\D/g, "").trim()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROFILE PICTURE — retry-safe wrapper.
+//
+// Baileys' sock.profilePictureUrl() has a documented intermittent bug
+// (WhiskeySockets/Baileys #1979): it sometimes succeeds and sometimes
+// throws "not-authorized" for the exact same JID, seemingly tied to
+// WhatsApp-side rate limiting rather than anything wrong in the calling
+// code. This is why the same command can work on one session and fail
+// on another even with identical permissions. Retrying a couple of
+// times with a short delay before giving up fixes the vast majority
+// of these transient failures.
+// ─────────────────────────────────────────────────────────────────────────────
+async function getProfilePictureSafe(sock, jid, opts = {}) {
+  const retries = opts.retries ?? 2
+  const delayMs = opts.delayMs ?? 800
+  const type    = opts.type || "image"
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const url = await sock.profilePictureUrl(jid, type)
+      if (url) return url
+    } catch (e) {
+      if (attempt === retries) {
+        console.warn(`[PP] Failed to fetch profile picture for ${jid} after ${retries + 1} attempt(s): ${e.message}`)
+        return null
+      }
+      await new Promise(r => setTimeout(r, delayMs))
+    }
+  }
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -489,6 +522,7 @@ const helper = {
   async sendDoc(sock, jid, buf, filename, mimetype = "application/octet-stream") {
     return sock.sendMessage(jid, { document: buf, fileName: filename, mimetype })
   },
+  getProfilePictureSafe: (sock, jid, opts) => getProfilePictureSafe(sock, jid, opts),
   box(title, lines = []) {
     const body = lines.map(l => `║  ${l}`).join("\n")
     return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
@@ -751,10 +785,549 @@ async function handleMessageRevocation(sock, phone, payload, source) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ANTILINK — built inline (same pattern as ANTIDELETE above), no lib/ file
+// needed. Per-session (phone) + per-group config at data/antilink/{phone}.json.
+//
+// Detection works in two layers, same philosophy as the antibadword system's
+// leetspeak normalization:
+//   1. Strip invisible/zero-width Unicode characters that get inserted to
+//      slip text past keyword filters (U+200B/C/D, U+FEFF, U+200E/F, U+00AD,
+//      and the wider zero-width range U+2060–U+206F).
+//   2. Collapse common obfuscation: spaced-out letters ("g o o g l e"),
+//      "(dot)"/"[dot]"/" dot " in place of ".", before running link regex.
+// ─────────────────────────────────────────────────────────────────────────────
+const ANTILINK_DIR = path.join(__dirname, "data", "antilink")
+if (!fs.existsSync(ANTILINK_DIR)) fs.mkdirSync(ANTILINK_DIR, { recursive: true })
+
+function antilinkSafePhone(phone) {
+  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
+}
+function antilinkFilePath(phone) {
+  return path.join(ANTILINK_DIR, `${antilinkSafePhone(phone)}.json`)
+}
+function antilinkLoad(phone) {
+  const file = antilinkFilePath(phone)
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch (e) {
+    console.error(`[ANTILINK] load error for ${phone}:`, e.message)
+  }
+  return { groups: {}, warnings: {} }
+}
+function antilinkSave(phone, data) {
+  try {
+    fs.writeFileSync(antilinkFilePath(phone), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[ANTILINK] save error for ${phone}:`, e.message)
+  }
+}
+
+// Zero-width / invisible formatting characters used to hide text from
+// keyword filters — stripped before detection runs.
+const ANTILINK_HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD]/g
+
+function antilinkNormalize(text) {
+  if (!text) return ""
+  let t = text.replace(ANTILINK_HIDDEN_CHARS, "")
+  // "(dot)", "[dot]", " dot " → "." — common manual obfuscation
+  t = t.replace(/\s*[\(\[]\s*dot\s*[\)\]]\s*/gi, ".")
+       .replace(/\s+dot\s+/gi, ".")
+  // Collapse spaced-out single chars INCLUDING dots, so obfuscation like
+  // "g o o g l e . c o m" collapses in one pass instead of the dot
+  // splitting it into two separate pieces that don't re-match as a link.
+  t = t.replace(/(?:[a-zA-Z0-9.]\s+){2,}[a-zA-Z0-9.]/g, m => m.replace(/\s+/g, ""))
+  return t
+}
+
+const ANTILINK_PATTERNS = [
+  /(?:https?|ftp):\/\/[^\s<>"{}|\\^`[\]]{2,}/gi,
+  /chat\.whatsapp\.com\/[A-Za-z0-9]{10,}/gi,
+  /(?:t|telegram)\.me\/[^\s]{2,}/gi,
+  /www\.[a-z0-9][-a-z0-9]{0,61}(?:\.[a-z]{2,})+(?:\/[^\s]*)?/gi,
+  /\b[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.(?:com|net|org|io|co|xyz|top|info|biz|me|link|click|shop|store|online|site|app|dev|tv)\b(?:\/[^\s]*)?/gi,
+]
+
+function antilinkContainsLink(text) {
+  if (!text) return false
+  const normalized = antilinkNormalize(text)
+  return ANTILINK_PATTERNS.some(p => { p.lastIndex = 0; return p.test(normalized) })
+}
+
+function antilinkExtractAllText(msg) {
+  const m = msg.message
+  if (!m) return []
+  const texts = []
+  const add = v => { if (v && typeof v === "string") texts.push(v) }
+  add(m.conversation)
+  add(m.extendedTextMessage?.text)
+  add(m.imageMessage?.caption)
+  add(m.videoMessage?.caption)
+  add(m.documentMessage?.caption)
+  const ctx = m.extendedTextMessage?.contextInfo
+  if (ctx) {
+    add(ctx.quotedMessage?.conversation)
+    add(ctx.quotedMessage?.extendedTextMessage?.text)
+  }
+  return texts
+}
+
+let AntilinkTesseract = null
+try { AntilinkTesseract = require("tesseract.js") } catch {}
+const ANTILINK_OCR_AVAILABLE = !!AntilinkTesseract
+
+async function antilinkScanImage(msg) {
+  if (!ANTILINK_OCR_AVAILABLE) return false
+  const m = msg.message
+  const hasImage = m?.imageMessage || m?.stickerMessage
+  if (!hasImage) return false
+  try {
+    const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: Pino({ level: "silent" }) })
+    if (!buffer || buffer.length < 100) return false
+    const { data: { text } } = await AntilinkTesseract.recognize(buffer, "eng", { logger: () => {} })
+    return antilinkContainsLink(text)
+  } catch (e) {
+    console.error("[ANTILINK OCR]", e.message)
+    return false
+  }
+}
+
+function antilinkIsEnabled(phone, groupId) {
+  return !!antilinkLoad(phone).groups[groupId]?.enabled
+}
+function antilinkEnable(phone, groupId, action = "warn") {
+  const data = antilinkLoad(phone)
+  if (!data.groups[groupId]) data.groups[groupId] = {}
+  data.groups[groupId].enabled = true
+  data.groups[groupId].action = action
+  antilinkSave(phone, data)
+}
+function antilinkDisable(phone, groupId) {
+  const data = antilinkLoad(phone)
+  if (data.groups[groupId]) { data.groups[groupId].enabled = false; antilinkSave(phone, data) }
+}
+function antilinkGetAction(phone, groupId) {
+  return antilinkLoad(phone).groups[groupId]?.action || "warn"
+}
+function antilinkAddWarning(phone, groupId, sender) {
+  const data = antilinkLoad(phone)
+  if (!data.warnings[groupId]) data.warnings[groupId] = {}
+  if (!data.warnings[groupId][sender]) data.warnings[groupId][sender] = 0
+  data.warnings[groupId][sender]++
+  antilinkSave(phone, data)
+  return data.warnings[groupId][sender]
+}
+function antilinkResetWarnings(phone, groupId, sender) {
+  const data = antilinkLoad(phone)
+  if (data.warnings[groupId]?.[sender] !== undefined) {
+    data.warnings[groupId][sender] = 0
+    antilinkSave(phone, data)
+  }
+}
+
+async function handleAntilinkInline(sock, msg, phone) {
+  try {
+    if (!msg?.message) return
+    const groupId = msg.key.remoteJid
+    if (!groupId?.endsWith("@g.us")) return
+    if (msg.key.fromMe) return
+    if (!antilinkIsEnabled(phone, groupId)) return
+
+    const sender = msg.key.participant || groupId
+    const allTexts = antilinkExtractAllText(msg)
+    const foundText = allTexts.some(t => antilinkContainsLink(t))
+
+    let foundOcr = false
+    if (!foundText) foundOcr = await antilinkScanImage(msg)
+    if (!foundText && !foundOcr) return
+
+    let groupMeta
+    try { groupMeta = await sock.groupMetadata(groupId) } catch (e) {
+      console.error("[ANTILINK] metadata fetch failed:", e.message)
+      return
+    }
+
+    const senderNorm = normalizeNum(sender)
+    const isSenderAdmin = groupMeta.participants?.some(p =>
+      normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
+    if (isSenderAdmin) return
+
+    const botNorm = normalizeNum(sock.user?.id || "")
+    const botIsAdmin = groupMeta.participants?.some(p =>
+      normalizeNum(p.id) === botNorm && (p.admin === "admin" || p.admin === "superadmin"))
+    if (!botIsAdmin) {
+      console.log(`[ANTILINK:${phone}] link from ${senderNorm} in ${groupId} but bot isn't admin — skipping`)
+      return
+    }
+
+    const action = antilinkGetAction(phone, groupId)
+    const tag = senderNorm
+    const ocrNote = foundOcr ? "\n│ 🔍 *Detected via image scan (OCR)*" : ""
+
+    await sock.sendMessage(groupId, { delete: msg.key })
+
+    if (action === "delete") {
+      await sock.sendMessage(groupId, {
+        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here!${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        mentions: [sender]
+      })
+    } else if (action === "kick") {
+      await sock.sendMessage(groupId, {
+        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        mentions: [sender]
+      })
+      try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
+      catch (e) { console.error("[ANTILINK] kick failed:", e.message) }
+    } else if (action === "warn") {
+      const warns = antilinkAddWarning(phone, groupId, sender)
+      const maxWarns = 3
+      if (warns >= maxWarns) {
+        antilinkResetWarnings(phone, groupId, sender)
+        await sock.sendMessage(groupId, {
+          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          mentions: [sender]
+        })
+        try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
+        catch (e) { console.error("[ANTILINK] warn-kick failed:", e.message) }
+      } else {
+        await sock.sendMessage(groupId, {
+          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here!${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          mentions: [sender]
+        })
+      }
+    }
+  } catch (err) {
+    console.error("[ANTILINK]", err.message)
+  }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MESSAGE HANDLER
+// CUSTOM COMMANDS — per-session private commands.
+//
+// This is the second layer on top of your normal commands/ folder:
+//   1. Commands YOU add to commands/ (like .anime, .antilink) — these
+//      load into the shared registry and work identically on every
+//      session, since it's the same code loaded by every startBot().
+//   2. Custom commands each session owner defines for THEMSELVES via
+//      .addcmd — stored at data/customcmds/{phone}.json, checked only
+//      after the shared registry has no match. Completely invisible to
+//      every other session, even ones running the exact same bot code —
+//      because each session's file only exists under that session's own
+//      phone number.
 // ─────────────────────────────────────────────────────────────────────────────
+const CUSTOMCMD_DIR = path.join(__dirname, "data", "customcmds")
+if (!fs.existsSync(CUSTOMCMD_DIR)) fs.mkdirSync(CUSTOMCMD_DIR, { recursive: true })
+
+function customCmdSafePhone(phone) {
+  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
+}
+function customCmdFilePath(phone) {
+  return path.join(CUSTOMCMD_DIR, `${customCmdSafePhone(phone)}.json`)
+}
+function customCmdLoad(phone) {
+  const file = customCmdFilePath(phone)
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch (e) {
+    console.error(`[CUSTOMCMD] load error for ${phone}:`, e.message)
+  }
+  return {}
+}
+function customCmdSave(phone, data) {
+  try {
+    fs.writeFileSync(customCmdFilePath(phone), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[CUSTOMCMD] save error for ${phone}:`, e.message)
+  }
+}
+function customCmdAdd(phone, trigger, response) {
+  const data = customCmdLoad(phone)
+  data[trigger.toLowerCase().trim()] = response
+  customCmdSave(phone, data)
+}
+function customCmdRemove(phone, trigger) {
+  const data = customCmdLoad(phone)
+  const key = trigger.toLowerCase().trim()
+  if (data[key] === undefined) return false
+  delete data[key]
+  customCmdSave(phone, data)
+  return true
+}
+function customCmdGet(phone, trigger) {
+  const data = customCmdLoad(phone)
+  return data[trigger.toLowerCase().trim()] || null
+}
+function customCmdList(phone) {
+  return Object.keys(customCmdLoad(phone))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANTITAG — deletes any message that mentions/tags a member (including
+// simulated "@all"/"tag everyone", which WhatsApp doesn't natively support —
+// bots fake it by populating contextInfo.mentionedJid with every participant
+// while the visible text just reads "@all"). Confirmed via Baileys' own
+// ContextInfo docs: mentionedJid is the field to check, regardless of how
+// many people are tagged.
+//
+// Works for BOTH admins and normal members — only the session owner is
+// exempt. Delete-only, no warn/kick tiers (matches the requested behavior).
+// Per-session + per-group config at data/antitag/{phone}.json.
+// ─────────────────────────────────────────────────────────────────────────────
+const ANTITAG_DIR = path.join(__dirname, "data", "antitag")
+if (!fs.existsSync(ANTITAG_DIR)) fs.mkdirSync(ANTITAG_DIR, { recursive: true })
+
+function antitagSafePhone(phone) {
+  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
+}
+function antitagFilePath(phone) {
+  return path.join(ANTITAG_DIR, `${antitagSafePhone(phone)}.json`)
+}
+function antitagLoad(phone) {
+  const file = antitagFilePath(phone)
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch (e) {
+    console.error(`[ANTITAG] load error for ${phone}:`, e.message)
+  }
+  return { groups: {} }
+}
+function antitagSave(phone, data) {
+  try {
+    fs.writeFileSync(antitagFilePath(phone), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[ANTITAG] save error for ${phone}:`, e.message)
+  }
+}
+function antitagIsEnabled(phone, groupId) {
+  return !!antitagLoad(phone).groups[groupId]?.enabled
+}
+function antitagEnable(phone, groupId) {
+  const data = antitagLoad(phone)
+  if (!data.groups[groupId]) data.groups[groupId] = {}
+  data.groups[groupId].enabled = true
+  antitagSave(phone, data)
+}
+function antitagDisable(phone, groupId) {
+  const data = antitagLoad(phone)
+  if (data.groups[groupId]) { data.groups[groupId].enabled = false; antitagSave(phone, data) }
+}
+
+function antitagGetMentions(msg) {
+  const m = msg.message
+  const ctx = m?.extendedTextMessage?.contextInfo || m?.imageMessage?.contextInfo ||
+              m?.videoMessage?.contextInfo || m?.conversation?.contextInfo
+  return ctx?.mentionedJid || []
+}
+
+async function handleAntitagInline(sock, msg, phone) {
+  try {
+    if (!msg?.message) return
+    const groupId = msg.key.remoteJid
+    if (!groupId?.endsWith("@g.us")) return
+    if (msg.key.fromMe) return
+    if (!antitagIsEnabled(phone, groupId)) return
+
+    const mentions = antitagGetMentions(msg)
+    if (!mentions.length) return
+
+    const sender = msg.key.participant || groupId
+    const senderNorm = normalizeNum(sender)
+    const sessionPhone = normalizeNum(sock.user?.id || "")
+
+    // Only the session owner is exempt — admins and normal members both
+    // get their tag messages deleted, exactly as requested.
+    if (senderNorm === sessionPhone) return
+
+    try {
+      await sock.sendMessage(groupId, { delete: msg.key })
+      console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} (${mentions.length} mention(s))`)
+    } catch (e) {
+      console.error(`[ANTITAG:${phone}] delete failed (bot may not be admin):`, e.message)
+    }
+  } catch (err) {
+    console.error("[ANTITAG]", err.message)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANTISTATUS — actions taken when a NORMAL member (not admin, not owner)
+// posts a personal WhatsApp status that mentions/tags a monitored group.
+// Detected via contextInfo.groupMentions — a documented Baileys/WhatsApp
+// field specifically for status posts that tag a group (confirmed via
+// Baileys' ContextInfo class docs, alongside the related isGroupStatus flag).
+//
+// HONEST LIMITATION: WhatsApp does not allow deleting another person's
+// actual personal Status post — that's enforced by WhatsApp's own protocol,
+// not something Baileys can bypass. "delete" mode attempts it (works only
+// in edge cases WhatsApp permits) and logs clearly if rejected. "warn" and
+// "kick" are the actions that reliably work every time, since those operate
+// on group membership, which the bot does control as admin.
+//
+// Only fires for normal members — admins and the session owner posting the
+// same kind of status are completely ignored, though either can configure
+// this feature via .antistatus on/off/mode.
+// ─────────────────────────────────────────────────────────────────────────────
+const ANTISTATUS_DIR = path.join(__dirname, "data", "antistatus")
+if (!fs.existsSync(ANTISTATUS_DIR)) fs.mkdirSync(ANTISTATUS_DIR, { recursive: true })
+
+function antistatusSafePhone(phone) {
+  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
+}
+function antistatusFilePath(phone) {
+  return path.join(ANTISTATUS_DIR, `${antistatusSafePhone(phone)}.json`)
+}
+function antistatusLoad(phone) {
+  const file = antistatusFilePath(phone)
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch (e) {
+    console.error(`[ANTISTATUS] load error for ${phone}:`, e.message)
+  }
+  return { groups: {}, warnings: {} }
+}
+function antistatusSave(phone, data) {
+  try {
+    fs.writeFileSync(antistatusFilePath(phone), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[ANTISTATUS] save error for ${phone}:`, e.message)
+  }
+}
+function antistatusIsEnabled(phone, groupId) {
+  return !!antistatusLoad(phone).groups[groupId]?.enabled
+}
+function antistatusEnable(phone, groupId, mode = "warn") {
+  const data = antistatusLoad(phone)
+  if (!data.groups[groupId]) data.groups[groupId] = {}
+  data.groups[groupId].enabled = true
+  data.groups[groupId].mode = mode
+  antistatusSave(phone, data)
+}
+function antistatusDisable(phone, groupId) {
+  const data = antistatusLoad(phone)
+  if (data.groups[groupId]) { data.groups[groupId].enabled = false; antistatusSave(phone, data) }
+}
+function antistatusGetMode(phone, groupId) {
+  return antistatusLoad(phone).groups[groupId]?.mode || "warn"
+}
+function antistatusAddWarning(phone, groupId, sender) {
+  const data = antistatusLoad(phone)
+  if (!data.warnings[groupId]) data.warnings[groupId] = {}
+  if (!data.warnings[groupId][sender]) data.warnings[groupId][sender] = 0
+  data.warnings[groupId][sender]++
+  antistatusSave(phone, data)
+  return data.warnings[groupId][sender]
+}
+function antistatusResetWarnings(phone, groupId, sender) {
+  const data = antistatusLoad(phone)
+  if (data.warnings[groupId]?.[sender] !== undefined) {
+    data.warnings[groupId][sender] = 0
+    antistatusSave(phone, data)
+  }
+}
+
+// Called for every status@broadcast message. Checks it against every
+// group this session has antistatus enabled for.
+async function handleAntistatusInline(sock, msg, phone) {
+  try {
+    if (!msg?.message) return
+    if (msg.key.fromMe) return
+
+    const m = msg.message
+    const ctx = m?.extendedTextMessage?.contextInfo || m?.imageMessage?.contextInfo || m?.videoMessage?.contextInfo
+    const groupMentions = ctx?.groupMentions || []
+    if (!groupMentions.length) return
+
+    const sender = msg.key.participant || msg.key.remoteJid
+    const senderNorm = normalizeNum(sender)
+    const sessionPhone = normalizeNum(sock.user?.id || "")
+
+    for (const gm of groupMentions) {
+      const groupId = gm.groupJid || gm.jid
+      if (!groupId) continue
+      if (!antistatusIsEnabled(phone, groupId)) continue
+
+      // Owner posting their own status is always exempt.
+      if (senderNorm === sessionPhone) continue
+
+      let groupMeta
+      try { groupMeta = await sock.groupMetadata(groupId) } catch (e) {
+        console.error("[ANTISTATUS] metadata fetch failed:", e.message)
+        continue
+      }
+
+      // Poster must actually be a member of this group for it to matter.
+      const isMember = groupMeta.participants?.some(p => normalizeNum(p.id) === senderNorm)
+      if (!isMember) continue
+
+      // Admins are exempt — only normal members get actioned.
+      const isSenderAdmin = groupMeta.participants?.some(p =>
+        normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
+      if (isSenderAdmin) continue
+
+      const botNorm = normalizeNum(sock.user?.id || "")
+      const botIsAdmin = groupMeta.participants?.some(p =>
+        normalizeNum(p.id) === botNorm && (p.admin === "admin" || p.admin === "superadmin"))
+
+      const mode = antistatusGetMode(phone, groupId)
+      const tag = senderNorm
+
+      // Best-effort delete attempt — see the honest limitation noted above.
+      try {
+        await sock.sendMessage(msg.key.remoteJid, { delete: msg.key })
+        console.log(`[ANTISTATUS:${phone}] delete attempt sent for status from ${tag}`)
+      } catch (e) {
+        console.log(`[ANTISTATUS:${phone}] could not delete status from ${tag} (WhatsApp restricts deleting others' status): ${e.message}`)
+      }
+
+      if (!botIsAdmin && mode === "kick") {
+        console.log(`[ANTISTATUS:${phone}] would kick ${tag} from ${groupId} but bot isn't admin there`)
+        continue
+      }
+
+      if (mode === "kick") {
+        try {
+          await sock.groupParticipantsUpdate(groupId, [sender], "remove")
+          await sock.sendMessage(groupId, {
+            text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 📱 *Reason:* Tagged this group in their status\n│ ⚡ *Mode:* Instant kick\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            mentions: [sender]
+          })
+        } catch (e) {
+          console.error("[ANTISTATUS] kick failed:", e.message)
+        }
+      } else if (mode === "warn") {
+        const warns = antistatusAddWarning(phone, groupId, sender)
+        const maxWarns = 3
+        if (warns >= maxWarns) {
+          antistatusResetWarnings(phone, groupId, sender)
+          try {
+            await sock.groupParticipantsUpdate(groupId, [sender], "remove")
+            await sock.sendMessage(groupId, {
+              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+              mentions: [sender]
+            })
+          } catch (e) {
+            console.error("[ANTISTATUS] warn-kick failed:", e.message)
+          }
+        } else {
+          await sock.sendMessage(groupId, {
+            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            mentions: [sender]
+          }).catch(() => {})
+        }
+      } else {
+        // delete mode — the delete attempt above already ran; just notify.
+        await sock.sendMessage(groupId, {
+          text: `╔════════════════════╗\n║  📱 *STATUS ACTION* ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Tagged this group in their status — action taken\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          mentions: [sender]
+        }).catch(() => {})
+      }
+    }
+  } catch (err) {
+    console.error("[ANTISTATUS]", err.message)
+  }
+}
+
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
@@ -770,7 +1343,7 @@ async function handleMessage(state, sock, msg) {
     const sessionPhone = normalizeNum(sock.user?.id || '')
     const senderPhone  = normalizeNum(sender || from)
     try {
-      const banned = await global.__isBanned(sessionPhone, senderPhone)
+      const banned = await global.__isBanned(sessionPhone, senderPhone, from)
       if (banned) {
         console.log(`[BAN] 🚫 Blocked: ${senderPhone} on session ${sessionPhone}`)
         return
@@ -790,7 +1363,10 @@ async function handleMessage(state, sock, msg) {
 
   const isOwner = checkIsOwner(state, sender, senderAlt, fromMe)
   const mode = state.settings.get("mode") || "public"
-  if (mode === "private" && !isOwner && !fromMe) return
+  if (mode === "private" && !isOwner && !fromMe) {
+    console.log(`[${state.phone}] 🔒 Blocked (private mode): ${normalizeNum(sender || from)}`)
+    return
+  }
 
   const isGroup = from.endsWith("@g.us")
   if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
@@ -803,29 +1379,85 @@ async function handleMessage(state, sock, msg) {
   const args     = rest ? rest.split(/\s+/) : []
   const canonical = registry.aliases.get(rawCmd) || rawCmd
   const command   = registry.map.get(canonical)
-  if (!command) return
+
+  if (!command) {
+    // Not a shared/global command — check if THIS session's owner has
+    // defined their own private custom command with this trigger.
+    // Only exists for this specific phone's data file, so it can never
+    // fire on any other session, even ones running identical code.
+    const customResponse = customCmdGet(state.phone, rawCmd)
+    if (customResponse) {
+      try {
+        await sock.sendMessage(from, {
+          text: customResponse.replace(/\{prefix\}/g, prefix)
+        }, { quoted: msg })
+      } catch (e) {
+        console.error(`[${state.phone}] custom cmd send error:`, e.message)
+      }
+    }
+    return
+  }
 
   let isAdmin = false, isBotAdmin = false
   if (isGroup) { ({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner)) }
 
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
 
+  const runOnce = () => command.run({
+    sock, from, msg, message: msg, sender, args,
+    text: rest, full: body,
+    commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
+    settings: state.settings, lib, api, config, helper,
+    isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
+    extractBody, groupCache: state.groupCache,
+    checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
+    checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
+    antideleteGetEnabled: () => antideleteGetEnabled(state.phone),
+    antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
+  })
+
+  // Hard timeout — command dispatch itself is already O(1) (Map lookup,
+  // not a scan) and commands/ only loads once at boot, so neither of
+  // those add per-message delay. The actual risk to speed is a command
+  // that hangs on a slow external call with no time limit. This makes
+  // every command race against a clock: if it doesn't finish in time,
+  // it fails fast with a clear timeout error instead of blocking this
+  // session indefinitely.
+  const COMMAND_TIMEOUT_MS = parseInt(process.env.COMMAND_TIMEOUT_MS || "15000", 10)
+  const runWithTimeout = () => Promise.race([
+    runOnce(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`timed out after ${COMMAND_TIMEOUT_MS / 1000}s`)), COMMAND_TIMEOUT_MS)
+    ),
+  ])
+
+  const startedAt = Date.now()
+
   try {
-    await command.run({
-      sock, from, msg, message: msg, sender, args,
-      text: rest, full: body,
-      commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
-      settings: state.settings, lib, api, config, helper,
-      isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
-      extractBody, groupCache: state.groupCache,
-      checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
-      checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
-      antideleteGetEnabled: () => antideleteGetEnabled(state.phone),
-      antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
-    })
+    await runWithTimeout()
+    console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
-    console.error(`[${state.phone}] RUN ERR ${rawCmd}: ${e.message}`)
-    try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
+    // One of the most common causes of "works for one person, fails for
+    // another" in group bots is stale cached group metadata (it only
+    // auto-refreshes every 5 minutes — see checkGroupAdmin above). If a
+    // command throws (including a timeout above), force a fresh metadata
+    // fetch and retry exactly once before showing the error, so a
+    // stale-cache hiccup self-heals instead of surfacing as an
+    // inconsistent per-user failure.
+    console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
+    try {
+      if (isGroup) {
+        const fresh = await sock.groupMetadata(from)
+        state.groupCache[from] = { ...fresh, _cachedAt: Date.now() }
+        ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
+      }
+      const retryStartedAt = Date.now()
+      await runWithTimeout()
+      console.log(`[${state.phone}] ✔ ${rawCmd} succeeded on retry in ${Date.now() - retryStartedAt}ms`)
+    } catch (e2) {
+      console.error(`[${state.phone}] RUN ERR ${rawCmd} (attempt 2, final): ${e2.message}`)
+      try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e2.message}` }, { quoted: msg }) } catch {}
+    }
   }
 }
 
@@ -1006,8 +1638,7 @@ async function startBot(phone) {
           .replace(/{group}/g,   groupName)
           .replace(/{members}/g, String(memberCount))
 
-        let ppUrl = null
-        try { ppUrl = await sock.profilePictureUrl(participantJid, "image") } catch {}
+        const ppUrl = await getProfilePictureSafe(sock, participantJid, { retries: 2, delayMs: 800 })
 
         if (ppUrl) {
           await sock.sendMessage(groupId, { image: { url: ppUrl }, caption: text, mentions: [participantJid] })
@@ -1131,6 +1762,7 @@ async function startBot(phone) {
       if (ts < BOT_START - 15) continue
       if (m.key.remoteJid === "status@broadcast") {
         handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
+        handleAntistatusInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTISTATUS ERR:`, e.message))
         continue
       }
       storeMessage(sock, m).catch(e => console.error(`[${phone}] storeMessage ERR:`, e.message))
@@ -1139,7 +1771,8 @@ async function startBot(phone) {
       )
       if (!m.key.fromMe) {
         if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntilink === "function") lib.handleAntilink(sock, m, extractBody).catch(() => {})
+        handleAntilinkInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTILINK ERR:`, e.message))
+        handleAntitagInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTITAG ERR:`, e.message))
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
         // FIX: pass `lib` as the 4th argument so commands/antibot.js can
         // read/write per-group antibot state via lib.userDb.getSection/
@@ -1232,6 +1865,39 @@ async function init() {
   } else {
     console.warn("[BAN] ⚠ commands/ban.js not found or isBanned not exported — ban system inactive")
   }
+
+  // Antilink control functions — exposed globally so commands/antilink.js
+  // can call them without needing a lib/antilink.js file, same pattern
+  // as global.__isBanned above.
+  global.__antilinkEnable        = antilinkEnable
+  global.__antilinkDisable       = antilinkDisable
+  global.__antilinkIsEnabled     = antilinkIsEnabled
+  global.__antilinkGetAction     = antilinkGetAction
+  global.__antilinkResetWarnings = antilinkResetWarnings
+  global.__antilinkContainsLink  = antilinkContainsLink
+  global.__antilinkOcrAvailable  = ANTILINK_OCR_AVAILABLE
+  console.log(`[ANTILINK] ✔ Wired up inline (OCR ${ANTILINK_OCR_AVAILABLE ? "available" : "unavailable — npm install tesseract.js"})`)
+
+  // Antitag control functions
+  global.__antitagEnable    = antitagEnable
+  global.__antitagDisable   = antitagDisable
+  global.__antitagIsEnabled = antitagIsEnabled
+  console.log("[ANTITAG] ✔ Wired up inline")
+
+  // Antistatus control functions
+  global.__antistatusEnable    = antistatusEnable
+  global.__antistatusDisable   = antistatusDisable
+  global.__antistatusIsEnabled = antistatusIsEnabled
+  global.__antistatusGetMode   = antistatusGetMode
+  console.log("[ANTISTATUS] ✔ Wired up inline")
+
+  // Per-session custom command management — exposed globally so
+  // commands/customcmd.js can call these without needing a lib/ file.
+  global.__customCmdAdd    = customCmdAdd
+  global.__customCmdRemove = customCmdRemove
+  global.__customCmdGet    = customCmdGet
+  global.__customCmdList   = customCmdList
+  console.log("[CUSTOMCMD] ✔ Per-session custom command engine wired up")
 
   try {
     const persist = require("./lib/persist")
