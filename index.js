@@ -419,15 +419,6 @@ function normalizeNum(raw = "") {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE PICTURE — retry-safe wrapper.
-//
-// Baileys' sock.profilePictureUrl() has a documented intermittent bug
-// (WhiskeySockets/Baileys #1979): it sometimes succeeds and sometimes
-// throws "not-authorized" for the exact same JID, seemingly tied to
-// WhatsApp-side rate limiting rather than anything wrong in the calling
-// code. This is why the same command can work on one session and fail
-// on another even with identical permissions. Retrying a couple of
-// times with a short delay before giving up fixes the vast majority
-// of these transient failures.
 // ─────────────────────────────────────────────────────────────────────────────
 async function getProfilePictureSafe(sock, jid, opts = {}) {
   const retries = opts.retries ?? 2
@@ -525,7 +516,7 @@ const helper = {
   getProfilePictureSafe: (sock, jid, opts) => getProfilePictureSafe(sock, jid, opts),
   box(title, lines = []) {
     const body = lines.map(l => `║  ${l}`).join("\n")
-    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝖤𝕽 𝖃 ™`
   },
   msToTime(ms) { const s = Math.floor(ms/1000); return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s` },
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
@@ -786,16 +777,7 @@ async function handleMessageRevocation(sock, phone, payload, source) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANTILINK — built inline (same pattern as ANTIDELETE above), no lib/ file
-// needed. Per-session (phone) + per-group config at data/antilink/{phone}.json.
-//
-// Detection works in two layers, same philosophy as the antibadword system's
-// leetspeak normalization:
-//   1. Strip invisible/zero-width Unicode characters that get inserted to
-//      slip text past keyword filters (U+200B/C/D, U+FEFF, U+200E/F, U+00AD,
-//      and the wider zero-width range U+2060–U+206F).
-//   2. Collapse common obfuscation: spaced-out letters ("g o o g l e"),
-//      "(dot)"/"[dot]"/" dot " in place of ".", before running link regex.
+// ANTILINK
 // ─────────────────────────────────────────────────────────────────────────────
 const ANTILINK_DIR = path.join(__dirname, "data", "antilink")
 if (!fs.existsSync(ANTILINK_DIR)) fs.mkdirSync(ANTILINK_DIR, { recursive: true })
@@ -823,19 +805,13 @@ function antilinkSave(phone, data) {
   }
 }
 
-// Zero-width / invisible formatting characters used to hide text from
-// keyword filters — stripped before detection runs.
 const ANTILINK_HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD]/g
 
 function antilinkNormalize(text) {
   if (!text) return ""
   let t = text.replace(ANTILINK_HIDDEN_CHARS, "")
-  // "(dot)", "[dot]", " dot " → "." — common manual obfuscation
   t = t.replace(/\s*[\(\[]\s*dot\s*[\)\]]\s*/gi, ".")
        .replace(/\s+dot\s+/gi, ".")
-  // Collapse spaced-out single chars INCLUDING dots, so obfuscation like
-  // "g o o g l e . c o m" collapses in one pass instead of the dot
-  // splitting it into two separate pieces that don't re-match as a link.
   t = t.replace(/(?:[a-zA-Z0-9.]\s+){2,}[a-zA-Z0-9.]/g, m => m.replace(/\s+/g, ""))
   return t
 }
@@ -1001,20 +977,8 @@ async function handleAntilinkInline(sock, msg, phone) {
   }
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
-// CUSTOM COMMANDS — per-session private commands.
-//
-// This is the second layer on top of your normal commands/ folder:
-//   1. Commands YOU add to commands/ (like .anime, .antilink) — these
-//      load into the shared registry and work identically on every
-//      session, since it's the same code loaded by every startBot().
-//   2. Custom commands each session owner defines for THEMSELVES via
-//      .addcmd — stored at data/customcmds/{phone}.json, checked only
-//      after the shared registry has no match. Completely invisible to
-//      every other session, even ones running the exact same bot code —
-//      because each session's file only exists under that session's own
-//      phone number.
+// CUSTOM COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 const CUSTOMCMD_DIR = path.join(__dirname, "data", "customcmds")
 if (!fs.existsSync(CUSTOMCMD_DIR)) fs.mkdirSync(CUSTOMCMD_DIR, { recursive: true })
@@ -1063,16 +1027,7 @@ function customCmdList(phone) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANTITAG — deletes any message that mentions/tags a member (including
-// simulated "@all"/"tag everyone", which WhatsApp doesn't natively support —
-// bots fake it by populating contextInfo.mentionedJid with every participant
-// while the visible text just reads "@all"). Confirmed via Baileys' own
-// ContextInfo docs: mentionedJid is the field to check, regardless of how
-// many people are tagged.
-//
-// Works for BOTH admins and normal members — only the session owner is
-// exempt. Delete-only, no warn/kick tiers (matches the requested behavior).
-// Per-session + per-group config at data/antitag/{phone}.json.
+// ANTITAG
 // ─────────────────────────────────────────────────────────────────────────────
 const ANTITAG_DIR = path.join(__dirname, "data", "antitag")
 if (!fs.existsSync(ANTITAG_DIR)) fs.mkdirSync(ANTITAG_DIR, { recursive: true })
@@ -1135,8 +1090,6 @@ async function handleAntitagInline(sock, msg, phone) {
     const senderNorm = normalizeNum(sender)
     const sessionPhone = normalizeNum(sock.user?.id || "")
 
-    // Only the session owner is exempt — admins and normal members both
-    // get their tag messages deleted, exactly as requested.
     if (senderNorm === sessionPhone) return
 
     try {
@@ -1151,22 +1104,7 @@ async function handleAntitagInline(sock, msg, phone) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANTISTATUS — actions taken when a NORMAL member (not admin, not owner)
-// posts a personal WhatsApp status that mentions/tags a monitored group.
-// Detected via contextInfo.groupMentions — a documented Baileys/WhatsApp
-// field specifically for status posts that tag a group (confirmed via
-// Baileys' ContextInfo class docs, alongside the related isGroupStatus flag).
-//
-// HONEST LIMITATION: WhatsApp does not allow deleting another person's
-// actual personal Status post — that's enforced by WhatsApp's own protocol,
-// not something Baileys can bypass. "delete" mode attempts it (works only
-// in edge cases WhatsApp permits) and logs clearly if rejected. "warn" and
-// "kick" are the actions that reliably work every time, since those operate
-// on group membership, which the bot does control as admin.
-//
-// Only fires for normal members — admins and the session owner posting the
-// same kind of status are completely ignored, though either can configure
-// this feature via .antistatus on/off/mode.
+// ANTISTATUS
 // ─────────────────────────────────────────────────────────────────────────────
 const ANTISTATUS_DIR = path.join(__dirname, "data", "antistatus")
 if (!fs.existsSync(ANTISTATUS_DIR)) fs.mkdirSync(ANTISTATUS_DIR, { recursive: true })
@@ -1226,8 +1164,6 @@ function antistatusResetWarnings(phone, groupId, sender) {
   }
 }
 
-// Called for every status@broadcast message. Checks it against every
-// group this session has antistatus enabled for.
 async function handleAntistatusInline(sock, msg, phone) {
   try {
     if (!msg?.message) return
@@ -1247,7 +1183,6 @@ async function handleAntistatusInline(sock, msg, phone) {
       if (!groupId) continue
       if (!antistatusIsEnabled(phone, groupId)) continue
 
-      // Owner posting their own status is always exempt.
       if (senderNorm === sessionPhone) continue
 
       let groupMeta
@@ -1256,11 +1191,9 @@ async function handleAntistatusInline(sock, msg, phone) {
         continue
       }
 
-      // Poster must actually be a member of this group for it to matter.
       const isMember = groupMeta.participants?.some(p => normalizeNum(p.id) === senderNorm)
       if (!isMember) continue
 
-      // Admins are exempt — only normal members get actioned.
       const isSenderAdmin = groupMeta.participants?.some(p =>
         normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
       if (isSenderAdmin) continue
@@ -1272,7 +1205,6 @@ async function handleAntistatusInline(sock, msg, phone) {
       const mode = antistatusGetMode(phone, groupId)
       const tag = senderNorm
 
-      // Best-effort delete attempt — see the honest limitation noted above.
       try {
         await sock.sendMessage(msg.key.remoteJid, { delete: msg.key })
         console.log(`[ANTISTATUS:${phone}] delete attempt sent for status from ${tag}`)
@@ -1316,7 +1248,6 @@ async function handleAntistatusInline(sock, msg, phone) {
           }).catch(() => {})
         }
       } else {
-        // delete mode — the delete attempt above already ran; just notify.
         await sock.sendMessage(groupId, {
           text: `╔════════════════════╗\n║  📱 *STATUS ACTION* ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Tagged this group in their status — action taken\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
           mentions: [sender]
@@ -1381,10 +1312,6 @@ async function handleMessage(state, sock, msg) {
   const command   = registry.map.get(canonical)
 
   if (!command) {
-    // Not a shared/global command — check if THIS session's owner has
-    // defined their own private custom command with this trigger.
-    // Only exists for this specific phone's data file, so it can never
-    // fire on any other session, even ones running identical code.
     const customResponse = customCmdGet(state.phone, rawCmd)
     if (customResponse) {
       try {
@@ -1416,34 +1343,27 @@ async function handleMessage(state, sock, msg) {
     antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
   })
 
-  // Hard timeout — command dispatch itself is already O(1) (Map lookup,
-  // not a scan) and commands/ only loads once at boot, so neither of
-  // those add per-message delay. The actual risk to speed is a command
-  // that hangs on a slow external call with no time limit. This makes
-  // every command race against a clock: if it doesn't finish in time,
-  // it fails fast with a clear timeout error instead of blocking this
-  // session indefinitely.
-  const COMMAND_TIMEOUT_MS = parseInt(process.env.COMMAND_TIMEOUT_MS || "15000", 10)
-  const runWithTimeout = () => Promise.race([
-    runOnce(),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`timed out after ${COMMAND_TIMEOUT_MS / 1000}s`)), COMMAND_TIMEOUT_MS)
-    ),
-  ])
-
+  // NOTE: the previous 15-second timeout here used Promise.race() to
+  // "give up" on a slow command and retry it. That doesn't actually stop
+  // the slow command — the original call keeps running in the
+  // background, so when a command like .play just took >15s (slow API,
+  // not actually broken), BOTH the original and the retry finished and
+  // BOTH sent a result. That's what caused double responses. Removed
+  // entirely — a command now gets exactly one attempt, plus one retry
+  // ONLY if it actually throws a real error (not a timeout), so nothing
+  // can ever run twice from this path.
   const startedAt = Date.now()
 
   try {
-    await runWithTimeout()
+    await runOnce()
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
     // One of the most common causes of "works for one person, fails for
     // another" in group bots is stale cached group metadata (it only
     // auto-refreshes every 5 minutes — see checkGroupAdmin above). If a
-    // command throws (including a timeout above), force a fresh metadata
-    // fetch and retry exactly once before showing the error, so a
-    // stale-cache hiccup self-heals instead of surfacing as an
-    // inconsistent per-user failure.
+    // command throws, force a fresh metadata fetch and retry exactly
+    // once before showing the error, so a stale-cache hiccup self-heals
+    // instead of surfacing as an inconsistent per-user failure.
     console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
     try {
       if (isGroup) {
@@ -1452,7 +1372,7 @@ async function handleMessage(state, sock, msg) {
         ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
       }
       const retryStartedAt = Date.now()
-      await runWithTimeout()
+      await runOnce()
       console.log(`[${state.phone}] ✔ ${rawCmd} succeeded on retry in ${Date.now() - retryStartedAt}ms`)
     } catch (e2) {
       console.error(`[${state.phone}] RUN ERR ${rawCmd} (attempt 2, final): ${e2.message}`)
@@ -1512,12 +1432,6 @@ async function startBot(phone) {
     for (const u of us) state.groupCache[u.id] = { ...(state.groupCache[u.id] || {}), ...u, _cachedAt: Date.now() }
   })
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // GROUP WATCHDOG — logs joins/leaves/promotions/demotions to terminal,
-  // AND forwards welcome/goodbye messages into the actual WhatsApp group
-  // (real sendMessage to groupId — not log-only) when .welcome on /
-  // .goodbye on has been set for that specific group.
-  // ─────────────────────────────────────────────────────────────────────────
   sock.ev.on("group-participants.update", async (update) => {
     let meta = null
     try {
@@ -1542,11 +1456,6 @@ async function startBot(phone) {
     const adminCount  = (meta?.participants || []).filter(p => p.admin === "admin" || p.admin === "superadmin").length
 
     for (const rawParticipant of participants) {
-      // WhatsApp sometimes sends participants as plain JID strings, and
-      // sometimes as objects like { id, phoneNumber, admin } (seen with
-      // @lid identity-linked accounts). Normalize both shapes here so
-      // .replace() never gets called on a non-string and crashes this
-      // whole handler (which was silently killing detection downstream).
       const participantJid = typeof rawParticipant === "string"
         ? rawParticipant
         : (rawParticipant?.phoneNumber || rawParticipant?.id || "")
@@ -1567,11 +1476,6 @@ async function startBot(phone) {
 
       console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in "${groupName}" (${groupId}) | members now: ${memberCount}`)
 
-      // ── PROMOTE / DEMOTE ANNOUNCEMENTS ──────────────────────────────────
-      // Controlled independently via .promotemsg on/off and .demotemsg
-      // on/off (commands/promotemsg.js, commands/demotemsg.js). Reads
-      // Baileys' own `author` field on the event — the JID of whoever
-      // performed the action — officially documented in BaileysEventMap.
       if (action === "promote" || action === "demote") {
         try {
           const section = lib.userDb?.getSection?.(phone, "adminlog") || { groups: {} }
@@ -1627,7 +1531,6 @@ async function startBot(phone) {
           continue
         }
 
-
         const defaultMsg = type === "welcome"
           ? "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members."
           : "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
@@ -1654,7 +1557,6 @@ async function startBot(phone) {
     }
   })
 
-  // ── ANTICALL ──────────────────────────────────────────────────────────────
   const antiCallNotified = new Set()
 
   sock.ev.on("call", async (calls) => {
@@ -1689,7 +1591,6 @@ async function startBot(phone) {
     }
   })
 
-  // ── PAIRING CODE ──────────────────────────────────────────────────────────
   let pairingCodeRequested = false
 
   sock.ev.on("connection.update", async (update) => {
@@ -1774,12 +1675,6 @@ async function startBot(phone) {
         handleAntilinkInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTILINK ERR:`, e.message))
         handleAntitagInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTITAG ERR:`, e.message))
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-        // FIX: pass `lib` as the 4th argument so commands/antibot.js can
-        // read/write per-group antibot state via lib.userDb.getSection/
-        // setSection. Previously this called handleAntibot(sock, m,
-        // extractBody) with no way to reach lib.userDb at all, so the
-        // handler had nothing to read group mode/exempt list from and
-        // could never take any action.
         if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
       }
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
@@ -1852,13 +1747,6 @@ async function init() {
   watchCommands()
   watchSupportDirs()
 
-  // Wire the ban check used in handleMessage(). Previously global.__isBanned
-  // was called but never assigned anywhere, so the ban check silently
-  // never fired — banned users could still use the bot. loadCommands()
-  // already merges every command's named function exports onto `lib`
-  // (see loadFile()), so commands/ban.js's `isBanned` export lands at
-  // lib.isBanned automatically; this just exposes it globally where
-  // handleMessage() expects to find it.
   if (typeof lib.isBanned === "function") {
     global.__isBanned = lib.isBanned
     console.log("[BAN] ✔ Ban check wired up (per-session)")
@@ -1866,9 +1754,6 @@ async function init() {
     console.warn("[BAN] ⚠ commands/ban.js not found or isBanned not exported — ban system inactive")
   }
 
-  // Antilink control functions — exposed globally so commands/antilink.js
-  // can call them without needing a lib/antilink.js file, same pattern
-  // as global.__isBanned above.
   global.__antilinkEnable        = antilinkEnable
   global.__antilinkDisable       = antilinkDisable
   global.__antilinkIsEnabled     = antilinkIsEnabled
@@ -1878,21 +1763,17 @@ async function init() {
   global.__antilinkOcrAvailable  = ANTILINK_OCR_AVAILABLE
   console.log(`[ANTILINK] ✔ Wired up inline (OCR ${ANTILINK_OCR_AVAILABLE ? "available" : "unavailable — npm install tesseract.js"})`)
 
-  // Antitag control functions
   global.__antitagEnable    = antitagEnable
   global.__antitagDisable   = antitagDisable
   global.__antitagIsEnabled = antitagIsEnabled
   console.log("[ANTITAG] ✔ Wired up inline")
 
-  // Antistatus control functions
   global.__antistatusEnable    = antistatusEnable
   global.__antistatusDisable   = antistatusDisable
   global.__antistatusIsEnabled = antistatusIsEnabled
   global.__antistatusGetMode   = antistatusGetMode
   console.log("[ANTISTATUS] ✔ Wired up inline")
 
-  // Per-session custom command management — exposed globally so
-  // commands/customcmd.js can call these without needing a lib/ file.
   global.__customCmdAdd    = customCmdAdd
   global.__customCmdRemove = customCmdRemove
   global.__customCmdGet    = customCmdGet
