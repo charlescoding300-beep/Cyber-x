@@ -1,116 +1,154 @@
-'use strict'
-const fs = require('fs')
-const path = require('path')
+const fs   = require("fs")
+const path = require("path")
 
-const GREET_ROOT = path.join(__dirname, '../data/greet')
-if (!fs.existsSync(GREET_ROOT)) fs.mkdirSync(GREET_ROOT, { recursive: true })
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared greet store: data/greet/<phone>.json
+//   { groups: { <groupId>: { welcome: {enabled, message}, goodbye: {enabled, message} } } }
+// welcome.js and goodbye.js both read/write this same file so index.js's
+// single loadGreet(phone, groupId) call returns a consistent view either way.
+// ─────────────────────────────────────────────────────────────────────────────
+const GREET_DIR = path.join(__dirname, "..", "data", "greet")
+if (!fs.existsSync(GREET_DIR)) fs.mkdirSync(GREET_DIR, { recursive: true })
 
-function greetFile(phone, groupId) {
-  const dir = path.join(GREET_ROOT, phone)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return path.join(dir, groupId.replace(/[^a-z0-9]/gi, '_') + '.json')
+function safePhone(phone) {
+  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
 }
-
-function loadGreet(phone, groupId) {
-  try {
-    const f = greetFile(phone, groupId)
-    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'))
-  } catch {}
-  return {}
+function filePath(phone) {
+  return path.join(GREET_DIR, `${safePhone(phone)}.json`)
 }
-
-function saveGreet(phone, groupId, data) {
+function loadRaw(phone) {
+  const file = filePath(phone)
   try {
-    fs.writeFileSync(greetFile(phone, groupId), JSON.stringify(data, null, 2))
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (e) {
-    console.error(`[WELCOME] save error:`, e.message)
+    console.error(`[GREET] load error for ${phone}:`, e.message)
+  }
+  return { groups: {} }
+}
+function saveRaw(phone, data) {
+  try {
+    fs.writeFileSync(filePath(phone), JSON.stringify(data, null, 2))
+  } catch (e) {
+    console.error(`[GREET] save error for ${phone}:`, e.message)
   }
 }
 
-const DEFAULT_WELCOME = 'Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members.'
+// ── Defaults — ON by default, your exact box design ──────────────────────────
+const DEFAULT_WELCOME_MSG =
+`╭━━❰ 🎊 *WELCOME* 🎊 ❱━━╮
+
+「 @{tag} 」
+
+✨ A new legend has joined *{group}*!
+
+────────────────────
+📖 Read the group description.
+🤝 Respect every member.
+💬 Stay active and have fun.
+🚫 No spam or unnecessary links.
+────────────────────
+
+👥 *Total Members:* {members}
+
+🌟 We hope you enjoy your stay.
+🔥 Let's make unforgettable memories together!
+
+╰━━❰ ❤️ *ENJOY YOUR STAY* ❤️ ❱━━╯
+
+© 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
+
+const DEFAULT_GOODBYE_MSG =
+`╭━━❰ 👋 *GOODBYE* ❱━━╮
+
+@{tag} has left *{group}*.
+
+🥀 Every goodbye marks the start of a new journey.
+
+━━━━━━━━━━━━━━━━━━
+💙 Thanks for being part of our community.
+🌟 We wish you success and happiness.
+🚪 You'll always be welcome back.
+━━━━━━━━━━━━━━━━━━
+
+👥 *Members Remaining:* {members}
+
+👋 Farewell & take care!
+
+╰━━━━━━━━━━━━━━━━━━╯
+
+© 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
+
+function ensureGroupDefaults(data, groupId) {
+  if (!data.groups[groupId]) data.groups[groupId] = {}
+  if (!data.groups[groupId].welcome) {
+    data.groups[groupId].welcome = { enabled: true, message: DEFAULT_WELCOME_MSG }
+  }
+  if (!data.groups[groupId].goodbye) {
+    data.groups[groupId].goodbye = { enabled: true, message: DEFAULT_GOODBYE_MSG }
+  }
+  return data
+}
+
+// Called by index.js: cmdModule.loadGreet(phone, groupId) -> { welcome, goodbye }
+// Auto-provisions defaults (enabled: true) the first time a group is seen,
+// so welcome/goodbye work out of the box with no setup command required.
+function loadGreet(phone, groupId) {
+  let data = loadRaw(phone)
+  const before = JSON.stringify(data.groups[groupId] || null)
+  data = ensureGroupDefaults(data, groupId)
+  const after = JSON.stringify(data.groups[groupId])
+  if (before !== after) saveRaw(phone, data) // persist auto-provisioned defaults
+  return {
+    welcome: data.groups[groupId].welcome,
+    goodbye: data.groups[groupId].goodbye,
+  }
+}
+
+function setWelcome(phone, groupId, patch) {
+  let data = loadRaw(phone)
+  data = ensureGroupDefaults(data, groupId)
+  Object.assign(data.groups[groupId].welcome, patch)
+  saveRaw(phone, data)
+  return data.groups[groupId].welcome
+}
 
 module.exports = {
-  pattern: 'welcome',
-  alias: ['welcome'],
-  category: 'group/admin',
-  desc: 'Set custom welcome messages for new members',
-  usage: '.welcome on|off|set|view',
-
-  run: async ({ sock, from, msg, sender, isGroup, isAdmin, isOwner, args, text }) => {
-
-    if (!isGroup) {
-      return sock.sendMessage(from, {
-        text: `❌ *Groups only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    if (!isAdmin && !isOwner) {
-      return sock.sendMessage(from, {
-        text: `❌ *Admins only*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    // ── FIX: use THIS SESSION's own linked number, not the sender's.
-    // The watchdog in index.js reads/writes greet config keyed by the
-    // bot session's phone (startBot(phone)'s own number), so this
-    // command must save under that same key or the two never match —
-    // that mismatch was why custom messages always fell back to default.
-    const phone = (sock.user?.id || '').split(':')[0].split('@')[0]
-    const data = loadGreet(phone, from)
-
-    const cmd = args[0]?.toLowerCase()
-
-    if (cmd === 'on') {
-      data.welcome = { ...data.welcome, enabled: true, updatedAt: Date.now() }
-      saveGreet(phone, from, data)
-      return sock.sendMessage(from, {
-        text: `✅ *Welcome messages enabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    if (cmd === 'off') {
-      data.welcome = { ...data.welcome, enabled: false, updatedAt: Date.now() }
-      saveGreet(phone, from, data)
-      return sock.sendMessage(from, {
-        text: `❌ *Welcome messages disabled*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    if (cmd === 'view') {
-      const msg_text = data.welcome?.message || DEFAULT_WELCOME
-      return sock.sendMessage(from, {
-        text: `╔════════════════════════╗\n║  👋 *WELCOME MESSAGE*  ║\n╚════════════════════════╝\n\n${msg_text}\n\n*Status:* ${data.welcome?.enabled ? '✅ ON' : '❌ OFF'}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    if (cmd === 'set') {
-      const newMsg = args.slice(1).join(' ').trim()
-      if (!newMsg) {
-        return sock.sendMessage(from, {
-          text: `❌ *Provide a message*\n*.welcome set <message>*\n\nUse {tag}, {group}, {members}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-          quoted: msg
-        })
-      }
-      data.welcome = { message: newMsg, enabled: true, updatedAt: Date.now() }
-      saveGreet(phone, from, data)
-      return sock.sendMessage(from, {
-        text: `✅ *Welcome message set!*\n\n${newMsg}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-        quoted: msg
-      })
-    }
-
-    return sock.sendMessage(from, {
-      text: `╔════════════════════════╗\n║  👋 *WELCOME COMMAND*  ║\n╚════════════════════════╝\n\n*.welcome on* — enable\n*.welcome off* — disable\n*.welcome set <msg>* — customize\n*.welcome view* — see current\n\n*Variables:*\n{tag} — user phone\n{group} — group name\n{members} — member count\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
-      quoted: msg
-    })
-  },
-
+  name:     "welcome",
+  aliases:  ["welcomemsg"],
+  desc:     "Toggle the welcome message on/off. ON by default.",
+  usage:    ".welcome on | .welcome off | .welcome (status)",
+  category: "group",
   loadGreet,
-  saveGreet,
-  greetFile
+
+  async run({ sock, from, msg, args, isGroup, isOwner, isAdmin, helper }) {
+    if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
+    if (!isOwner && !isAdmin) return helper.reply(sock, msg, "❌ Only group admins or the bot owner can change this.")
+
+    const sub = (args[0] || "").toLowerCase()
+
+    if (sub === "on") {
+      setWelcome(from, from, { enabled: true })
+      return helper.reply(sock, msg, helper.box("🎊 WELCOME — ENABLED", [
+        "Welcome messages are now ON for this group.",
+        "New members will get the welcome card automatically.",
+      ]))
+    }
+
+    if (sub === "off") {
+      setWelcome(from, from, { enabled: false })
+      return helper.reply(sock, msg, helper.box("🎊 WELCOME — DISABLED", [
+        "Welcome messages are now OFF for this group.",
+      ]))
+    }
+
+    // No args → show current status
+    const current = loadGreet(from, from).welcome
+    return helper.reply(sock, msg, helper.box("🎊 WELCOME STATUS", [
+      `Status: ${current.enabled ? "✅ ON" : "❌ OFF"}`,
+      "",
+      "Commands:",
+      ".welcome on / .welcome off",
+    ]))
+  },
 }
+

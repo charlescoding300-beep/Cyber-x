@@ -502,6 +502,84 @@ function extractBody(msg) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FAST, RESILIENT HTTP LAYER — used for every outbound "get something from
+// the internet" call (image gen, AI, downloads, etc). Retries with
+// exponential backoff + jitter, hard timeout via AbortController, and a
+// single shared keep-alive agent so repeated calls don't pay a fresh
+// TCP/TLS handshake every time.
+// ─────────────────────────────────────────────────────────────────────────────
+const http  = require("http")
+const https = require("https")
+const httpAgent  = new http.Agent({ keepAlive: true, maxSockets: 50 })
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 })
+
+function pickAgent(url) {
+  try { return new URL(url).protocol === "http:" ? httpAgent : httpsAgent } catch { return httpsAgent }
+}
+
+async function fetchWithRetry(url, opts = {}) {
+  const {
+    retries    = 3,
+    timeoutMs  = 15000,
+    backoffMs  = 500,
+    maxBackoff = 6000,
+    ...fetchOpts
+  } = opts
+
+  let lastErr
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(url, {
+        ...fetchOpts,
+        agent: pickAgent(url),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!res.ok && res.status >= 500 && attempt < retries) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+      return res
+    } catch (e) {
+      clearTimeout(timer)
+      lastErr = e
+      if (attempt === retries) break
+      const jitter = Math.random() * 200
+      const delay  = Math.min(backoffMs * Math.pow(2, attempt), maxBackoff) + jitter
+      console.warn(`[NET] ⚠ ${url.split("?")[0]} attempt ${attempt + 1}/${retries + 1} failed (${e.message}) — retrying in ${Math.round(delay)}ms`)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  throw lastErr
+}
+
+async function fetchJsonSafe(url, opts = {}) {
+  const res = await fetchWithRetry(url, opts)
+  return res.json()
+}
+
+async function fetchBufferSafe(url, opts = {}) {
+  const res = await fetchWithRetry(url, opts)
+  const ab  = await res.arrayBuffer()
+  return Buffer.from(ab)
+}
+
+async function downloadMediaSafe(msg, sock, retries = 2) {
+  let lastErr
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await downloadMediaMessage(msg, "buffer", {}, { logger: Pino({ level: "silent" }), reuploadRequest: sock.updateMediaMessage })
+    } catch (e) {
+      lastErr = e
+      if (i < retries) await new Promise(r => setTimeout(r, 500 * (i + 1)))
+    }
+  }
+  console.error("[NET] media download failed after retries:", lastErr?.message)
+  return null
+}
+
 const helper = {
   async reply(sock, msg, text)  { return sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg }) },
   async send(sock, jid, text)   { return sock.sendMessage(jid, { text }) },
@@ -514,6 +592,10 @@ const helper = {
     return sock.sendMessage(jid, { document: buf, fileName: filename, mimetype })
   },
   getProfilePictureSafe: (sock, jid, opts) => getProfilePictureSafe(sock, jid, opts),
+  fetchWithRetry,
+  fetchJson:   fetchJsonSafe,
+  fetchBuffer: fetchBufferSafe,
+  downloadMediaSafe: (msg, sock, retries) => downloadMediaSafe(msg, sock, retries),
   box(title, lines = []) {
     const body = lines.map(l => `║  ${l}`).join("\n")
     return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝖤𝕽 𝖃 ™`
@@ -521,6 +603,14 @@ const helper = {
   msToTime(ms) { const s = Math.floor(ms/1000); return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s` },
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
 }
+
+// api.fetch / api.fetchJson / api.fetchBuffer are the recommended entry
+// points for command files that need to hit external APIs — every call
+// automatically gets retries + timeout + keep-alive without the command
+// author having to think about it.
+api.fetch       = fetchWithRetry
+api.fetchJson   = fetchJsonSafe
+api.fetchBuffer = fetchBufferSafe
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION STATE
@@ -592,18 +682,70 @@ async function handleOrdinaryMessage(state, sock, msg, from) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS AUTO-VIEW / AUTO-REACT — hardened queue + retry.
+//
+// Root cause of "it randomly doesn't work": WhatsApp silently rate-limits
+// rapid-fire read-receipts/reactions when several statuses land close
+// together (busy contacts, right after reconnect, etc). Firing them all in
+// parallel — like the old code did — means some succeed and some get
+// silently dropped server-side with no error to catch. This version
+// processes statuses one at a time per session, retries each step on
+// failure, and staggers calls so WhatsApp never sees a burst.
+// ─────────────────────────────────────────────────────────────────────────────
+const statusQueues = new Map() // phone -> promise chain (keeps jobs sequential)
+
+function queueStatusJob(phone, job) {
+  const prev = statusQueues.get(phone) || Promise.resolve()
+  const next = prev.then(job).catch(e => console.error(`[STATUS:${phone}] queue error:`, e.message))
+  statusQueues.set(phone, next)
+  return next
+}
+
+async function withRetry(fn, retries = 2, delayMs = 700) {
+  let lastErr
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn() }
+    catch (e) {
+      lastErr = e
+      if (i < retries) await new Promise(r => setTimeout(r, delayMs * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 async function handleStatus(state, sock, msg) {
   if (msg.key.fromMe) return
   const s = state.settings
-  if (s.get("autoViewStatus")) { try { await sock.readMessages([msg.key]) } catch {} }
-  if (s.get("autoReactStatus")) {
-    const emoji = s.get("statusReactEmoji") || "🙃"
-    try {
-      await sock.sendMessage("status@broadcast", { react: { text: emoji, key: msg.key } }, {
-        statusJidList: [msg.key.participant, sock.user?.id].filter(Boolean)
-      })
-    } catch (e) { console.error(`[${state.phone}] STATUS REACT ERR:`, e.message) }
-  }
+  const wantsView  = !!s.get("autoViewStatus")
+  const wantsReact = !!s.get("autoReactStatus")
+  if (!wantsView && !wantsReact) return
+
+  queueStatusJob(state.phone, async () => {
+    if (wantsView) {
+      try {
+        await withRetry(() => sock.readMessages([msg.key]), 2, 600)
+      } catch (e) {
+        console.error(`[${state.phone}] STATUS VIEW ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
+      }
+    }
+
+    if (wantsReact) {
+      const emoji   = s.get("statusReactEmoji") || "🙃"
+      const jidList = [...new Set([msg.key.participant, sock.user?.id].filter(Boolean))]
+      try {
+        await withRetry(() => sock.sendMessage("status@broadcast", {
+          react: { text: emoji, key: msg.key }
+        }, { statusJidList: jidList }), 2, 800)
+      } catch (e) {
+        console.error(`[${state.phone}] STATUS REACT ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
+      }
+    }
+
+    // Stagger so back-to-back statuses never fire fast enough to trip
+    // WhatsApp's anti-spam limits on read receipts / reactions.
+    await new Promise(r => setTimeout(r, 300))
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -659,12 +801,7 @@ function antideleteSetEnabled(phone, enabled) {
 }
 
 async function antideleteDownloadSafe(msg, sock) {
-  try {
-    return await downloadMediaMessage(msg, "buffer", {}, { logger: Pino({ level: "silent" }), reuploadRequest: sock.updateMediaMessage })
-  } catch (e) {
-    console.error("[ANTIDELETE] media download failed:", e.message)
-    return null
-  }
+  return downloadMediaSafe(msg, sock, 2)
 }
 
 async function storeMessage(sock, msg) {
@@ -858,7 +995,7 @@ async function antilinkScanImage(msg) {
   const hasImage = m?.imageMessage || m?.stickerMessage
   if (!hasImage) return false
   try {
-    const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: Pino({ level: "silent" }) })
+    const buffer = await downloadMediaSafe(msg, msg._sockRef, 1)
     if (!buffer || buffer.length < 100) return false
     const { data: { text } } = await AntilinkTesseract.recognize(buffer, "eng", { logger: () => {} })
     return antilinkContainsLink(text)
@@ -914,7 +1051,7 @@ async function handleAntilinkInline(sock, msg, phone) {
     const foundText = allTexts.some(t => antilinkContainsLink(t))
 
     let foundOcr = false
-    if (!foundText) foundOcr = await antilinkScanImage(msg)
+    if (!foundText) { msg._sockRef = sock; foundOcr = await antilinkScanImage(msg) }
     if (!foundText && !foundOcr) return
 
     let groupMeta
@@ -1259,6 +1396,62 @@ async function handleAntistatusInline(sock, msg, phone) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BAN SYSTEM — hardened, cached, applied uniformly everywhere
+// ─────────────────────────────────────────────────────────────────────────────
+// Short-lived in-memory cache so a banned user's every message doesn't
+// have to hit userDb/Redis again — this is on the hot path for EVERY
+// incoming message, so it has to be nearly free.
+const BAN_CACHE_TTL_MS = 15000
+const banCache = new Map() // key: `${sessionPhone}:${targetPhone}` -> { banned, expiresAt }
+
+function banCacheKey(sessionPhone, targetPhone) {
+  return `${sessionPhone}:${targetPhone}`
+}
+
+function banCacheInvalidate(sessionPhone, targetPhone) {
+  banCache.delete(banCacheKey(sessionPhone, targetPhone))
+}
+
+async function isBannedFast(sessionPhone, targetPhone, chatJid) {
+  const key = banCacheKey(sessionPhone, targetPhone)
+  const cached = banCache.get(key)
+  if (cached && Date.now() < cached.expiresAt) return cached.banned
+
+  let banned = false
+  if (typeof global.__isBanned === "function") {
+    try { banned = !!(await global.__isBanned(sessionPhone, targetPhone, chatJid)) }
+    catch (e) { console.error("[BAN] check error:", e.message); banned = false }
+  }
+  banCache.set(key, { banned, expiresAt: Date.now() + BAN_CACHE_TTL_MS })
+  return banned
+}
+
+global.__banCacheInvalidate = banCacheInvalidate
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIVATE-MODE LOCKDOWN — persistent, session-scoped, applies everywhere
+// (group chats, DMs, and even non-command "ordinary" messages).
+// The flag lives in state.settings ("mode"), which is written straight to
+// disk on every .set() call (see makeSessionSettings above), so a restart
+// or crash-restart can never silently drop it back to "public".
+// ─────────────────────────────────────────────────────────────────────────────
+function isPrivateLockdownActive(state) {
+  return (state.settings.get("mode") || "public") === "private"
+}
+
+// Returns true if this message should be fully ignored because of an
+// active private-mode lockdown. isOwner/fromMe/sudo always bypass it,
+// in both groups and DMs — this is the single source of truth other
+// handlers should defer to instead of re-implementing their own check.
+function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
+  if (isOwner || fromMe) return false
+  if (!isPrivateLockdownActive(state)) return false
+  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+  if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n))) return false
+  return true
+}
+
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
@@ -1270,16 +1463,22 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
-  if (!fromMe && typeof global.__isBanned === 'function') {
-    const sessionPhone = normalizeNum(sock.user?.id || '')
+  // ── BAN CHECK — first thing, before any other logic runs ──────────────
+  if (!fromMe) {
+    const sessionPhone = normalizeNum(sock.user?.id || "")
     const senderPhone  = normalizeNum(sender || from)
-    try {
-      const banned = await global.__isBanned(sessionPhone, senderPhone, from)
-      if (banned) {
-        console.log(`[BAN] 🚫 Blocked: ${senderPhone} on session ${sessionPhone}`)
-        return
-      }
-    } catch {}
+    if (await isBannedFast(sessionPhone, senderPhone, from)) {
+      console.log(`[BAN] 🚫 Blocked message from ${senderPhone} on session ${sessionPhone}`)
+      return
+    }
+  }
+
+  // ── PRIVATE-MODE LOCKDOWN — checked before prefix parsing so it also
+  // silences ordinary (non-command) messages in both groups and DMs ─────
+  const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
+  if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
+    console.log(`[${state.phone}] 🔒 Private-mode lockdown: ignoring ${normalizeNum(sender || from)} in ${from}`)
+    return
   }
 
   if (!fromMe && state.settings.get("autoRead")) {
@@ -1292,13 +1491,7 @@ async function handleMessage(state, sock, msg) {
     return
   }
 
-  const isOwner = checkIsOwner(state, sender, senderAlt, fromMe)
-  const mode = state.settings.get("mode") || "public"
-  if (mode === "private" && !isOwner && !fromMe) {
-    console.log(`[${state.phone}] 🔒 Blocked (private mode): ${normalizeNum(sender || from)}`)
-    return
-  }
-
+  const isOwner = isOwnerEarly
   const isGroup = from.endsWith("@g.us")
   if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
   if (state.settings.get("dmOnly") && isGroup && !isOwner) return
@@ -1341,6 +1534,7 @@ async function handleMessage(state, sock, msg) {
     checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
     antideleteGetEnabled: () => antideleteGetEnabled(state.phone),
     antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
+    banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
 
   // NOTE: the previous 15-second timeout here used Promise.race() to
@@ -1566,6 +1760,11 @@ async function startBot(phone) {
         const callerJid = call.from || call.peerJid || call.chatId
         if (!callerJid) continue
 
+        // Ban check applies to calls too now, not just messages.
+        const sessionPhone = normalizeNum(sock.user?.id || "")
+        const callerPhone  = normalizeNum(callerJid)
+        const callerBanned = await isBannedFast(sessionPhone, callerPhone, callerJid)
+
         try {
           if (typeof sock.rejectCall === "function" && call.id) {
             await sock.rejectCall(call.id, callerJid)
@@ -1576,7 +1775,7 @@ async function startBot(phone) {
           console.error(`[ANTICALL:${phone}] reject failed:`, e.message)
         }
 
-        if (!antiCallNotified.has(callerJid)) {
+        if (!callerBanned && !antiCallNotified.has(callerJid)) {
           antiCallNotified.add(callerJid)
           setTimeout(() => antiCallNotified.delete(callerJid), 60000)
           try {
@@ -1628,9 +1827,13 @@ async function startBot(phone) {
       const settingKeys = Object.keys(allSettings)
       if (settingKeys.length > 0) {
         console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => `${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
+        if (allSettings.mode === "private") {
+          console.log(`[${phone}] 🔒 Private-mode lockdown is ACTIVE (persisted) — only owner/sudo can use the bot`)
+        }
       } else {
         console.log(`[${phone}] 💾 No saved settings — using defaults`)
       }
+      console.log(`[${phone}] 👀 autoViewStatus=${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji=${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
       saveMeta()
       sessionBackup.pushImmediate(phone).catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
     }
@@ -1658,9 +1861,19 @@ async function startBot(phone) {
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return
+    const sessionPhone = normalizeNum(sock.user?.id || "")
     for (const m of messages) {
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
+
+      // ── FAST-PATH BAN GATE — runs before ANY other per-message handler
+      // (antilink/antitag/badword/antibot/memory), so a banned user gets
+      // zero side effects anywhere in the bot, not just in commands. ────
+      if (!m.key.fromMe && m.key.remoteJid !== "status@broadcast") {
+        const senderPhone = normalizeNum(m.key.participant || m.key.remoteJid)
+        if (await isBannedFast(sessionPhone, senderPhone, m.key.remoteJid)) continue
+      }
+
       if (m.key.remoteJid === "status@broadcast") {
         handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
         handleAntistatusInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTISTATUS ERR:`, e.message))
@@ -1749,7 +1962,7 @@ async function init() {
 
   if (typeof lib.isBanned === "function") {
     global.__isBanned = lib.isBanned
-    console.log("[BAN] ✔ Ban check wired up (per-session)")
+    console.log("[BAN] ✔ Ban check wired up (per-session, cached, applied to messages + calls)")
   } else {
     console.warn("[BAN] ⚠ commands/ban.js not found or isBanned not exported — ban system inactive")
   }
