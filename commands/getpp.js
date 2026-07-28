@@ -24,17 +24,46 @@ module.exports = {
     // 3. fallback — sender themselves
     if (!targetJid) targetJid = msg.key.participant || msg.key.remoteJid
 
-    // ── fetch profile picture ──────────────────────────────────────────────
+    // ── normalize JID (handles @lid vs @s.whatsapp.net mismatches) ─────────
+    // Baileys sometimes hands back a LID (@lid) instead of the real PN jid.
+    // profilePictureUrl needs the real jid to resolve correctly.
+    async function normalizeJid(jid) {
+      if (!jid) return jid
+      if (jid.endsWith('@lid')) {
+        try {
+          // onWhatsApp can resolve a LID back to the PN jid in most Baileys versions
+          const [result] = await sock.onWhatsApp(jid)
+          if (result?.jid) return result.jid
+        } catch (e) {
+          console.log('[getpp] LID normalize failed:', e?.message)
+        }
+      }
+      return jid
+    }
+
+    targetJid = await normalizeJid(targetJid)
+
+    // ── fetch profile picture (try high-res, fall back to preview) ─────────
     let ppUrl = null
-    try {
-      ppUrl = await sock.profilePictureUrl(targetJid, "image")
-    } catch {}
+    let lastErr = null
+    for (const type of ["image", "preview"]) {
+      try {
+        ppUrl = await sock.profilePictureUrl(targetJid, type)
+        if (ppUrl) break
+      } catch (e) {
+        lastErr = e
+      }
+    }
 
     const num = targetJid.replace("@s.whatsapp.net", "").replace(/:\d+$/, "")
 
     if (!ppUrl) {
+      // Log the real reason instead of swallowing it — helps you tell
+      // "privacy restricted" (403/not-authorized) apart from a genuine bug.
+      console.log(`[getpp] failed for ${targetJid}:`, lastErr?.message || lastErr || 'no error captured')
+
       return sock.sendMessage(from, {
-        text:     `🤲🏻 Could not get user profile picture for @${num}`,
+        text:     `🤲🏻 Could not get profile picture for @${num}\n(either it's private, or they have no photo set)`,
         mentions: [targetJid],
       }, { quoted: msg })
     }
@@ -46,3 +75,4 @@ module.exports = {
     }, { quoted: msg })
   }
 }
+
