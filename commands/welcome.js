@@ -89,6 +89,14 @@ function ensureGroupDefaults(data, groupId) {
   return data
 }
 
+// The bot's own session number, cleaned of the ":device" suffix — this is
+// the correct storage key. Using the group JID here (a past bug) meant
+// toggles wrote to the wrong file entirely and never took effect.
+function getSessionPhone(sock) {
+  const raw = sock?.user?.id || ""
+  return raw.split("@")[0].split(":")[0]
+}
+
 // Called by index.js: cmdModule.loadGreet(phone, groupId) -> { welcome, goodbye }
 // Auto-provisions defaults (enabled: true) the first time a group is seen,
 // so welcome/goodbye work out of the box with no setup command required.
@@ -124,10 +132,11 @@ module.exports = {
     if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
     if (!isOwner && !isAdmin) return helper.reply(sock, msg, "❌ Only group admins or the bot owner can change this.")
 
+    const phone = getSessionPhone(sock)
     const sub = (args[0] || "").toLowerCase()
 
     if (sub === "on") {
-      setWelcome(from, from, { enabled: true })
+      setWelcome(phone, from, { enabled: true })
       return helper.reply(sock, msg, helper.box("🎊 WELCOME — ENABLED", [
         "Welcome messages are now ON for this group.",
         "New members will get the welcome card automatically.",
@@ -135,14 +144,14 @@ module.exports = {
     }
 
     if (sub === "off") {
-      setWelcome(from, from, { enabled: false })
+      setWelcome(phone, from, { enabled: false })
       return helper.reply(sock, msg, helper.box("🎊 WELCOME — DISABLED", [
         "Welcome messages are now OFF for this group.",
       ]))
     }
 
     // No args → show current status
-    const current = loadGreet(from, from).welcome
+    const current = loadGreet(phone, from).welcome
     return helper.reply(sock, msg, helper.box("🎊 WELCOME STATUS", [
       `Status: ${current.enabled ? "✅ ON" : "❌ OFF"}`,
       "",
@@ -151,4 +160,3 @@ module.exports = {
     ]))
   },
 }
-

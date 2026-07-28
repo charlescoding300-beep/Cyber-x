@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/menu.js  —  CYBER X  |  📋 Bot Menu
+//  commands/menu.js  —  CYBER X  |  ⛧ THE ABYSS — Bot Menu ⛧
 // ════════════════════════════════════════════════════════════════════
 
 const fs   = require('fs')
@@ -32,6 +32,19 @@ const CATEGORY_LABELS = {
     media:         '🎵 MEDIA',
     settings:      '⚙️ SETTINGS',
     system:        '📊 SYSTEM',
+}
+
+// ── THE ABYSS — rotating demonic greetings, picked at random each call ──
+const ABYSS_GREETINGS = [
+    '☠︎ The Abyss has acknowledged your presence.\n    ☠︎ Choose your command... if you dare.',
+    '☠︎ The shadows whisper your name.\n    ☠︎ Every choice echoes through the abyss.',
+    '☠︎ You have entered forbidden ground.\n    ☠︎ Proceed wisely.',
+    '☠︎ The gates stand open before you.\n    ☠︎ Your journey begins now.',
+    '☠︎ The darkness watches in silence.\n    ☠︎ Select your path.',
+]
+
+function randomGreeting() {
+    return ABYSS_GREETINGS[Math.floor(Math.random() * ABYSS_GREETINGS.length)]
 }
 
 const VERSION  = process.env.BOT_VERSION || 'v5.0.0'
@@ -73,7 +86,7 @@ module.exports = {
     run: async ({ sock, from, msg, sender, commands, cmdDetails, settings }) => {
 
         sock.sendMessage(from, {
-            react: { text: '🧑🏻‍💻', key: msg.key }
+            react: { text: '☠️', key: msg.key }
         }).catch(() => {})
 
         const phone    = (sock.user?.id || '').split(':')[0].split('@')[0]
@@ -118,30 +131,44 @@ module.exports = {
             const cmds  = grouped.get(cat) || []
             const lines = cmds.map((c, i) => {
                 const isLast = i === cmds.length - 1
-                return ` *${isLast ? '┕' : '├'}◈ ${c}*`
+                return ` *${isLast ? '┕' : '├'}☬ ${c}*`
             }).join('\n')
-            return ` *╭────❒ ${label} ❒*\n${lines}\n *┕──────────────────❒*`
+            return ` ⛧─────❒ *${label}* ❒\n${lines}\n ┕───────────────────⛧`
         }).join('\n\n')
 
-        const header = `╭━━━〔 ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* ⚡ 〕━━━⬣
-┃ 👤 *User*    : ${senderTag}
+        const header = `⛧━━━━━━━━━━━━━━━━━━━━━━⛧
+        𖤍 *𝐓𝐇𝐄 𝐀𝐁𝐘𝐒𝐒* 𖤍
+   ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* — 𝗗𝗔𝗥𝗞 𝗖𝗢𝗥𝗘 ⚡
+⛧━━━━━━━━━━━━━━━━━━━━━━⛧
+┃ ☠︎ *User*    : ${senderTag}
 ┃ ⚙️ *Version* : ${VERSION}
 ┃ 🚀 *Mode*    : ${modeLabel}
 ┃ 📡 *Ping*    : ${ping}ms
 ┃ 💾 *RAM*     : ${ramUsedMB}MB / ${ramMaxMB}MB
 ┃ ⏳ *Uptime*  : ${formatUptime(upSec)}
 ┃ 👑 *Owner*   : ${ownerTag}
-╰━━━━━━━━━━━━━━━━━━━━━━⬣`
+⛧━━━━━━━━━━━━━━━━━━━━━━⛧`
+
+        const greeting = randomGreeting()
 
         const caption = `${header}
 
-*Hey* 👋🏻 ${senderTag}
+         ◈ 𝖂𝖊𝖑𝖈𝖔𝖒𝖊, ${senderTag} ◈
 
-*♡︎•━━━━━CYBER X━━━━━•♡*
+    ${greeting}
 
+╭─── ⛧ ───────────────
 ${sections}
+╰─── ⛧ ───────────────
 
-> © *𝕮𝖄𝕭𝙀𝙍 𝖃*`
+        🩸 *𝕹𝖔 𝕸𝖊𝖗𝖈𝖞.*
+        ⚔︎ *𝕹𝖔 𝕽𝖚𝖑𝖊𝖘.*
+        👁 *𝕺𝖓𝖑𝖞 𝕻𝖔𝖜𝖊𝖗.*
+
+      『 *𝗖𝗬𝗕𝗘𝗥 𝗫* 』
+⛧━━━━━━━━━━━━━━━━━━━━━━⛧
+
+> © *𝕮𝖄𝕭𝙀𝙍 𝖃* ™`
 
         const mentions = [senderJid]
         if (ownerJid) mentions.push(ownerJid)

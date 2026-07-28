@@ -86,6 +86,14 @@ function ensureGroupDefaults(data, groupId) {
   return data
 }
 
+// The bot's own session number, cleaned of the ":device" suffix — this is
+// the correct storage key. Using the group JID here (a past bug) meant
+// toggles wrote to the wrong file entirely and never took effect.
+function getSessionPhone(sock) {
+  const raw = sock?.user?.id || ""
+  return raw.split("@")[0].split(":")[0]
+}
+
 function loadGreet(phone, groupId) {
   let data = loadRaw(phone)
   const before = JSON.stringify(data.groups[groupId] || null)
@@ -118,10 +126,11 @@ module.exports = {
     if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
     if (!isOwner && !isAdmin) return helper.reply(sock, msg, "❌ Only group admins or the bot owner can change this.")
 
+    const phone = getSessionPhone(sock)
     const sub = (args[0] || "").toLowerCase()
 
     if (sub === "on") {
-      setGoodbye(from, from, { enabled: true })
+      setGoodbye(phone, from, { enabled: true })
       return helper.reply(sock, msg, helper.box("👋 GOODBYE — ENABLED", [
         "Goodbye messages are now ON for this group.",
         "Members who leave will get the goodbye card automatically.",
@@ -129,13 +138,13 @@ module.exports = {
     }
 
     if (sub === "off") {
-      setGoodbye(from, from, { enabled: false })
+      setGoodbye(phone, from, { enabled: false })
       return helper.reply(sock, msg, helper.box("👋 GOODBYE — DISABLED", [
         "Goodbye messages are now OFF for this group.",
       ]))
     }
 
-    const current = loadGreet(from, from).goodbye
+    const current = loadGreet(phone, from).goodbye
     return helper.reply(sock, msg, helper.box("👋 GOODBYE STATUS", [
       `Status: ${current.enabled ? "✅ ON" : "❌ OFF"}`,
       "",
