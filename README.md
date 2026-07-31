@@ -187,5 +187,5 @@ Creator    : Charles Chuks
 
 ---
 
-> Built with ❤️ by Charles Chucks
+> Built with ❤️ by Charles Chuks
 
