@@ -181,7 +181,7 @@ Push to GitHub → Render auto-redeploys → command is live. That's it.
 
 ```
 Bot Name   : CYBER X ™
-Creator    : Charles Chucks
+Creator    : Charles Chuks
 © 𝕮𝖄𝕭𝙴𝚁 𝖃 — All rights reserved
 ```
 
