@@ -1,191 +1,524 @@
-# 𝕮𝖄𝕭𝙴𝚁 𝖃 ™
-> Advanced WhatsApp Bot — Created & Managed by Charles Chucks
+<div align="center"><img src="https://i.imgur.com/BdycOtx.jpeg" alt="𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦" width="900"/><br><br>
 
-![CYBER X](https://i.ibb.co/spf35QYC/file-00000000a30c71f48bb49e183e1d43cb.png)
+𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦
 
----
+⚡ NEXT-GENERATION WHATSAPP AUTOMATION ENGINE ⚡
 
-## ✨ Features
+Built & maintained by Charles Chuks Tech
 
-- 🛡️ Group Management & Moderation
-- 🤖 AI Assistance
-- 🎵 Media Download Tools
-- 🔒 Security & Anti-Spam Systems
-- 🎮 Games & Entertainment
-- 🔧 Utility Commands
-- ⚙️ Custom Automation Systems
+<br><img src="https://img.shields.io/badge/STATUS-ONLINE-00ff88?style=for-the-badge&logo=statuspal&logoColor=white"/>
+<img src="https://img.shields.io/badge/NODE.JS-POWERED-339933?style=for-the-badge&logo=node.js&logoColor=white"/>
+<img src="https://img.shields.io/badge/WHATSAPP-AUTOMATION-25D366?style=for-the-badge&logo=whatsapp&logoColor=white"/>
+<img src="https://img.shields.io/github/stars/charlescoding300-beep/Cyber-x?style=for-the-badge&logo=github"/>
+<img src="https://img.shields.io/github/forks/charlescoding300-beep/Cyber-x?style=for-the-badge&logo=github"/><br><br>
 
----
+<a href="YOUR_PUBLIC_SERVER_URL">
+<img src="https://img.shields.io/badge/🌐%20LIVE%20SERVER-OPEN%20SERVER-00ff88?style=for-the-badge"/>
+</a><a href="YOUR_PAIRING_URL">
+<img src="https://img.shields.io/badge/⚡%20PAIR%20ZEN%20X-GET%20PAIRING%20CODE-25D366?style=for-the-badge"/>
+</a><a href="https://t.me/yanshbot_bot">
+<img src="https://img.shields.io/badge/📲%20TELEGRAM-THE%20NEXT%20GENERATION-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/>
+</a><a href="https://github.com/charlescoding300-beep/Cyber-x">
+<img src="https://img.shields.io/badge/⭐%20GITHUB-VIEW%20SOURCE-ffffff?style=for-the-badge&logo=github&logoColor=black"/>
+</a></div>---
 
-## 🚀 Deploy Your Own CYBER X
+<div align="center">🧬 ZΞN X CORE
 
-Everyone can run their own private copy of CYBER X on their own WhatsApp number.  
-You do **not** share accounts — each person pairs their own number.
+The Next Generation
 
----
+A modern, extensible WhatsApp automation platform engineered for speed, automation and control.
 
-## 📋 Requirements
-
-- A WhatsApp number (your own)
-- A free [Render](https://render.com) account
-- A free [GitHub](https://github.com) account
-
----
-
-## 🛠️ Step-by-Step Deployment
-
-### Step 1 — Fork the Repository
-
-1. Go to the CYBER X GitHub repo
-2. Click **Fork** (top right)
-3. This creates your own copy of the bot
+</div>«𓃦 ZEN X is a modular WhatsApp bot designed around a command-based architecture.
+Its command system lives inside the "commands/" directory, allowing functionality to be extended without rebuilding the entire core.»
 
 ---
 
-### Step 2 — Set Up Render
+⚡ SYSTEM STATUS
 
-1. Go to [render.com](https://render.com) and sign up free
-2. Click **New → Web Service**
-3. Connect your GitHub account
-4. Select your forked **Cyber-x** repo
-5. Fill in these settings:
+<div align="center">COMPONENT| STATUS
+🤖 Bot Engine| 🟢 ONLINE
+🌐 Public Server| 🟢 AVAILABLE
+⚡ Pairing System| 🟢 ACTIVE
+🧩 Command Engine| 🟢 ACTIVE
+📦 Modular Commands| 🟢 ENABLED
+🛠️ Termux Support| 🟢 AVAILABLE
+🖥️ VPS Deployment| 🟢 SUPPORTED
+☁️ Cloud Deployment| 🟢 SUPPORTED
+🚀 GitHub Deployment| 🟢 SUPPORTED
+📲 Telegram Integration| 🟢 ACTIVE
 
-| Field | Value |
-|---|---|
-| **Name** | cyber-x (or anything you like) |
-| **Runtime** | Node |
-| **Build Command** | `npm install` |
-| **Start Command** | `node index.js` |
-| **Instance Type** | Free |
+</div>---
 
----
+🚀 QUICK ACCESS
 
-### Step 3 — Set Environment Variables
+<div align="center">⚡ ACTION| 🔗 ACCESS
+🌐 Live Server| "OPEN SERVER" (YOUR_PUBLIC_SERVER_URL)
+📱 Pair Zen X| "GET PAIRING CODE" (YOUR_PAIRING_URL)
+📲 Telegram| "OPEN @yanshbot_bot" (https://t.me/yanshbot_bot)
+💻 Source Code| "GITHUB REPOSITORY" (https://github.com/charlescoding300-beep/Cyber-x)
+🐛 Report Issue| "OPEN ISSUE" (https://github.com/charlescoding300-beep/Cyber-x/issues)
 
-In Render, go to **Environment** tab and add these:
+</div>---
 
-| Key | Value |
-|---|---|
-| `PAIRING_NUMBER` | Your WhatsApp number with country code, digits only. Example: `2348012345678` |
-| `BOT_NAME` | Whatever you want to call your bot |
-| `PREFIX` | `.` (or your preferred prefix) |
-| `OWNER_NUMBER` | Your WhatsApp number (same as pairing number) |
+📲 TELEGRAM — THE NEXT GENERATION
 
----
+<div align="center"><img src="https://img.shields.io/badge/TELEGRAM-THE%20NEXT%20GENERATION-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/><br><br>
 
-### Step 4 — Deploy & Pair
+⚡ Connect with ZΞN X directly through Telegram
 
-1. Click **Deploy**
-2. Wait for the build to finish
-3. Open the **Logs** tab
-4. You will see a pairing code like:
+<a href="https://t.me/yanshbot_bot"><img src="https://img.shields.io/badge/🤖%20OPEN%20TELEGRAM%20BOT-@yanshbot__bot-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/></a><br><br>
 
-```
-╔══════════════════════════════╗
-║  WHATSAPP PAIRING CODE       ║
-║  👉  ABCD-WXYZ               ║
-╚══════════════════════════════╝
-```
+Pair • Connect • Access • Manage
 
-5. On your WhatsApp:
-   - Go to **Settings → Linked Devices → Link a Device**
-   - Tap **Link with phone number instead**
-   - Enter the code from the logs
+</div>🤖 Telegram Access
 
-6. Bot connects instantly — you're live ✅
+Your Telegram bot provides another access point for the Zen X ecosystem.
 
----
+╭──────────────────────────────────╮
+│                                  │
+│        𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦          │
+│                                  │
+│       THE NEXT GENERATION        │
+│                                  │
+│       📲 TELEGRAM ACCESS         │
+│       ⚡ PAIRING SYSTEM          │
+│       🤖 BOT INTERFACE           │
+│       🧩 ZEN X SERVICES          │
+│                                  │
+╰──────────────────────────────────╯
 
-## 🔄 Keeping Your Bot Online (Free Render Tier)
-
-Render's free tier sleeps after inactivity. CYBER X has a built-in auto-ping every 4 minutes to prevent this. No extra setup needed.
+Official Telegram Bot: "@yanshbot_bot" (https://t.me/yanshbot_bot)
 
 ---
 
-## ⚙️ Configuration
+🧠 CORE FEATURES
 
-All settings are in environment variables on Render. You can update them anytime:
+<div align="center">🤖 AI| 🛡️ SECURITY| 👥 GROUPS
+AI conversations| Anti-link| Kick
+AI assistance| Anti-spam| Promote
+Smart replies| Anti-badword| Demote
+GPT tools| Anti-delete| Tag All
+AI commands| Anti-call| Group controls
 
-- `BOT_NAME` — Display name of your bot
-- `PREFIX` — Command prefix (default `.`)
-- `OWNER_NUMBER` — Your number for owner-only commands
+🎵 MEDIA| 🎮 ENTERTAINMENT| 🧰 UTILITIES
+Music| Games| Calculator
+Video| Anime| Weather
+TikTok| Lyrics| Definitions
+Stickers| Fun commands| TTS
+Downloads| Media tools| Converters
 
-After changing env vars, Render auto-redeploys.
+</div>---
+
+📡 LIVE ZΞN X SERVER
+
+<div align="center">🟢 SYSTEM OPERATIONAL
+
+Public infrastructure is available for Zen X services and pairing.
+
+<br><a href="YOUR_PUBLIC_SERVER_URL"><img src="https://img.shields.io/badge/🌐%20ACCESS%20LIVE%20SERVER-00ff88?style=for-the-badge&logo=googlechrome&logoColor=white"/></a></div>Server URL: "YOUR_PUBLIC_SERVER_URL"
 
 ---
 
-## 📁 Project Structure
+⚡ PAIR YOUR WHATSAPP
 
-```
+<div align="center">🔗 LINK YOUR NUMBER TO ZΞN X
+
+Zen X uses WhatsApp's linked-device pairing flow.
+
+<br><a href="YOUR_PAIRING_URL"><img src="https://img.shields.io/badge/⚡%20OPEN%20PAIRING%20PAGE-25D366?style=for-the-badge&logo=whatsapp&logoColor=white"/></a></div>Pairing Flow
+
+01  →  Open the Zen X pairing page
+02  →  Enter your WhatsApp number
+03  →  Generate your pairing code
+04  →  Open WhatsApp
+05  →  Go to Settings
+06  →  Open Linked Devices
+07  →  Select Link with phone number instead
+08  →  Enter the generated pairing code
+09  →  Zen X connects
+
+---
+
+📦 INSTALLATION
+
+📱 TERMUX
+
+01 — Install Termux
+
+Use a current Termux installation.
+
+02 — Clone Zen X
+
+git clone https://github.com/charlescoding300-beep/Cyber-x.git
+cd Cyber-x
+
+03 — Install Dependencies
+
+npm install
+
+04 — Configure Environment
+
+cp .env.example .env
+
+Edit your configuration:
+
+nano .env
+
+05 — Start Zen X
+
+node index.js
+
+---
+
+🖥️ VPS DEPLOYMENT
+
+Clone the repository:
+
+git clone https://github.com/charlescoding300-beep/Cyber-x.git
+cd Cyber-x
+
+Install dependencies:
+
+npm install
+
+Start Zen X:
+
+node index.js
+
+⚡ Persistent Mode
+
+Install PM2:
+
+npm install -g pm2
+
+Start Zen X:
+
+pm2 start index.js --name zen-x
+
+Save the process:
+
+pm2 save
+
+Enable startup:
+
+pm2 startup
+
+Check status:
+
+pm2 status
+
+View logs:
+
+pm2 logs zen-x
+
+---
+
+☁️ RENDER DEPLOYMENT
+
+Zen X includes configuration for hosted deployment.
+
+Build Command
+
+npm install
+
+Start Command
+
+node index.js
+
+Configure the required environment variables inside the Render dashboard before starting the service.
+
+---
+
+🔐 ENVIRONMENT VARIABLES
+
+Example:
+
+PAIRING_NUMBER=234XXXXXXXXXX
+BOT_NAME=𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦
+PREFIX=.
+OWNER_NUMBER=234XXXXXXXXXX
+
+Configuration
+
+VARIABLE| PURPOSE
+"PAIRING_NUMBER"| WhatsApp number used for pairing
+"BOT_NAME"| Zen X display name
+"PREFIX"| Command prefix
+"OWNER_NUMBER"| Bot owner number
+
+«⚠️ Never publish private session credentials, tokens, API keys, database passwords or other secrets.»
+
+---
+
+🧩 COMMAND CENTER
+
+Zen X uses a modular command architecture.
+
+All commands are stored inside:
+
+commands/
+
+Command Architecture
+
 Cyber-x/
-├── index.js          ← Core bot (do not modify)
-├── commands/         ← All bot commands
-├── lib/              ← Shared libraries
-├── session/          ← Auth session (auto-generated)
-└── .env              ← Local env (Render uses dashboard vars)
-```
+│
+├── commands/
+│   ├── ai
+│   ├── alive
+│   ├── anime
+│   ├── antibadword
+│   ├── antibot
+│   ├── anticall
+│   ├── antidelete
+│   ├── antilink
+│   ├── antistatus
+│   ├── antitag
+│   ├── ask
+│   ├── ban
+│   ├── block
+│   ├── broadcast
+│   ├── calc
+│   ├── chat
+│   ├── convert
+│   ├── define
+│   ├── demote
+│   ├── gpt
+│   ├── groupinfo
+│   ├── kick
+│   ├── lyrics
+│   ├── mute
+│   ├── pair
+│   ├── ping
+│   ├── play
+│   ├── promote
+│   ├── restart
+│   ├── say
+│   ├── sticker
+│   ├── tagall
+│   ├── tiktok
+│   ├── tts
+│   ├── unban
+│   ├── unmute
+│   ├── update
+│   ├── video
+│   ├── weather
+│   ├── welcome
+│   └── ...
+│
+└── ...
 
 ---
 
-## ➕ Adding Your Own Commands
+🔄 AUTOMATIC COMMAND INDEX
 
-Create a new file in `commands/`:
+Zen X is designed around a modular command system.
 
-```js
+The README command index can be automatically regenerated from the actual "commands/" directory whenever the repository is updated.
+
+╭──────────────────────────────╮
+│      ZΞN X COMMAND ENGINE    │
+╰──────────────────────────────╯
+              │
+              ▼
+       ADD NEW COMMAND
+              │
+              ▼
+          GIT PUSH
+              │
+              ▼
+       GITHUB ACTION
+              │
+              ▼
+       SCAN commands/
+              │
+              ▼
+      UPDATE README.md
+              │
+              ▼
+       COMMANDS REFRESHED
+
+This means newly added command files can automatically appear in the README instead of requiring manual editing.
+
+---
+
+💻 COMMAND FORMAT
+
+Zen X commands use the configured prefix.
+
+Default Prefix
+
+.
+
+Examples
+
+.ping
+.alive
+.ai
+.play
+.sticker
+.tagall
+.kick
+.promote
+.demote
+.weather
+.tts
+
+«The command index should always reflect the current contents of the "commands/" directory.»
+
+---
+
+🏗️ PROJECT ARCHITECTURE
+
+𓃦 ZΞN X
+│
+├── commands/        → Modular command system
+├── lib/             → Shared bot libraries
+├── database/        → Database layer
+├── models/          → Data models
+├── public/          → Web assets
+├── termux/          → Termux resources
+├── pair.html        → Pairing interface
+├── server.js        → Web server
+├── index.js         → Bot entry point
+├── package.json     → Dependencies
+├── Dockerfile       → Container deployment
+├── Procfile         → Process configuration
+└── render.yaml      → Render configuration
+
+---
+
+🧪 ADDING A NEW COMMAND
+
+Create a JavaScript file inside:
+
+commands/
+
+Example:
+
 'use strict'
 
 module.exports = {
-  pattern:  'hello',
-  desc:     'Say hello',
+  pattern: 'hello',
+  desc: 'Say hello',
   category: 'general',
 
   run: async ({ sock, from, msg }) => {
-    await sock.sendMessage(from, {
-      text: 'Hello from CYBER X! 👋'
-    }, { quoted: msg })
-  },
+    await sock.sendMessage(
+      from,
+      {
+        text: '𓃦 Hello from ZΞN X!'
+      },
+      { quoted: msg }
+    )
+  }
 }
-```
 
-Push to GitHub → Render auto-redeploys → command is live. That's it.
+Then push your changes:
 
----
+git add .
+git commit -m "Add new command"
+git push
 
-## ❓ Common Issues
-
-**Bot not connecting?**
-- Make sure `PAIRING_NUMBER` has no spaces, dashes or `+` — digits only
-- Check Render logs for the pairing code
-- Delete the `session/` folder and redeploy if stuck
-
-**Commands not working?**
-- Make sure you set `PREFIX` and `OWNER_NUMBER` correctly in env vars
-- Check Render logs for any error messages
-
-**Bot going offline?**
-- The auto-ping keeps it alive on free tier
-- If it still sleeps, set `RENDER_EXTERNAL_URL` env var to your Render service URL
+Your deployment system can then rebuild or redeploy the project.
 
 ---
 
-## ⚠️ Important Rules
+🛡️ SECURITY
 
-- Each person must use **their own WhatsApp number**
-- Do **not** share your `session/` folder with anyone — it contains your auth credentials
-- Do **not** use CYBER X to spam, harass, or violate WhatsApp Terms of Service
-- Misuse can result in your WhatsApp number being banned
+Protect your authentication and configuration data.
+
+NEVER publish:
+
+❌ WhatsApp session credentials
+❌ API tokens
+❌ API keys
+❌ Database passwords
+❌ Private SSH keys
+❌ Authentication secrets
+❌ Private environment variables
+
+Use:
+
+.env
+
+for local secrets and environment-variable configuration on your hosting provider.
 
 ---
 
-## 📜 Credits
+⚠️ RESPONSIBLE USE
 
-```
-Bot Name   : CYBER X ™
-Creator    : Charles Chuks
-© 𝕮𝖄𝕭𝙴𝚁 𝖃 — All rights reserved
-```
+Zen X is intended for legitimate automation, development and personal/project use.
+
+Do not use the software for:
+
+- Spam
+- Harassment
+- Unwanted bulk messaging
+- Credential theft
+- Abuse of messaging services
+- Malicious automation
+- Circumventing platform restrictions
+
+Users are responsible for how they deploy and operate their own instance.
 
 ---
 
-> Built with ❤️ by Charles Chuks
+🌌 THE ZΞN X VISION
 
+<div align="center">BUILD • AUTOMATE • EVOLVE
+
+<br>𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦
+
+The Next Generation
+
+Advanced automation engineered for the future.
+
+<br><img src="https://img.shields.io/badge/BUILT%20BY-CHARLES%20CHUKS%20TECH-111111?style=for-the-badge"/></div>---
+
+👨🏽‍💻 DEVELOPER
+
+<div align="center"><img src="https://i.imgur.com/BdycOtx.jpeg" width="250" alt="Charles Chuks Tech"/><br><br>
+
+Charles Chuks Tech
+
+Creator • Developer • Engineer
+
+<br>𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦
+
+<br>The Next Generation
+
+</div>---
+
+📜 LICENSE
+
+This project is distributed under the license included in this repository.
+
+Please review the project's "LICENSE" file before redistributing, modifying or publishing the software.
+
+---
+
+⭐ SUPPORT ZΞN X
+
+<div align="center">If Zen X is useful to you:
+
+⭐ Star the repository
+
+🍴 Fork the project
+
+🐛 Report bugs
+
+💡 Suggest improvements
+
+🤝 Contribute
+
+📲 Connect through Telegram
+
+<br><a href="https://t.me/yanshbot_bot"><img src="https://img.shields.io/badge/📲%20TELEGRAM-@yanshbot__bot-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/></a><br><br>
+
+𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦
+
+Charles Chuks Tech
+
+The Next Generation.
+
+</div>
