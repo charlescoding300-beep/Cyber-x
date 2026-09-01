@@ -47,67 +47,6 @@ for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, API_DIR, CONFIG_DIR, TEMP_DIR, SES
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PERSISTENT SESSION SETTINGS ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-const sessionSettingsCache = new Map()
-
-function getSettingsFile(phone) {
-  return path.join(SETTINGS_ROOT, `${phone}.json`)
-}
-
-function loadSessionSettings(phone) {
-  if (sessionSettingsCache.has(phone)) return sessionSettingsCache.get(phone)
-  const file = getSettingsFile(phone)
-  let data = {}
-  try {
-    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch (e) {
-    console.error(`[SETTINGS] ✗ Load failed for ${phone}:`, e.message)
-  }
-  sessionSettingsCache.set(phone, data)
-  return data
-}
-
-function saveSessionSettings(phone) {
-  const data = sessionSettingsCache.get(phone) || {}
-  const file = getSettingsFile(phone)
-  try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2))
-  } catch (e) {
-    console.error(`[SETTINGS] ✗ Save failed for ${phone}:`, e.message)
-  }
-}
-
-function makeSessionSettings(phone) {
-  const data = loadSessionSettings(phone)
-  return {
-    get(key)      { return data[key] },
-    set(key, val) {
-      data[key] = val
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-      console.log(`[SETTINGS:${phone}] ✔ ${key} = ${JSON.stringify(val)}`)
-    },
-    delete(key) {
-      delete data[key]
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-    },
-    getAll() { return { ...data } },
-    reset()  {
-      sessionSettingsCache.set(phone, {})
-      saveSessionSettings(phone)
-    },
-    merge(obj) {
-      Object.assign(data, obj)
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-      console.log(`[SETTINGS:${phone}] ✔ merged ${Object.keys(obj).join(", ")}`)
-    },
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SERVER SLOTS
 // ─────────────────────────────────────────────────────────────────────────────
 const SLOT_COUNT    = 10
@@ -268,17 +207,65 @@ function cleanupTempDir(maxAgeMs = 30 * 60 * 1000) {
 cleanupTempDir()
 setInterval(cleanupTempDir, 15 * 60 * 1000)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO RAM DETECTION — replaces the old hardcoded MAX_RAM_MB=450.
+//
+// This build runs MULTIPLE WhatsApp sessions in one process, so a fixed
+// 450MB ceiling makes even less sense here than on a single-session bot —
+// a small 512MB box and a 32GB VPS both running this code would hit wildly
+// different realities with the same hardcoded number. Instead we detect
+// the box's total RAM at boot (os.totalmem()), reserve a slice for the
+// OS + Node's own overhead, and use whatever's left as the process-wide
+// restart threshold — the same threshold the memory guard below already
+// checks against, just auto-sized instead of hardcoded.
+//
+// "Divide" across sessions: since SLOT_CAPACITY * SLOT_COUNT is the most
+// sessions this deployment could ever hold, dividing the auto-detected
+// budget by that gives a rough per-session RAM allowance — useful as a
+// sizing/monitoring number even though the actual shutdown check below
+// still applies to the whole process (Node doesn't sandbox memory per
+// WhatsApp session, so a true per-session cap isn't enforceable — this
+// number is diagnostic, to help you judge whether SLOT_CAPACITY is set
+// too high for the box you're on).
+//
+// Override anytime with MAX_RAM_MB or MEM_RESERVE_MB in .env if you want
+// to hand-tune it instead of relying on auto-detection.
+// ─────────────────────────────────────────────────────────────────────────────
+const os = require("os")
+
+const TOTAL_RAM_MB = Math.round(os.totalmem() / (1024 * 1024))
+
+const MEM_RESERVE_MB = parseInt(
+  process.env.MEM_RESERVE_MB || Math.max(50, Math.round(TOTAL_RAM_MB * 0.12)),
+  10
+)
+
+const AUTO_MAX_RAM_MB = Math.max(150, TOTAL_RAM_MB - MEM_RESERVE_MB)
+
+const MAX_RAM_MB = parseInt(process.env.MAX_RAM_MB || AUTO_MAX_RAM_MB, 10)
+
+const MAX_POSSIBLE_SESSIONS  = SLOT_COUNT * SLOT_CAPACITY
+const PER_SESSION_BUDGET_MB  = Math.max(1, Math.floor(MAX_RAM_MB / MAX_POSSIBLE_SESSIONS))
+
+console.log(
+  `[RAM] Detected host RAM: ${TOTAL_RAM_MB}MB | Reserved for OS/overhead: ${MEM_RESERVE_MB}MB | ` +
+  `Restart threshold: ${MAX_RAM_MB}MB${process.env.MAX_RAM_MB ? " (manual override via .env)" : " (auto-calculated)"}`
+)
+console.log(
+  `[RAM] Divided across max possible sessions (${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity = ${MAX_POSSIBLE_SESSIONS}): ` +
+  `~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
+)
+
 // ── Memory guard ──────────────────────────────────────────────────────────────
 setInterval(() => { if (global.gc) global.gc() }, 60_000)
 
 let memoryShutdownInProgress = false
 setInterval(async () => {
-  const usedMB  = process.memoryUsage().rss / 1024 / 1024
-  const limitMB = parseInt(process.env.MAX_RAM_MB || "450", 10)
+  const usedMB = process.memoryUsage().rss / 1024 / 1024
 
-  if (usedMB > limitMB && !memoryShutdownInProgress) {
+  if (usedMB > MAX_RAM_MB && !memoryShutdownInProgress) {
     memoryShutdownInProgress = true
-    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB) — pushing backup then exiting for clean restart`)
+    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB / limit ${MAX_RAM_MB}MB) — pushing backup then exiting for clean restart`)
 
     try {
       await Promise.race([
@@ -604,10 +591,6 @@ const helper = {
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
 }
 
-// api.fetch / api.fetchJson / api.fetchBuffer are the recommended entry
-// points for command files that need to hit external APIs — every call
-// automatically gets retries + timeout + keep-alive without the command
-// author having to think about it.
 api.fetch       = fetchWithRetry
 api.fetchJson   = fetchJsonSafe
 api.fetchBuffer = fetchBufferSafe
@@ -684,16 +667,8 @@ async function handleOrdinaryMessage(state, sock, msg, from) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATUS AUTO-VIEW / AUTO-REACT — hardened queue + retry.
-//
-// Root cause of "it randomly doesn't work": WhatsApp silently rate-limits
-// rapid-fire read-receipts/reactions when several statuses land close
-// together (busy contacts, right after reconnect, etc). Firing them all in
-// parallel — like the old code did — means some succeed and some get
-// silently dropped server-side with no error to catch. This version
-// processes statuses one at a time per session, retries each step on
-// failure, and staggers calls so WhatsApp never sees a burst.
 // ─────────────────────────────────────────────────────────────────────────────
-const statusQueues = new Map() // phone -> promise chain (keeps jobs sequential)
+const statusQueues = new Map()
 
 function queueStatusJob(phone, job) {
   const prev = statusQueues.get(phone) || Promise.resolve()
@@ -742,8 +717,6 @@ async function handleStatus(state, sock, msg) {
       }
     }
 
-    // Stagger so back-to-back statuses never fire fast enough to trip
-    // WhatsApp's anti-spam limits on read receipts / reactions.
     await new Promise(r => setTimeout(r, 300))
   })
 }
@@ -1399,11 +1372,8 @@ async function handleAntistatusInline(sock, msg, phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BAN SYSTEM — hardened, cached, applied uniformly everywhere
 // ─────────────────────────────────────────────────────────────────────────────
-// Short-lived in-memory cache so a banned user's every message doesn't
-// have to hit userDb/Redis again — this is on the hot path for EVERY
-// incoming message, so it has to be nearly free.
 const BAN_CACHE_TTL_MS = 15000
-const banCache = new Map() // key: `${sessionPhone}:${targetPhone}` -> { banned, expiresAt }
+const banCache = new Map()
 
 function banCacheKey(sessionPhone, targetPhone) {
   return `${sessionPhone}:${targetPhone}`
@@ -1430,20 +1400,12 @@ async function isBannedFast(sessionPhone, targetPhone, chatJid) {
 global.__banCacheInvalidate = banCacheInvalidate
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRIVATE-MODE LOCKDOWN — persistent, session-scoped, applies everywhere
-// (group chats, DMs, and even non-command "ordinary" messages).
-// The flag lives in state.settings ("mode"), which is written straight to
-// disk on every .set() call (see makeSessionSettings above), so a restart
-// or crash-restart can never silently drop it back to "public".
+// PRIVATE-MODE LOCKDOWN
 // ─────────────────────────────────────────────────────────────────────────────
 function isPrivateLockdownActive(state) {
   return (state.settings.get("mode") || "public") === "private"
 }
 
-// Returns true if this message should be fully ignored because of an
-// active private-mode lockdown. isOwner/fromMe/sudo always bypass it,
-// in both groups and DMs — this is the single source of truth other
-// handlers should defer to instead of re-implementing their own check.
 function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
   if (isOwner || fromMe) return false
   if (!isPrivateLockdownActive(state)) return false
@@ -1463,7 +1425,6 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
-  // ── BAN CHECK — first thing, before any other logic runs ──────────────
   if (!fromMe) {
     const sessionPhone = normalizeNum(sock.user?.id || "")
     const senderPhone  = normalizeNum(sender || from)
@@ -1473,8 +1434,6 @@ async function handleMessage(state, sock, msg) {
     }
   }
 
-  // ── PRIVATE-MODE LOCKDOWN — checked before prefix parsing so it also
-  // silences ordinary (non-command) messages in both groups and DMs ─────
   const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
   if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
     console.log(`[${state.phone}] 🔒 Private-mode lockdown: ignoring ${normalizeNum(sender || from)} in ${from}`)
@@ -1537,27 +1496,12 @@ async function handleMessage(state, sock, msg) {
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
 
-  // NOTE: the previous 15-second timeout here used Promise.race() to
-  // "give up" on a slow command and retry it. That doesn't actually stop
-  // the slow command — the original call keeps running in the
-  // background, so when a command like .play just took >15s (slow API,
-  // not actually broken), BOTH the original and the retry finished and
-  // BOTH sent a result. That's what caused double responses. Removed
-  // entirely — a command now gets exactly one attempt, plus one retry
-  // ONLY if it actually throws a real error (not a timeout), so nothing
-  // can ever run twice from this path.
   const startedAt = Date.now()
 
   try {
     await runOnce()
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
-    // One of the most common causes of "works for one person, fails for
-    // another" in group bots is stale cached group metadata (it only
-    // auto-refreshes every 5 minutes — see checkGroupAdmin above). If a
-    // command throws, force a fresh metadata fetch and retry exactly
-    // once before showing the error, so a stale-cache hiccup self-heals
-    // instead of surfacing as an inconsistent per-user failure.
     console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
     try {
       if (isGroup) {
@@ -1760,7 +1704,6 @@ async function startBot(phone) {
         const callerJid = call.from || call.peerJid || call.chatId
         if (!callerJid) continue
 
-        // Ban check applies to calls too now, not just messages.
         const sessionPhone = normalizeNum(sock.user?.id || "")
         const callerPhone  = normalizeNum(callerJid)
         const callerBanned = await isBannedFast(sessionPhone, callerPhone, callerJid)
@@ -1866,9 +1809,6 @@ async function startBot(phone) {
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
 
-      // ── FAST-PATH BAN GATE — runs before ANY other per-message handler
-      // (antilink/antitag/badword/antibot/memory), so a banned user gets
-      // zero side effects anywhere in the bot, not just in commands. ────
       if (!m.key.fromMe && m.key.remoteJid !== "status@broadcast") {
         const senderPhone = normalizeNum(m.key.participant || m.key.remoteJid)
         if (await isBannedFast(sessionPhone, senderPhone, m.key.remoteJid)) continue
@@ -2104,4 +2044,5 @@ global.__listBots = listBots
 module.exports = {
   init, addSession, removeSession, listBots,
   getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY,
+  TOTAL_RAM_MB, MAX_RAM_MB, MEM_RESERVE_MB, PER_SESSION_BUDGET_MB,
 }

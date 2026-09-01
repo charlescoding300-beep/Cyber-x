@@ -28,6 +28,7 @@
     "qrcode": "^1.5.4",
     "sharp": "*",
     "tesseract.js": "^7.0.0",
+    "youtube-search-api": "^2.0.1",
     "youtubei.js": "^17.0.1",
     "yt-dlp-exec": "*",
     "yt-search": "^2.13.1"

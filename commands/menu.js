@@ -1,20 +1,21 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/menu.js  —  CYBER X  |  ⛧ THE ABYSS — Bot Menu ⛧
+//  commands/menu.js  —  ZEN X  |  Bot Menu
 // ════════════════════════════════════════════════════════════════════
 
 const fs   = require('fs')
 const path = require('path')
+const os   = require('os')
 
-const MENU_IMAGES = [
-    'https://i.ibb.co/67Ns2ZFX/file-00000000c7c871f4907821a07242d4fc.png',
-    'https://i.ibb.co/dwzq819L/file-0000000092b871f493f4dd4a3cd36d7e.png',
-]
+// Set this to your bot's image URL/path — sent as the menu's picture
+const MENU_IMAGE = process.env.MENU_IMAGE_URL || 'https://i.imgur.com/BdycOtx.jpeg'
 
 const HIDDEN = new Set([
     'slot', 'pokedex', 'buy', 'mycard', 'active', 'battle',
     'accept', 'forfeit', 'pokemon', 'pikachu',
 ])
+
+const VERSION  = process.env.BOT_VERSION || 'v1.0.0'
 
 const CATEGORY_ORDER = [
     'general', 'owner', 'group/admin', 'download', 'fun', 'ai',
@@ -22,34 +23,42 @@ const CATEGORY_ORDER = [
 ]
 
 const CATEGORY_LABELS = {
-    general:       '🌐 GENERAL',
-    owner:         '👑 OWNER',
-    'group/admin': '👥 GROUP/ADMIN👮',
-    download:      '📥 DOWNLOAD',
-    fun:           '🎮 FUN',
-    ai:            '🤖 AI',
-    utility:       '🛠️ UTILITY',
-    media:         '🎵 MEDIA',
-    settings:      '⚙️ SETTINGS',
-    system:        '📊 SYSTEM',
+    general:       'GENERAL',
+    owner:         'OWNER',
+    'group/admin': 'GROUP/ADMIN',
+    download:      'DOWNLOAD',
+    fun:           'FUN',
+    ai:            'AI',
+    utility:       'UTILITY',
+    media:         'MEDIA',
+    settings:      'SETTINGS',
+    system:        'SYSTEM',
 }
 
-// ── THE ABYSS — rotating demonic greetings, picked at random each call ──
-const ABYSS_GREETINGS = [
-    '☠︎ The Abyss has acknowledged your presence.\n    ☠︎ Choose your command... if you dare.',
-    '☠︎ The shadows whisper your name.\n    ☠︎ Every choice echoes through the abyss.',
-    '☠︎ You have entered forbidden ground.\n    ☠︎ Proceed wisely.',
-    '☠︎ The gates stand open before you.\n    ☠︎ Your journey begins now.',
-    '☠︎ The darkness watches in silence.\n    ☠︎ Select your path.',
-]
+// Zero-width spaces have no visible width but count toward WhatsApp's
+// message-length threshold — this is the actual mechanism people use to
+// force WhatsApp's native "Read more" to appear even on a short-looking
+// message. No button, no second command, no typing required from the user.
+const ZWSP           = '\u200B'
+const READ_MORE_WALL = ZWSP.repeat(4000)
 
-function randomGreeting() {
-    return ABYSS_GREETINGS[Math.floor(Math.random() * ABYSS_GREETINGS.length)]
+// Maps normal A-Z to the Zen X stylized monospace font automatically —
+// so ANY command name (existing or newly added later) renders in the
+// same design without ever hand-styling it again.
+const STYLE_MAP = {
+    A: '𝙰', B: '𝙱', C: '𝙲', D: '𝙳', E: 'Ξ', F: '𝙵', G: '𝙶',
+    H: '𝙷', I: '𝙸', J: '𝙹', K: '𝙺', L: '𝙻', M: '𝙼', N: '𝙽',
+    O: 'Ø', P: '𝙿', Q: '𝚀', R: '𝚁', S: '𝚂', T: '𝚃', U: '𝚄',
+    V: '𝚅', W: '𝚆', X: '𝚇', Y: '𝚈', Z: '𝚉',
 }
 
-const VERSION  = process.env.BOT_VERSION || 'v5.0.0'
-const PAIR_URL = process.env.PAIR_URL || 'https://cyber-x-y8yv.onrender.com/pair'
-let imgIdx = 0
+function stylize(text) {
+    return text
+        .toUpperCase()
+        .split('')
+        .map(ch => STYLE_MAP[ch] || ch)
+        .join('')
+}
 
 function getBotPPFile(phone) {
     return path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
@@ -76,17 +85,32 @@ function formatUptime(totalSec) {
     return parts.join(' ')
 }
 
+// Live system RAM — read fresh every time the menu is opened, not hardcoded
+function getLiveRam() {
+    const totalBytes = os.totalmem()
+    const freeBytes  = os.freemem()
+    const usedBytes  = totalBytes - freeBytes
+
+    const totalMB = Math.round(totalBytes / 1024 / 1024)
+    const usedMB  = Math.round(usedBytes / 1024 / 1024)
+    const totalGB = (totalBytes / 1024 / 1024 / 1024).toFixed(1)
+    const usedGB  = (usedBytes / 1024 / 1024 / 1024).toFixed(1)
+    const pct     = Math.round((usedBytes / totalBytes) * 100)
+
+    return { usedMB, totalMB, usedGB, totalGB, pct }
+}
+
 module.exports = {
     pattern:  'menu',
     alias:    ['help'],
     category: 'general',
-    desc:     'CYBER X command menu',
+    desc:     'Zen X command menu',
     usage:    '.menu',
 
     run: async ({ sock, from, msg, sender, commands, cmdDetails, settings }) => {
 
         sock.sendMessage(from, {
-            react: { text: '☠️', key: msg.key }
+            react: { text: '𓃦', key: msg.key }
         }).catch(() => {})
 
         const phone    = (sock.user?.id || '').split(':')[0].split('@')[0]
@@ -97,22 +121,24 @@ module.exports = {
         const mode      = (settings?.get('mode') || 'public')
         const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1)
 
-        const upSec     = Math.floor(process.uptime())
-        const mem       = process.memoryUsage()
-        const ramUsedMB = Math.round(mem.rss / 1024 / 1024)
-        const ramMaxMB  = parseInt(process.env.MAX_RAM_MB || '512', 10)
-        const ping      = Math.floor(Math.random() * 40 + 5)
+        const upSec = Math.floor(process.uptime())
+        const ram   = getLiveRam()
+        const ping  = Math.floor(Math.random() * 40 + 5)
 
-        const senderJid = sender || from
-        const senderNum = senderJid.split('@')[0].replace(/:\d+$/, '')
-        const senderTag = `@${senderNum}`
+        const senderJid  = sender || from
+        const senderNum  = senderJid.split('@')[0].replace(/:\d+$/, '')
+        const senderTag  = `@${senderNum}`
+        // Real WhatsApp display name (what shows in their contact card),
+        // not the raw phone number — falls back to the number if WhatsApp
+        // hasn't sent a push name for some reason.
+        const senderName = msg.pushName || senderNum
 
+        // Grouped by category for the hidden section below the wall.
         const grouped = new Map()
         if (Array.isArray(cmdDetails)) {
             for (const cmd of cmdDetails) {
                 const name = (cmd.pattern || '').replace(/^\./, '')
-                if (HIDDEN.has(name)) continue
-                // ── Merge "group" category into "group/admin" ──
+                if (!name || HIDDEN.has(name)) continue
                 let cat = (cmd.category || 'general').toLowerCase()
                 if (cat === 'group') cat = 'group/admin'
                 if (!grouped.has(cat)) grouped.set(cat, [])
@@ -129,46 +155,38 @@ module.exports = {
         const sections = allCats.map(cat => {
             const label = CATEGORY_LABELS[cat] || cat.toUpperCase()
             const cmds  = grouped.get(cat) || []
-            const lines = cmds.map((c, i) => {
-                const isLast = i === cmds.length - 1
-                return ` *${isLast ? '┕' : '├'}☬ ${c}*`
-            }).join('\n')
-            return ` ⛧─────❒ *${label}* ❒\n${lines}\n ┕───────────────────⛧`
+            const lines = cmds.map(name => `┃ 𓃦 .${stylize(name)}`).join('\n')
+            return `┣━━━〔 ${stylize(label)} 〕━━━┫\n┃\n${lines}\n┃`
         }).join('\n\n')
 
-        const header = `⛧━━━━━━━━━━━━━━━━━━━━━━⛧
-        𖤍 *𝐓𝐇𝐄 𝐀𝐁𝐘𝐒𝐒* 𖤍
-   ⚡ *𝘾𝙔𝘽𝙀𝙍 𝙓* — 𝗗𝗔𝗥𝗞 𝗖𝗢𝗥𝗘 ⚡
-⛧━━━━━━━━━━━━━━━━━━━━━━⛧
-┃ ☠︎ *User*    : ${senderTag}
-┃ ⚙️ *Version* : ${VERSION}
-┃ 🚀 *Mode*    : ${modeLabel}
-┃ 📡 *Ping*    : ${ping}ms
-┃ 💾 *RAM*     : ${ramUsedMB}MB / ${ramMaxMB}MB
-┃ ⏳ *Uptime*  : ${formatUptime(upSec)}
-┃ 👑 *Owner*   : ${ownerTag}
-⛧━━━━━━━━━━━━━━━━━━━━━━⛧`
+        // Visible part — this is all a person sees before tapping Read more.
+        const head = `╭━━━〔 𓃦 𝚉Ξ𝙽 𝚇 𓃦 〕━━━╮
+┃
+┃  ⚡ ${stylize('WELCOME')}
+┃
+┃  👤 ${stylize('USER')} : *${senderName}*
+┃  🤖 ${stylize('BOT')} : 𝚉Ξ𝙽 𝚇
+┃  💾 ${stylize('RAM')} : ${ram.usedGB}GB / ${ram.totalGB}GB (${ram.pct}%)
+┃  ⏱️ ${stylize('UPTIME')} : ${formatUptime(upSec)}
+┃
+╰━━━━━━━━━━━━━━━━━━╯`
 
-        const greeting = randomGreeting()
-
-        const caption = `${header}
-
-         ◈ 𝖂𝖊𝖑𝖈𝖔𝖒𝖊, ${senderTag} ◈
-
-    ${greeting}
-
-╭─── ⛧ ───────────────
+        // Hidden part — only visible after WhatsApp's native Read more expands it.
+        const hidden = `╭━━━〔 𓃦 𝙵𝚄𝙻𝙻 𝙼Ξ𝙽𝚄 𓃦 〕━━━╮
+┃
 ${sections}
-╰─── ⛧ ───────────────
+╰━━━━━━━━━━━━━━━━━━╯
 
-        🩸 *𝕹𝖔 𝕸𝖊𝖗𝖈𝖞.*
-        ⚔︎ *𝕹𝖔 𝕽𝖚𝖑𝖊𝖘.*
-        👁 *𝕺𝖓𝖑𝖞 𝕻𝖔𝖜𝖊𝖗.*
+© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
-      『 *𝗖𝗬𝗕𝗘𝗥 𝗫* 』
-⛧━━━━━━━━━━━━━━━━━━━━━━⛧
+        const rawCaption = `${head}${READ_MORE_WALL}\n\n${hidden}`
 
-> © *𝕮𝖄𝕭𝙀𝙍 𝖃* ™`
+        // Every line gets WhatsApp's native "> " gray quote treatment —
+        // header, box borders, command list, footer, all of it.
+        const caption = rawCaption
+            .split('\n')
+            .map(line => line.length ? `> ${line}` : '>')
+            .join('\n')
 
         const mentions = [senderJid]
         if (ownerJid) mentions.push(ownerJid)
@@ -188,12 +206,9 @@ ${sections}
             }
         }
 
-        const imgUrl = MENU_IMAGES[imgIdx % MENU_IMAGES.length]
-        imgIdx++
-
         try {
             await sock.sendMessage(from, {
-                image:    { url: imgUrl },
+                image:    { url: MENU_IMAGE },
                 caption,
                 mimetype: 'image/jpeg',
                 mentions,

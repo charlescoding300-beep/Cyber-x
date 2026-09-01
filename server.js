@@ -249,7 +249,7 @@ const server = http.createServer(async (req, res) => {
   // ── Root ──────────────────────────────────────────────────────────────────
   if (url === "/" && method === "GET") {
     res.writeHead(200, { "Content-Type": "text/plain" })
-    return res.end("⚡ CYBER X MULTI-BOT ONLINE")
+    return res.end("⚡ ZEN X MULTI-BOT ONLINE")
   }
 
   // ── /pair/:slot ───────────────────────────────────────────────────────────
@@ -527,7 +527,7 @@ const server = http.createServer(async (req, res) => {
   if (url === "/api/bot/info" && method === "GET") {
     const bots = listBots()
     return json(res, {
-      name:         "CYBER X",
+      name:         "Zen X",
       version:      "2.0.0",
       owner:        "Charles Chukwu",
       prefix:       ".",
@@ -548,9 +548,9 @@ const server = http.createServer(async (req, res) => {
       const { message, history = [], systemPrompt, browserId } = await readBody(req)
       if (!message) return json(res, { error: "message required" }, 400)
 
-      const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the AI assistant built into CYBER X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
+      const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the AI assistant built into Zen X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
 
-ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated chat):
+ABOUT ZEN X (answer these when asked, otherwise don't force it into unrelated chat):
 - Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys)
 - Hosted on Render cloud platform at https://cyber-x-y8yv.onrender.com
 - Uses Upstash Redis for session persistence and automatic backups
@@ -559,13 +559,13 @@ ABOUT CYBER X (answer these when asked, otherwise don't force it into unrelated 
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
 
 YOUR JOB:
-- You're a GENERAL-PURPOSE conversational AI, not limited to CYBER X topics.
-- When asked about CYBER X, pairing, or its commands, answer using the details above.
+- You're a GENERAL-PURPOSE conversational AI, not limited to Zen X topics.
+- When asked about Zen X, pairing, or its commands, answer using the details above.
 - Use conversation history naturally like a friend who remembers past chats.
 - Be honest about uncertainty — you don't have live internet access.
 - Match response length to the question.
 
-PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about CYBER X.`
+PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about Zen X.`
 
       const savedMemory   = await loadAiMemory(browserId)
       const clientHistory = history.slice(-10).map(h => ({
@@ -599,7 +599,6 @@ PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who kno
         fullPath = path.join(fullPath, "index.html")
       }
     }
-
     const resolvedPath   = path.resolve(fullPath)
     const resolvedPublic = path.resolve(PUBLIC_DIR)
 
@@ -632,7 +631,7 @@ server.headersTimeout   = 125000
 // STARTUP
 // ─────────────────────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", async () => {
-  console.log(`[WEB] ⚡ CYBER X Multi-Bot listening on port ${PORT}`)
+  console.log(`[WEB] ⚡ ZEN X Multi-Bot listening on port ${PORT}`)
   console.log(`[WEB] 🌐 URL: ${SELF_URL}`)
   console.log(`[WEB] 🔗 Pairing site: ${SELF_URL}/pair`)
   console.log(`[WEB] 🖥️  Server slots: ${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity each`)
@@ -647,6 +646,11 @@ server.listen(PORT, "0.0.0.0", async () => {
     console.error("[WEB] ✗ init() failed:", e.message)
   }
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TELEGRAM PAIRING BOT
+// ─────────────────────────────────────────────────────────────────────────────
+require("./telegram")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELF-PING
