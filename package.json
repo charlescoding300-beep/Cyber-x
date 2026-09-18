@@ -12,8 +12,11 @@
     "@distube/ytdl-core": "^4.16.12",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@hapi/boom": "*",
-    "@whiskeysockets/baileys": "*",
-    "axios": "^1.18.0",
+    "@neoxr/baileys": "^8.3.10",
+    "@vitalets/google-translate-api": "^9.2.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "axios": "^1.20.0",
+    "cheerio": "^1.2.0",
     "cors": "*",
     "dotenv": "*",
     "express": "*",
@@ -23,16 +26,22 @@
     "mongoose": "^9.7.0",
     "node-cache": "*",
     "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^2.1.0",
     "node-webpmux": "^3.2.1",
     "pino": "*",
     "qrcode": "^1.5.4",
     "sharp": "*",
+    "telegraf": "^4.16.3",
     "tesseract.js": "^7.0.0",
+    "youtube-search-api": "^2.0.1",
     "youtubei.js": "^17.0.1",
     "yt-dlp-exec": "*",
     "yt-search": "^2.13.1"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

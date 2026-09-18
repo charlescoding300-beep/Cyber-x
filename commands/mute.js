@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────
-// commands/mute.js — CYBER X MUTE COMMAND
+// commands/mute.js — ZEN X MUTE COMMAND
 //
 // Usage:
 //   .mute           → mute forever
@@ -8,6 +8,8 @@
 //   .mute 30s       → mute for 30 seconds
 //   .mute 2h30m     → mute for 2 hours 30 minutes
 // ─────────────────────────────────────────────────────────
+
+const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 
 // Active mute timers — shared with unmute.js via lib or module cache
 const muteTimers = new Map()   // groupJid → { timeoutId, endsAt, label }
@@ -51,7 +53,7 @@ module.exports = {
   pattern:  "mute",
   desc:     "Mute the group — only admins can send messages",
   usage:    ".mute | .mute 10m | .mute 1h | .mute 2h30m",
-  category: 'group/admin',
+  category: 'group',
 
   // expose timers so unmute.js can cancel them
   muteTimers,
@@ -60,7 +62,7 @@ module.exports = {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
-        text: "❌ *Mute only works in groups.*",
+        text: `> ❌ *Mute only works in groups.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
@@ -87,14 +89,14 @@ module.exports = {
 
     if (!verifiedAdmin) {
       return sock.sendMessage(from, {
-        text: "❌ *Only group admins can use this command.*",
+        text: `> ❌ *Only group admins can use this command.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
 
     if (!isBotAdmin) {
       return sock.sendMessage(from, {
-        text: "❌ *I need to be an admin to mute the group.*",
+        text: `> ❌ *I need to be an admin to mute the group.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
@@ -107,7 +109,7 @@ module.exports = {
       await sock.groupSettingUpdate(from, "announcement")
     } catch (e) {
       return sock.sendMessage(from, {
-        text: `❌ *Failed to mute:* ${e.message}`,
+        text: `> ❌ *Failed to mute:* ${e.message}\n>\n${CREDIT}`,
         quoted: msg
       })
     }
@@ -122,17 +124,14 @@ module.exports = {
     if (!duration) {
       return sock.sendMessage(from, {
         text:
-`╔════════════════════╗
-║  🔇 *GROUP MUTED*  ║
-╚════════════════════╝
-
-┌─────〔 🔒 *LOCKED* 〕─────
-│ 🔇 Only *admins* can send messages
-│ ⏱️ Duration: *Forever*
-│
-│ 💡 Use *.unmute* to unlock
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+`> 🔇 *GROUP MUTED*
+>
+> 🔒 Only *admins* can send messages
+> ⏱️ Duration: *Forever*
+>
+> 💡 Use *.unmute* to unlock
+>
+${CREDIT}`,
         quoted: msg
       })
     }
@@ -147,16 +146,13 @@ module.exports = {
         await sock.groupSettingUpdate(from, "not_announcement")
         await sock.sendMessage(from, {
           text:
-`╔════════════════════╗
-║  🔊 *AUTO UNMUTED* ║
-╚════════════════════╝
-
-┌─────〔 ⏱️ *TIMER DONE* 〕─────
-│ ✅ Mute timer expired
-│ 🔊 Group is now *open*
-│ 💬 Everyone can send messages
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
+`> 🔊 *AUTO UNMUTED*
+>
+> ✅ Mute timer expired
+> 🔊 Group is now *open*
+> 💬 Everyone can send messages
+>
+${CREDIT}`
         })
       } catch {}
     }, duration)
@@ -165,18 +161,15 @@ module.exports = {
 
     return sock.sendMessage(from, {
       text:
-`╔════════════════════╗
-║  🔇 *GROUP MUTED*  ║
-╚════════════════════╝
-
-┌─────〔 ⏱️ *TIMED MUTE* 〕─────
-│ 🔇 Only *admins* can send messages
-│ ⏱️ Duration: *${label}*
-│ 🔓 Auto-unmute in *${label}*
-│
-│ 💡 Use *.unmute* to unlock early
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+`> 🔇 *GROUP MUTED*
+>
+> 🔒 Only *admins* can send messages
+> ⏱️ Duration: *${label}*
+> 🔓 Auto-unmute in *${label}*
+>
+> 💡 Use *.unmute* to unlock early
+>
+${CREDIT}`,
       quoted: msg
     })
   }

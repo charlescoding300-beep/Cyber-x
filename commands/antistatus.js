@@ -23,7 +23,7 @@
 module.exports = {
   pattern:  "antistatus",
   desc:     "Action normal members who tag this group in their WhatsApp status",
-  category: "group/admin",
+  category: "group",
 
   async run({ sock, from, msg, args, isOwner, isAdmin, isGroup }) {
     if (!isGroup) {

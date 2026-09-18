@@ -26,7 +26,7 @@ module.exports = {
   alias:    [],
   desc:     'Toggle antidelete — recovers deleted messages/media to owner DM',
   usage:    '.antidelete on/off',
-  category: 'group/admin',
+  category: 'group',
 
   async run({ sock, from, msg, args, isOwner, antideleteGetEnabled, antideleteSetEnabled }) {
     if (!isOwner) {

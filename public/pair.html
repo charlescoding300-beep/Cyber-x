@@ -1,993 +1,542 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>CYBER X — Enterprise WhatsApp Infrastructure | by Charles Chukwu</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
-  :root { --g:#00ff41; --dg:#00c032; --ddg:#006b1a; --bg:#000300; --panel:#010a01; --border:#0d2b0d; --red:#ff0033; --yellow:#ffe100; --cyan:#00fff7; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--g); font-family:'Share Tech Mono',monospace; min-height:100vh; overflow-x:hidden; }
-  #matrix { position:fixed; top:0; left:0; width:100%; height:100%; z-index:0; opacity:0.18; pointer-events:none; }
-  body::after { content:''; position:fixed; top:0;left:0;width:100%;height:100%; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px); pointer-events:none; z-index:1; }
-  #access-screen { position:fixed;top:0;left:0;width:100%;height:100%; background:#000;z-index:9999; display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px; }
-  #access-screen canvas { position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.35; }
-  .access-label { position:relative;z-index:2;font-family:'Orbitron',monospace;font-size:clamp(11px,3vw,14px);color:var(--dg);letter-spacing:6px;text-transform:uppercase; }
-  .access-bar-wrap { position:relative;z-index:2;width:min(400px,80vw); }
-  .access-bar-bg { width:100%;height:6px;background:#0a1a0a;border:1px solid var(--ddg);border-radius:2px;overflow:hidden; }
-  .access-bar-fill { height:100%;width:0%;background:linear-gradient(90deg,var(--ddg),var(--g),var(--cyan));box-shadow:0 0 12px var(--g);transition:width 0.4s ease;border-radius:2px; }
-  .access-pct { text-align:right;font-size:11px;color:var(--dg);margin-top:4px;letter-spacing:2px; }
-  .access-granted-text { position:relative;z-index:2;font-family:'Orbitron',monospace;font-size:clamp(22px,6vw,42px);font-weight:900;color:var(--g);text-shadow:0 0 20px var(--g),0 0 40px var(--g),0 0 80px var(--dg);letter-spacing:8px;display:none;animation:glitch 0.4s infinite; }
-  @keyframes glitch { 0%,100%{text-shadow:0 0 20px var(--g),0 0 40px var(--g);transform:translateX(0);}20%{transform:translateX(-2px);text-shadow:-2px 0 var(--red),2px 0 var(--cyan);}40%{transform:translateX(2px);text-shadow:2px 0 var(--red),-2px 0 var(--cyan);}60%{transform:translateX(0);} }
-  #app { position:relative;z-index:2;min-height:100vh; }
-  .topbar { display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(0,3,0,0.95);position:sticky;top:0;z-index:100;backdrop-filter:blur(4px); }
-  .topbar-left { display:flex;flex-direction:column; }
-  .topbar-brand { font-family:'Orbitron',monospace;font-weight:900;font-size:clamp(14px,4vw,20px);letter-spacing:6px;color:var(--g);text-shadow:0 0 10px var(--g); }
-  .topbar-sub { font-size:9px;color:var(--ddg);letter-spacing:3px;margin-top:2px; }
-  .topbar-right { display:flex;flex-direction:column;align-items:flex-end;gap:3px; }
-  .status-pill { display:flex;align-items:center;gap:6px;font-size:10px;color:var(--dg);letter-spacing:1px; }
-  .status-dot { width:7px;height:7px;border-radius:50%;background:var(--g);box-shadow:0 0 6px var(--g);animation:pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }
-  .ip-text { font-size:9px;color:var(--ddg);letter-spacing:1px; }
-  .hero { text-align:center;padding:40px 20px 30px;border-bottom:1px solid var(--border); }
-  .hero-title { font-family:'Orbitron',monospace;font-size:clamp(28px,8vw,56px);font-weight:900;letter-spacing:10px;color:var(--g);text-shadow:0 0 30px var(--g),0 0 60px var(--dg);animation:flicker 4s infinite; }
-  @keyframes flicker { 0%,95%,100%{opacity:1;}96%{opacity:0.7;}97%{opacity:1;}98%{opacity:0.4;}99%{opacity:1;} }
-  .hero-sub { font-size:clamp(9px,2.5vw,12px);color:var(--ddg);letter-spacing:5px;margin-top:8px;text-transform:uppercase; }
-  .hero-divider { margin:20px auto;width:min(500px,80vw);height:1px;background:linear-gradient(90deg,transparent,var(--g),transparent); }
-  .hero-stats { display:flex;justify-content:center;gap:clamp(16px,5vw,50px);flex-wrap:wrap;margin-top:16px; }
-  .hero-stat { display:flex;flex-direction:column;align-items:center;gap:3px; }
-  .hero-stat-val { font-family:'Orbitron',monospace;font-size:clamp(16px,4vw,24px);font-weight:700;color:var(--g);text-shadow:0 0 10px var(--g); }
-  .hero-stat-label { font-size:9px;color:var(--ddg);letter-spacing:2px; }
-  .hero-developer { margin-top:18px;font-family:'Orbitron',monospace;font-size:clamp(11px,3vw,14px);color:var(--cyan);letter-spacing:3px;text-shadow:0 0 12px var(--cyan); }
-  .hero-developer-label { font-size:8px;color:var(--ddg);letter-spacing:3px;margin-bottom:4px;text-transform:uppercase; }
-  .menu-section { padding:30px 16px;max-width:800px;margin:0 auto; }
-  .menu-title { font-size:10px;color:var(--ddg);letter-spacing:4px;text-align:center;margin-bottom:20px;text-transform:uppercase; }
-  .menu-grid { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
-  .menu-card { border:1px solid var(--border);background:var(--panel);padding:20px 16px;cursor:pointer;position:relative;overflow:hidden;transition:border-color 0.2s,box-shadow 0.2s;display:flex;flex-direction:column;gap:8px; }
-  .menu-card::before { content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,255,65,0.04),transparent);transition:left 0.4s; }
-  .menu-card:hover::before,.menu-card:active::before { left:100%; }
-  .menu-card:hover,.menu-card:active { border-color:var(--dg);box-shadow:0 0 20px rgba(0,255,65,0.15),inset 0 0 20px rgba(0,255,65,0.03); }
-  .menu-card-icon { font-size:22px; }
-  .menu-card-title { font-family:'Orbitron',monospace;font-size:clamp(10px,3vw,13px);font-weight:700;color:var(--g);letter-spacing:2px; }
-  .menu-card-desc { font-size:10px;color:var(--ddg);letter-spacing:1px;line-height:1.5; }
-  .menu-card-arrow { position:absolute;bottom:12px;right:14px;font-size:14px;color:var(--ddg); }
-  .page { display:none;position:relative;z-index:2;min-height:100vh; }
-  .page.active { display:block; }
-  .page-header { display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);background:rgba(0,3,0,0.95);position:sticky;top:0;z-index:50; }
-  .back-btn { background:transparent;border:1px solid var(--border);color:var(--dg);font-family:'Share Tech Mono',monospace;font-size:11px;padding:5px 12px;cursor:pointer;letter-spacing:2px;transition:border-color 0.2s; }
-  .back-btn:hover { border-color:var(--g);color:var(--g); }
-  .page-title { font-family:'Orbitron',monospace;font-size:clamp(12px,3.5vw,16px);font-weight:700;letter-spacing:4px;color:var(--g);text-shadow:0 0 10px var(--g); }
-  .page-content { padding:16px;max-width:700px;margin:0 auto; }
-  .info-card { border:1px solid var(--border);background:var(--panel);padding:14px 16px;margin-bottom:10px; }
-  .info-card-title { font-size:10px;color:var(--ddg);letter-spacing:3px;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:10px;display:flex;align-items:center;gap:8px; }
-  .info-row { display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #0a1a0a;font-size:11px; }
-  .info-row:last-child { border-bottom:none; }
-  .info-label { color:#4a8a4a; }
-  .info-val { color:#c8ffc8;display:flex;align-items:center;gap:6px; }
-  .pair-box { border:1px solid var(--border);background:var(--panel);padding:20px;margin-bottom:12px;text-align:center; }
-  .pair-input { width:100%;background:#000500;border:1px solid var(--border);color:var(--g);font-family:'Share Tech Mono',monospace;font-size:14px;padding:12px 14px;outline:none;letter-spacing:3px;margin:12px 0;transition:border-color 0.2s; }
-  .pair-input:focus { border-color:var(--g);box-shadow:0 0 10px rgba(0,255,65,0.1); }
-  .pair-btn { width:100%;background:transparent;border:1px solid var(--g);color:var(--g);font-family:'Orbitron',monospace;font-size:12px;font-weight:700;padding:13px;cursor:pointer;letter-spacing:4px;text-transform:uppercase;transition:background 0.2s,box-shadow 0.2s;position:relative;overflow:hidden; }
-  .pair-btn:hover { background:rgba(0,255,65,0.07);box-shadow:0 0 20px rgba(0,255,65,0.2); }
-  .pair-btn:disabled { opacity:0.4;cursor:not-allowed; }
-  .pair-code-wrap { position:relative;display:none;margin:16px 0; }
-  .pair-code-display { font-family:'Orbitron',monospace;font-size:clamp(22px,6vw,36px);font-weight:900;color:var(--g);text-shadow:0 0 20px var(--g);letter-spacing:10px;padding:20px 50px 20px 20px;border:1px solid var(--dg);background:#000800;word-break:break-all;animation:flicker 3s infinite;transition:opacity 0.3s; }
-  .copy-btn { position:absolute;top:50%;right:10px;transform:translateY(-50%);background:transparent;border:1px solid var(--dg);color:var(--g);font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 10px;cursor:pointer;letter-spacing:1px;border-radius:3px;transition:background 0.2s,border-color 0.2s; }
-  .copy-btn:hover { background:rgba(0,255,65,0.1);border-color:var(--g); }
-  .copy-btn.copied { border-color:var(--cyan);color:var(--cyan); }
-  .pair-warning { font-size:10px;color:var(--yellow);letter-spacing:1px;padding:8px;border:1px solid #3a3000;background:#0f0a00;margin-top:8px; }
-  .pair-steps { text-align:left;font-size:11px;color:var(--ddg);line-height:2;letter-spacing:1px; }
-  .ai-chat-wrap { display:flex;flex-direction:column;height:calc(100vh - 60px); }
-  .ai-chat-messages { flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px; }
-  .ai-chat-messages::-webkit-scrollbar { width:4px; }
-  .ai-chat-messages::-webkit-scrollbar-track { background:#000; }
-  .ai-chat-messages::-webkit-scrollbar-thumb { background:var(--ddg); }
-  .msg { max-width:85%;padding:10px 14px;font-size:12px;line-height:1.7;letter-spacing:0.5px; }
-  .msg.bot { align-self:flex-start;border:1px solid var(--border);background:var(--panel);color:#c8ffc8;border-left:2px solid var(--g); }
-  .msg.user { align-self:flex-end;border:1px solid #1a3a1a;background:#010f01;color:var(--g);border-right:2px solid var(--dg); }
-  .msg-label { font-size:9px;color:var(--ddg);letter-spacing:2px;margin-bottom:5px; }
-  .typing-indicator { display:none;align-self:flex-start;padding:10px 14px;border:1px solid var(--border);background:var(--panel);border-left:2px solid var(--g);font-size:11px;color:var(--ddg);letter-spacing:2px; }
-  .typing-indicator.show { display:block; }
-  .ai-input-bar { display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:rgba(0,3,0,0.98); }
-  .ai-input { flex:1;background:#000500;border:1px solid var(--border);color:var(--g);font-family:'Share Tech Mono',monospace;font-size:12px;padding:10px 12px;outline:none;letter-spacing:1px;resize:none;height:42px;transition:border-color 0.2s; }
-  .ai-input:focus { border-color:var(--dg); }
-  .ai-send-btn { background:transparent;border:1px solid var(--g);color:var(--g);font-family:'Orbitron',monospace;font-size:10px;font-weight:700;padding:0 16px;cursor:pointer;letter-spacing:2px;transition:background 0.2s;white-space:nowrap; }
-  .ai-send-btn:hover { background:rgba(0,255,65,0.08); }
-  .ai-send-btn:disabled { opacity:0.3;cursor:not-allowed; }
-  .panel-tabs { display:flex;overflow-x:auto;border-bottom:1px solid var(--border);background:rgba(0,3,0,0.95);padding:0 10px;scrollbar-width:none; }
-  .panel-tabs::-webkit-scrollbar { display:none; }
-  .ptab { background:transparent;border:none;border-bottom:2px solid transparent;color:#4a7a4a;font-family:'Share Tech Mono',monospace;font-size:10px;padding:10px 14px;cursor:pointer;letter-spacing:2px;white-space:nowrap;transition:color 0.2s; }
-  .ptab.active { border-bottom:2px solid var(--g);color:var(--g); }
-  .ptab-content { display:none;padding:14px; }
-  .ptab-content.active { display:block; }
-  .footer { text-align:center;padding:24px 16px;border-top:1px solid var(--border);font-size:10px;color:var(--ddg);letter-spacing:3px;margin-top:20px; }
-  .footer-name { font-family:'Orbitron',monospace;font-size:clamp(13px,3.5vw,17px);font-weight:900;color:var(--g);letter-spacing:4px;text-shadow:0 0 14px var(--g),0 0 28px var(--dg);margin-bottom:6px;animation:flicker 5s infinite; }
-  .footer-rights { font-size:9px;color:var(--ddg);letter-spacing:2px; }
-  .ok { color:var(--g); }
-  .fail { color:var(--red); }
-  .warn { color:var(--yellow); }
-  .terminal-line { font-size:10px;color:var(--ddg);letter-spacing:1px;margin:2px 0; }
-  .terminal-line::before { content:'> ';color:var(--g); }
-  .blink { animation:blink 1s step-end infinite; }
-  @keyframes blink { 50%{opacity:0;} }
-  .section-divider { display:flex;align-items:center;gap:10px;margin:16px 0 10px;font-size:10px;color:var(--ddg);letter-spacing:3px; }
-  .section-divider::before,.section-divider::after { content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--border)); }
-  .section-divider::after { background:linear-gradient(90deg,var(--border),transparent); }
-  #yt-player-wrap { position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none; }
-  .servers-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px; }
-  .server-box { border:1px solid var(--border);background:var(--panel);padding:16px 14px;cursor:pointer;position:relative;overflow:hidden;transition:border-color 0.2s,box-shadow 0.2s,transform 0.15s;display:flex;flex-direction:column;gap:6px; }
-  .server-box:hover,.server-box:active { border-color:var(--dg);box-shadow:0 0 16px rgba(0,255,65,0.15);transform:translateY(-2px); }
-  .server-box.full { border-color:#3a0000;opacity:0.6;cursor:not-allowed; }
-  .server-box.full:hover { transform:none;box-shadow:none; }
-  .server-box-top { display:flex;justify-content:space-between;align-items:center; }
-  .server-box-title { font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--g);letter-spacing:2px; }
-  .server-box-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
-  .server-box-dot.online { background:var(--g);box-shadow:0 0 6px var(--g);animation:pulse 1.5s infinite; }
-  .server-box-dot.offline { background:var(--red);box-shadow:0 0 6px var(--red); }
-  .server-box-count { font-size:11px;color:#c8ffc8;letter-spacing:1px; }
-  .server-box-bar-bg { width:100%;height:4px;background:#0a1a0a;border-radius:2px;overflow:hidden;margin-top:4px; }
-  .server-box-bar-fill { height:100%;background:linear-gradient(90deg,var(--ddg),var(--g));border-radius:2px;transition:width 0.4s; }
-  .server-box-bar-fill.high { background:linear-gradient(90deg,var(--yellow),var(--red)); }
-  .server-box-status-text { font-size:9px;color:var(--ddg);letter-spacing:1px;text-transform:uppercase; }
-  .waking-banner { display:none;border:1px solid var(--yellow);background:#0f0a00;padding:10px 14px;margin-bottom:10px;font-size:10px;color:var(--yellow);letter-spacing:1px;text-align:center; }
-  .waking-banner.show { display:block; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>𝗭Ξ𝗡 𝗫 - WhatsApp Linker</title>
 
-  /* ══ GLOBAL CAPACITY COUNTER ══ */
-  .global-counter { position:sticky;top:0;z-index:101;background:#000;border-bottom:2px solid var(--g);padding:8px 16px;text-align:center;font-family:'Orbitron',monospace; }
-  .global-counter-val { font-size:clamp(18px,5vw,28px);font-weight:900;letter-spacing:4px;color:var(--g);text-shadow:0 0 14px var(--g),0 0 28px var(--dg); }
-  .global-counter-val.glitch-pulse { animation: counterGlitch 0.18s steps(2,end) 1; }
-  @keyframes counterGlitch { 0%{transform:translateX(0);color:var(--g);}30%{transform:translateX(-2px);color:var(--cyan);}60%{transform:translateX(2px);color:var(--red);}100%{transform:translateX(0);color:var(--g);} }
-  .global-counter-label { font-size:8px;color:var(--ddg);letter-spacing:3px;text-transform:uppercase;margin-top:2px; }
+  <!-- Open Graph / link-preview -->
+  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="ZEN X - WhatsApp Linker" />
+  <meta property="og:description" content="Link your WhatsApp device instantly with pair code or QR. Built by Charles Tech." />
+  <meta property="og:image"       content="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url"         content="" />
+  <meta name="twitter:card"       content="summary_large_image" />
+  <meta name="twitter:title"      content="ZEN X - WhatsApp Linker" />
+  <meta name="twitter:description" content="Link your WhatsApp device instantly with pair code or QR." />
+  <meta name="twitter:image"      content="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" />
 
-  /* ══ TOTAL USERS BANNER ══ */
-  .total-users-banner {
-    background: linear-gradient(90deg, #000800, #001200, #000800);
-    border-top: 1px solid var(--ddg);
-    border-bottom: 1px solid var(--ddg);
-    padding: 10px 16px;
-    text-align: center;
-    font-family: 'Orbitron', monospace;
-  }
-  .total-users-val {
-    font-size: clamp(20px,5vw,30px);
-    font-weight: 900;
-    color: var(--cyan);
-    text-shadow: 0 0 16px var(--cyan), 0 0 32px #00bfff;
-    letter-spacing: 6px;
-  }
-  .total-users-label { font-size: 8px; color: var(--ddg); letter-spacing: 3px; margin-top: 2px; }
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
+  <style>
+    :root {
+      --primary-color: #000000;
+      --secondary-color: #ffffff;
+      --accent-color: #f0f0f0;
+      --text-color: #000000;
+      --background-color: #ffffff;
+      --hover-color: #f5f5f5;
+      --border-color: rgba(0, 0, 0, 0.1);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--background-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 15px;
+    }
+    .container {
+      width: 100%;
+      max-width: 450px;
+      background: var(--background-color);
+      border-radius: 16px;
+      padding: 25px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      border: 2px solid var(--border-color);
+    }
+    .header { text-align: center; margin-bottom: 25px; }
+    .hero-banner {
+      width: 100%;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      display: block;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .logo {
+      width: 70px; height: 70px;
+      margin: 0 auto 16px;
+      background: var(--primary-color);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; color: white;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    }
+    .title { font-size: 24px; font-weight: 900; margin-bottom: 8px; color: var(--primary-color); }
+    .subtitle { font-size: 14px; color: rgba(0, 0, 0, 0.7); margin-bottom: 20px; }
 
-  /* ══ TYPEWRITER ══ */
-  .typewriter-cursor { display:inline-block;width:2px;background:var(--g);margin-left:2px;animation:blink 0.7s step-end infinite; }
+    .live-timer {
+      background: var(--hover-color);
+      border: 2px solid var(--border-color);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 18px;
+      font-size: 13px; font-weight: 600;
+      display: flex; flex-direction: column; gap: 4px; text-align: center;
+    }
+    .live-timer .time { font-size: 18px; font-weight: 900; letter-spacing: 1px; color: var(--primary-color); }
+    .live-timer .date-loc {
+      font-size: 12px; color: rgba(0,0,0,0.6);
+      display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+    }
+    .live-timer .date-loc span { display: inline-flex; align-items: center; gap: 4px; }
 
-  /* ══ WHATSAPP GATE ══ */
-  #wa-gate {
-    border: 1px solid #1a4a1a;
-    background: #000d00;
-    padding: 20px;
-    margin-bottom: 14px;
-    text-align: center;
-  }
-  .wa-gate-title {
-    font-family: 'Orbitron', monospace;
-    font-size: 13px;
-    color: var(--g);
-    letter-spacing: 3px;
-    margin-bottom: 6px;
-  }
-  .wa-gate-sub {
-    font-size: 10px;
-    color: var(--ddg);
-    letter-spacing: 1px;
-    margin-bottom: 16px;
-    line-height: 1.6;
-  }
-  .wa-join-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: #075e54;
-    border: 1px solid #25d366;
-    color: #fff;
-    font-family: 'Orbitron', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 12px 20px;
-    cursor: pointer;
-    letter-spacing: 2px;
-    text-decoration: none;
-    transition: background 0.2s, box-shadow 0.2s;
-    margin-bottom: 14px;
-  }
-  .wa-join-btn:hover { background: #128c7e; box-shadow: 0 0 16px rgba(37,211,102,0.3); }
-  #wa-confirm-btn {
-    display: none;
-    width: 100%;
-    background: transparent;
-    border: 1px solid var(--g);
-    color: var(--g);
-    font-family: 'Orbitron', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 11px;
-    cursor: pointer;
-    letter-spacing: 3px;
-    transition: background 0.2s;
-    margin-top: 4px;
-  }
-  #wa-confirm-btn:hover { background: rgba(0,255,65,0.07); }
-  .wa-gate-timer { font-size: 10px; color: var(--ddg); letter-spacing: 2px; margin-top: 8px; min-height: 16px; }
-  #pair-form-locked { display: none; }
-  #pair-form-unlocked { display: none; }
-</style>
+    .social-icons { display: flex; justify-content: center; gap: 12px; margin-bottom: 20px; }
+    .social-icons a {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 18px; text-decoration: none;
+      transition: all 0.3s ease;
+    }
+    .social-icons a.whatsapp { background: #0cfa10; }
+    .social-icons a.github { background: #333; }
+    .social-icons a:hover { transform: scale(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+
+    .music-btn {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 18px;
+      background: var(--primary-color);
+      border: none; cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .music-btn:hover { transform: scale(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .music-btn.playing { background: #000aff; }
+
+    .nav-tabs {
+      display: flex; gap: 8px; margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color); padding-bottom: 12px;
+    }
+    .nav-tab {
+      flex: 1; text-align: center; padding: 8px;
+      font-size: 13px; font-weight: 800; border-radius: 8px;
+      cursor: pointer; color: rgba(0,0,0,0.5); transition: all 0.2s ease;
+    }
+    .nav-tab.active { background: var(--primary-color); color: #fff; }
+    .nav-tab:hover:not(.active) { background: var(--hover-color); }
+    .page-section { display: none; }
+    .page-section.active { display: block; }
+
+    .toggle-container {
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px; background: var(--hover-color);
+      border-radius: 12px; padding: 4px; border: 2px solid var(--border-color);
+    }
+    .toggle-option {
+      flex: 1; padding: 10px 16px; text-align: center; cursor: pointer;
+      border-radius: 8px; font-size: 14px; font-weight: 700;
+      transition: all 0.3s ease;
+    }
+    .toggle-option.active { background: var(--primary-color); color: var(--secondary-color); }
+    .toggle-option:not(.active) { color: var(--text-color); }
+    .toggle-option:hover:not(.active) { background: var(--background-color); }
+
+    .copy-btn {
+      width: 100%; padding: 12px;
+      background: var(--hover-color); border: 2.5px solid var(--border-color);
+      border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .copy-btn:hover { background: var(--background-color); border-color: var(--primary-color); }
+
+    .input-group { margin-bottom: 20px; transition: all 0.3s ease; }
+    .input-group.hidden { display: none; }
+    .input-label { display: block; margin-bottom: 8px; font-weight: 700; font-size: 13px; }
+    .input-field {
+      width: 100%; padding: 12px;
+      border: 2.5px solid var(--border-color); border-radius: 12px;
+      background: var(--background-color); color: var(--text-color); font-size: 15px;
+    }
+    .input-field:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1); }
+
+    .generate-btn {
+      width: 100%; padding: 12px; background: var(--primary-color);
+      border: none; border-radius: 12px; color: var(--secondary-color);
+      font-size: 15px; font-weight: 800; cursor: pointer;
+      transition: all 0.3s ease; margin-bottom: 16px;
+    }
+    .generate-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+    .generate-btn.hidden { display: none; }
+
+    .code-display {
+      background: var(--hover-color); padding: 12px; border-radius: 12px;
+      text-align: center; font-size: 16px; font-weight: 800;
+      margin-bottom: 16px; min-height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      border: 2.5px solid var(--border-color);
+    }
+    .qr-display {
+      background: var(--hover-color); padding: 30px; border-radius: 12px;
+      text-align: center; margin-bottom: 16px;
+      border: 2.5px solid var(--border-color); display: none;
+    }
+    .qr-image { max-width: 280px; max-height: 280px; margin: 0 auto 20px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); }
+    .qr-instructions { font-size: 13px; color: rgba(0, 0, 0, 0.7); line-height: 1.5; }
+
+    .success-message { color: #000aff; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; }
+    .error-message { color: #e74c3c; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; }
+
+    .loading { display: none; text-align: center; margin: 16px 0; }
+    .loading i { font-size: 24px; color: var(--primary-color); animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .ai-chat-box {
+      background: var(--hover-color); border: 2.5px solid var(--border-color);
+      border-radius: 12px; padding: 12px; height: 260px; overflow-y: auto;
+      margin-bottom: 12px; font-size: 13px;
+    }
+    .ai-msg { margin-bottom: 10px; line-height: 1.4; }
+    .ai-msg.user { text-align: right; color: #000aff; }
+    .ai-msg.bot { text-align: left; color: var(--text-color); }
+    .ai-input-row { display: flex; gap: 8px; }
+    .ai-input-row .input-field { flex: 1; margin-bottom: 0; }
+    .ai-send-btn {
+      padding: 12px 16px; background: var(--primary-color); color: #fff;
+      border: none; border-radius: 12px; cursor: pointer; font-weight: 800;
+    }
+
+    .sessions-list { max-height: 320px; overflow-y: auto; }
+    .session-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 12px; border: 2.5px solid var(--border-color);
+      border-radius: 10px; margin-bottom: 8px; font-size: 13px;
+    }
+    .session-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .session-dot.online { background: #0cfa10; }
+    .session-dot.offline { background: #e74c3c; }
+    .sessions-empty { text-align: center; font-size: 13px; color: rgba(0,0,0,0.5); padding: 20px 0; }
+
+    .footer { text-align: center; margin-top: 20px; font-size: 12px; color: rgba(0, 0, 0, 0.5); }
+
+    @media (max-width: 480px) {
+      .container { padding: 20px; border-radius: 12px; max-width: 400px; }
+      .code-display { font-size: 16px; min-height: 50px; }
+      .qr-image { max-width: 240px; max-height: 240px; }
+      .qr-display { padding: 20px; }
+    }
+  </style>
 </head>
 <body>
-<canvas id="matrix"></canvas>
-<div id="access-screen">
-  <canvas id="access-canvas"></canvas>
-  <div class="access-label" id="access-label">INITIALIZING CYBER X SYSTEM...</div>
-  <div class="access-bar-wrap"><div class="access-bar-bg"><div class="access-bar-fill" id="access-bar"></div></div><div class="access-pct" id="access-pct">0%</div></div>
-  <div class="access-granted-text" id="access-granted">ACCESS GRANTED</div>
-</div>
-<div id="app" style="display:none;">
-  <div class="global-counter">
-    <div class="global-counter-val" id="global-counter-val">— / —</div>
-    <div class="global-counter-label">TOTAL SESSIONS LINKED ACROSS ALL SERVERS</div>
-  </div>
-  <div id="page-home" class="page active">
-    <div class="topbar">
-      <div class="topbar-left"><div class="topbar-brand">⬣ CYBER X</div><div class="topbar-sub">ENTERPRISE WHATSAPP INFRASTRUCTURE</div></div>
-      <div class="topbar-right"><div class="status-pill"><div class="status-dot"></div> ALL SYSTEMS ONLINE</div><div class="ip-text" id="ip-display">STATUS: CONNECTED</div></div>
-    </div>
-    <div class="hero">
-      <div class="hero-title">CYBER X</div>
-      <div class="hero-sub">Enterprise WhatsApp Infrastructure — Est. 2025</div>
-      <div style="margin-top:10px;font-family:'Share Tech Mono',monospace;font-size:clamp(11px,3vw,14px);color:var(--g);letter-spacing:1px;min-height:20px;">
-        <span id="typewriter-text"></span><span class="typewriter-cursor">&nbsp;</span>
-      </div>
-      <div class="hero-divider"></div>
-      <div class="hero-stats">
-        <div class="hero-stat"><div class="hero-stat-val" id="stat-bots">—</div><div class="hero-stat-label">BOTS ONLINE</div></div>
-        <div class="hero-stat"><div class="hero-stat-val" id="stat-sessions">—</div><div class="hero-stat-label">SESSIONS</div></div>
-        <div class="hero-stat">
-          <div class="hero-stat-val" id="stat-total-users" style="color:var(--cyan);text-shadow:0 0 10px var(--cyan);">—</div>
-          <div class="hero-stat-label">TOTAL USERS EVER</div>
-        </div>
-        <div class="hero-stat"><div class="hero-stat-val">v2.0</div><div class="hero-stat-label">VERSION</div></div>
-        <div class="hero-stat"><div class="hero-stat-val">NG</div><div class="hero-stat-label">REGION</div></div>
-      </div>
-      <div class="hero-developer"><div class="hero-developer-label">Built & Engineered By</div>⚡ CHARLES CHUKWU ⚡</div>
-      <div style="margin-top:16px;font-size:10px;color:var(--ddg);letter-spacing:2px;">
-        <span class="terminal-line">SECURITY LEVEL: MAXIMUM</span>
-        <span class="terminal-line">DEVELOPER: CHARLES CHUKWU</span>
-        <span class="terminal-line">STATUS: OPERATIONAL <span class="blink">█</span></span>
-      </div>
-    </div>
+  <div class="container">
+    <div class="header">
+      <img src="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" alt="ZEN X" class="hero-banner"/>
+      <div class="logo"><i class="fas fa-robot"></i></div>
+      <h1 class="title">𝗭Ξ𝗡 𝗫</h1>
+      <p class="subtitle">Link your WhatsApp device</p>
 
-    <!-- TOTAL USERS BANNER -->
-    <div class="total-users-banner">
-      <div class="total-users-val" id="home-total-users">—</div>
-      <div class="total-users-label">📡 WHATSAPP ACCOUNTS EVER LINKED TO CYBER X</div>
-    </div>
-
-    <div class="menu-section">
-      <div class="menu-title">▸ SELECT MODULE TO INITIALIZE</div>
-      <div class="menu-grid">
-        <div class="menu-card" onclick="enterSection('pairing')"><div class="menu-card-icon">📱</div><div class="menu-card-title">PAIRING CODE</div><div class="menu-card-desc">Connect your WhatsApp session to the CYBER X network</div><div class="menu-card-arrow">▶</div></div>
-        <div class="menu-card" onclick="enterSection('ai')"><div class="menu-card-icon">🤖</div><div class="menu-card-title">SHIVAN AI</div><div class="menu-card-desc">AI assistant — ask about CYBER X, or just chat</div><div class="menu-card-arrow">▶</div></div>
-        <div class="menu-card" onclick="enterSection('session')"><div class="menu-card-icon">💾</div><div class="menu-card-title">SESSION</div><div class="menu-card-desc">Monitor active WhatsApp sessions and connection health</div><div class="menu-card-arrow">▶</div></div>
-        <div class="menu-card" onclick="enterSection('servers')"><div class="menu-card-icon">🖥️</div><div class="menu-card-title">SERVERS</div><div class="menu-card-desc" id="servers-card-desc">View all server slots — tap one to pair into it</div><div class="menu-card-arrow">▶</div></div>
-        <div class="menu-card" onclick="enterSection('panel')"><div class="menu-card-icon">⬣</div><div class="menu-card-title">CYBER PANEL</div><div class="menu-card-desc">Full infrastructure dashboard — performance, storage, security</div><div class="menu-card-arrow">▶</div></div>
-      </div>
-    </div>
-    <div class="footer"><div class="footer-name">𝕮𝖄𝕭𝙀𝙍 𝖃</div><div class="footer-rights">CREATED BY CHARLES CHUKWU — ALL RIGHTS RESERVED © 2025</div></div>
-  </div>
-
-  <!-- PAIRING PAGE -->
-  <div id="page-pairing" class="page">
-    <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">📱 PAIRING CODE</div></div>
-    <div class="page-content">
-      <div class="waking-banner" id="waking-banner">⏳ Server may be waking up from sleep (free tier) — this can take up to 50 seconds on the first request. Please wait...</div>
-      <div class="info-card">
-        <div class="info-card-title">⬣ SYSTEM STATUS</div>
-        <div class="info-row"><span class="info-label">Bot Engine</span><span class="info-val"><span class="ok">✅</span> Running</span></div>
-        <div class="info-row"><span class="info-label">WhatsApp Gateway</span><span class="info-val"><span id="wa-status-icon">⟳</span> <span id="wa-status-text">Checking...</span></span></div>
-        <div class="info-row"><span class="info-label">Redis Storage</span><span class="info-val"><span id="redis-status-icon">⟳</span> <span id="redis-status-text">Checking...</span></span></div>
-        <div class="info-row"><span class="info-label">Active Bots</span><span class="info-val"><span id="pair-active-bots" class="ok">—</span></span></div>
-        <div class="info-row"><span class="info-label">Pairing Slot</span><span class="info-val"><span id="pair-slot-display" class="ok">Auto-assign</span></span></div>
-        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val"><span id="pair-total-users" class="ok" style="color:var(--cyan)">—</span></span></div>
-      </div>
-
-      <!-- ══ WHATSAPP CHANNEL GATE ══ -->
-      <div id="wa-gate">
-        <div class="wa-gate-title">⚡ STEP 1 — JOIN OUR CHANNEL</div>
-        <div class="wa-gate-sub">
-          You must join the official CYBER X WhatsApp channel<br>
-          before you can generate a pairing code.
-        </div>
-        <a id="wa-join-link" href="https://whatsapp.com/channel/0029VbDYRQyLtOj9bPbEGt2p" target="_blank" class="wa-join-btn" onclick="onJoinClick()">
-          <svg width="18" height="18" viewBox="0 0 32 32" fill="#25d366"><path d="M16 0C7.163 0 0 7.163 0 16c0 2.82.733 5.47 2.018 7.77L0 32l8.466-2.22A15.93 15.93 0 0016 32c8.837 0 16-7.163 16-16S24.837 0 16 0zm0 29.25a13.22 13.22 0 01-6.74-1.847l-.484-.287-5.025 1.32 1.341-4.9-.316-.502A13.19 13.19 0 012.75 16C2.75 8.682 8.682 2.75 16 2.75S29.25 8.682 29.25 16 23.318 29.25 16 29.25zm7.27-9.87c-.398-.2-2.355-1.162-2.72-1.294-.365-.133-.63-.2-.895.2-.265.398-1.028 1.294-1.26 1.56-.232.265-.464.298-.862.1-.398-.2-1.68-.619-3.2-1.975-1.183-1.055-1.982-2.358-2.213-2.756-.232-.398-.025-.613.174-.812.179-.178.398-.464.597-.696.2-.232.265-.398.398-.663.133-.265.066-.497-.033-.696-.1-.2-.895-2.158-1.227-2.954-.323-.775-.65-.67-.895-.682l-.762-.013c-.265 0-.696.1-1.061.497-.365.398-1.393 1.36-1.393 3.317s1.427 3.846 1.626 4.112c.2.265 2.808 4.285 6.803 6.01.951.41 1.692.655 2.27.838.953.303 1.82.26 2.506.158.764-.114 2.355-.963 2.688-1.893.332-.93.332-1.727.232-1.893-.1-.166-.365-.265-.763-.464z"/></svg>
-          JOIN CYBER X CHANNEL
-        </a>
-        <div class="wa-gate-timer" id="wa-gate-timer"></div>
-        <button id="wa-confirm-btn" onclick="unlockPairForm()">✅ I'VE JOINED — CONTINUE ▶</button>
-      </div>
-
-      <!-- PAIR FORM — locked until gate passed -->
-      <div id="pair-form-locked" style="opacity:0.3;pointer-events:none;filter:blur(2px);">
-        <div class="pair-box">
-          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
-          <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Join the channel above first to unlock</div>
-          <input class="pair-input" type="tel" placeholder="234XXXXXXXXXX" disabled/>
-          <button class="pair-btn" disabled>▶ LOCKED — JOIN CHANNEL FIRST</button>
+      <div class="live-timer" id="liveTimer">
+        <div class="time" id="liveTime">--:--:--</div>
+        <div class="date-loc">
+          <span><i class="fas fa-calendar-alt"></i> <span id="liveDate">Loading…</span></span>
+          <span><i class="fas fa-map-marker-alt"></i> <span id="liveLoc">Detecting…</span></span>
         </div>
       </div>
 
-      <!-- PAIR FORM — unlocked -->
-      <div id="pair-form-unlocked">
-        <div class="pair-box">
-          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--g);letter-spacing:3px;margin-bottom:6px;">INITIALIZE SESSION</div>
-          <div style="font-size:10px;color:var(--ddg);letter-spacing:1px;margin-bottom:12px;">Enter your WhatsApp number with country code</div>
-          <input class="pair-input" id="phone-input" type="tel" placeholder="234XXXXXXXXXX" maxlength="15"/>
-          <button class="pair-btn" id="pair-btn" onclick="requestPairCode()">▶ GENERATE PAIRING CODE</button>
-          <div class="pair-code-wrap" id="pair-code-wrap">
-            <div class="pair-code-display" id="pair-code-display"></div>
-            <button class="copy-btn" id="copy-btn" onclick="copyPairCode()">COPY</button>
-          </div>
-          <div id="pair-countdown" style="font-size:12px;letter-spacing:2px;margin-top:8px;font-family:'Share Tech Mono',monospace;"></div>
-          <div id="pair-status" style="font-size:11px;color:var(--ddg);margin-top:8px;letter-spacing:1px;"></div>
-        </div>
-        <div class="pair-warning">⚠ SECURITY NOTICE: Pairing codes expire in 60 seconds. Never share your code with anyone. CYBER X will never ask for your password.</div>
-        <div class="section-divider">HOW TO PAIR</div>
-        <div class="info-card">
-          <div class="pair-steps">
-            <div>> Enter your number above (with country code, no + or spaces)</div>
-            <div>> Tap GENERATE PAIRING CODE</div>
-            <div>> Open WhatsApp on your phone</div>
-            <div>> Go to Settings → Linked Devices</div>
-            <div>> Tap "Link with phone number"</div>
-            <div>> Enter the 8-digit code shown above (or tap COPY)</div>
-            <div>> Wait for CYBER X to confirm connection ✅</div>
-          </div>
-        </div>
+      <div class="social-icons">
+        <a href="https://whatsapp.com/channel/0029Vb8U73N1yT211FynJ01n" target="_blank" class="whatsapp"><i class="fab fa-whatsapp"></i></a>
+        <a href="https://github.com/charlescoding300-beep" target="_blank" class="github"><i class="fab fa-github"></i></a>
+        <button class="music-btn" id="musicToggle" title="Mute / Unmute music">
+          <i class="fas fa-volume-mute"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="nav-tabs">
+      <div class="nav-tab active" data-page="home"><i class="fas fa-key"></i> Home</div>
+      <div class="nav-tab" data-page="ai"><i class="fas fa-robot"></i> AI</div>
+      <div class="nav-tab" data-page="sessions"><i class="fas fa-users"></i> Sessions</div>
+    </div>
+
+    <div class="page-section active" id="page-home">
+      <div class="toggle-container">
+        <div class="toggle-option active" data-mode="pair"><i class="fas fa-key"></i> Pair Code</div>
+        <div class="toggle-option" data-mode="qr"><i class="fas fa-qrcode"></i> QR Code</div>
       </div>
 
+      <div class="input-group" id="inputGroup">
+        <label class="input-label">Enter your WhatsApp number with country code</label>
+        <input type="text" id="mobileNumber" class="input-field" placeholder="+2348012345678" pattern="[+][0-9]{10,}" title="Please enter country code starting with + followed by number">
+      </div>
+
+      <button class="generate-btn" id="submit"><i class="fas fa-key"></i> Generate Pair Code</button>
+
+      <div class="loading" id="loading"><i class="fas fa-spinner"></i></div>
+      <div class="code-display" id="codeDisplay">Your pair code will appear here</div>
+
+      <div class="qr-display" id="qrDisplay">
+        <img id="qrImage" class="qr-image" src="" alt="QR Code">
+        <div class="qr-instructions" id="qrInstructions">Scan this QR code with your WhatsApp app</div>
+      </div>
+
+      <button class="copy-btn" id="copy" onclick="copyCode()"><i class="fas fa-copy"></i> Copy Code</button>
+    </div>
+
+    <div class="page-section" id="page-ai">
+      <div class="ai-chat-box" id="aiChatBox">
+        <div class="ai-msg bot">👋 Hi, I'm the 𝗭Ξ𝗡 𝗫 assistant. Ask me anything.</div>
+      </div>
+      <div class="ai-input-row">
+        <input type="text" id="aiInput" class="input-field" placeholder="Type a message..."/>
+        <button class="ai-send-btn" id="aiSend"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div>
+
+    <div class="page-section" id="page-sessions">
+      <div class="loading" id="sessionsLoading" style="display:block;"><i class="fas fa-spinner"></i></div>
+      <div class="sessions-list" id="sessionsList"></div>
+    </div>
+
+    <div class="footer">
+      <p>© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦 | Built by <span style="font-weight:900;font-size:16px;">Charles Tech</span><br/>All Rights Reserved © <span id="copyrightYear"></span></p>
     </div>
   </div>
 
-  <div id="page-ai" class="page">
-    <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">🤖 SHIVAN AI</div><div style="margin-left:auto;font-size:9px;color:var(--ddg);letter-spacing:2px;">BY CHARLES CHUKWU</div></div>
-    <div class="ai-chat-wrap">
-      <div class="ai-chat-messages" id="chat-messages">
-        <div class="msg bot"><div class="msg-label">◈ SHIVAN AI — ONLINE</div>
-          Greetings. I am <span style="color:var(--g)">Shivan</span> — the AI assistant built into CYBER X by <span style="color:var(--g)">Charles Chukwu</span>.<br><br>
-          Ask me anything — about CYBER X and pairing, or just to chat about general stuff. How can I help?
-        </div>
-      </div>
-      <div class="typing-indicator" id="typing">◈ SHIVAN IS PROCESSING<span class="blink">...</span></div>
-      <div class="ai-input-bar"><textarea class="ai-input" id="ai-input" placeholder="Type your message..." rows="1" onkeydown="handleAIKey(event)"></textarea><button class="ai-send-btn" id="ai-send" onclick="sendAIMessage()">SEND ▶</button></div>
-    </div>
+  <div id="yt-player-wrap" style="position:fixed;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;">
+    <div id="yt-player"></div>
   </div>
 
-  <div id="page-session" class="page">
-    <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">💾 SESSION MONITOR</div></div>
-    <div class="page-content"><div id="session-cards"><div style="text-align:center;padding:30px;color:var(--ddg);letter-spacing:2px;font-size:11px;">⟳ SCANNING SESSIONS...</div></div></div>
-  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script>
+    const API_BASE = window.location.origin;
 
-  <div id="page-servers" class="page">
-    <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">🖥️ SERVERS</div></div>
-    <div class="page-content">
-      <div class="info-card">
-        <div class="info-card-title">⬣ ABOUT SERVERS</div>
-        <div style="font-size:11px;color:#9adb9a;line-height:1.6;letter-spacing:0.5px;">
-          <span class="ok" id="servers-count">—</span> server slots active, each holding up to <span class="ok" id="servers-capacity">—</span> sessions. Tap a box to pair into that specific slot — if it's full, you'll be moved to the next available one automatically.
-        </div>
-      </div>
-      <div class="servers-grid" id="servers-grid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⟳ LOADING SERVERS...</div></div>
-    </div>
-  </div>
+    const YT_VIDEO_ID = 'H5v3kku4y6Q';
+    let ytPlayer, musicPlaying = false, ytReady = false, firstInteractDone = false;
 
-  <div id="page-panel" class="page">
-    <div class="page-header"><button class="back-btn" onclick="goHome()">◀ BACK</button><div class="page-title">⬣ CYBER PANEL</div></div>
-    <div class="panel-tabs">
-      <button class="ptab active" onclick="switchPTab(this,'pt-overview')">OVERVIEW</button>
-      <button class="ptab" onclick="switchPTab(this,'pt-network')">NETWORK</button>
-      <button class="ptab" onclick="switchPTab(this,'pt-security')">SECURITY</button>
-      <button class="ptab" onclick="switchPTab(this,'pt-system')">SYSTEM</button>
-    </div>
-    <div id="pt-overview" class="ptab-content active">
-      <div class="info-card"><div class="info-card-title">🟢 PLATFORM STATUS</div>
-        <div class="info-row"><span class="info-label">Service State</span><span class="info-val" id="p-state">Loading...</span></div>
-        <div class="info-row"><span class="info-label">Active Bots</span><span class="info-val" id="p-bots">—</span></div>
-        <div class="info-row"><span class="info-label">Commands Loaded</span><span class="info-val" id="p-cmds">—</span></div>
-        <div class="info-row"><span class="info-label">Uptime</span><span class="info-val" id="p-uptime">—</span></div>
-        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val" id="p-total-users" style="color:var(--cyan)">—</span></div>
-      </div>
-      <div class="info-card"><div class="info-card-title">📡 LIVE SERVICES</div>
-        <div class="info-row"><span class="info-label">WhatsApp Gateway</span><span class="info-val" id="svc-wa">⟳ Checking</span></div>
-        <div class="info-row"><span class="info-label">API Services</span><span class="info-val" id="svc-api">⟳ Checking</span></div>
-        <div class="info-row"><span class="info-label">Redis Cluster</span><span class="info-val" id="svc-redis">⟳ Checking</span></div>
-        <div class="info-row"><span class="info-label">Session Backup</span><span class="info-val" id="svc-backup">⟳ Checking</span></div>
-      </div>
-    </div>
-    <div id="pt-network" class="ptab-content">
-      <div class="info-card"><div class="info-card-title">🌍 SESSION NETWORK</div>
-        <div class="info-row"><span class="info-label">Active Sessions</span><span class="info-val" id="n-active">—</span></div>
-        <div class="info-row"><span class="info-label">Total Registered</span><span class="info-val" id="n-reg">—</span></div>
-        <div class="info-row"><span class="info-label">Total Users Ever</span><span class="info-val" id="n-total" style="color:var(--cyan)">—</span></div>
-        <div class="info-row"><span class="info-label">Memory Usage</span><span class="info-val" id="n-mem">—</span></div>
-        <div class="info-row"><span class="info-label">Region</span><span class="info-val">Nigeria (NG)</span></div>
-      </div>
-    </div>
-    <div id="pt-security" class="ptab-content">
-      <div class="info-card"><div class="info-card-title">🛡️ SECURITY CENTER</div>
-        <div class="info-row"><span class="info-label">Session Encryption</span><span class="info-val ok">✅ Active</span></div>
-        <div class="info-row"><span class="info-label">Data Protection</span><span class="info-val ok">✅ Enabled</span></div>
-        <div class="info-row"><span class="info-label">Redis Backup</span><span class="info-val" id="sec-backup">⟳ Checking</span></div>
-        <div class="info-row"><span class="info-label">TLS/HTTPS</span><span class="info-val ok">✅ Verified</span></div>
-        <div class="info-row"><span class="info-label">Security Status</span><span class="info-val ok">✅ Protected</span></div>
-      </div>
-    </div>
-    <div id="pt-system" class="ptab-content">
-      <div class="info-card"><div class="info-card-title">⏳ SYSTEM INFO</div>
-        <div class="info-row"><span class="info-label">Uptime</span><span class="info-val" id="sys-uptime">—</span></div>
-        <div class="info-row"><span class="info-label">Current Time (UTC)</span><span class="info-val" id="sys-time">—</span></div>
-        <div class="info-row"><span class="info-label">Memory</span><span class="info-val" id="sys-mem">—</span></div>
-        <div class="info-row"><span class="info-label">Platform</span><span class="info-val">Render Free Tier</span></div>
-        <div class="info-row"><span class="info-label">Library</span><span class="info-val">@whiskeysockets/baileys</span></div>
-        <div class="info-row"><span class="info-label">Developer</span><span class="info-val ok">Charles Chukwu</span></div>
-      </div>
-    </div>
-    <div class="footer"><div class="footer-name">𝕮𝖄𝕭𝙀𝙍 𝖃</div><div class="footer-rights">CREATED BY CHARLES CHUKWU — ALL RIGHTS RESERVED © 2025</div></div>
-  </div>
-</div>
+    function onYouTubeIframeAPIReady() {
+      ytPlayer = new YT.Player('yt-player', {
+        videoId: YT_VIDEO_ID,
+        playerVars: { autoplay: 1, mute: 1, controls: 0, loop: 1, playlist: YT_VIDEO_ID },
+        events: {
+          onReady: (e) => {
+            ytReady = true;
+            e.target.mute();
+            e.target.playVideo();
+          }
+        }
+      });
+    }
 
-<script>
-// ══ MATRIX BACKGROUND ══
-(function(){
-  const c=document.getElementById('matrix'),ctx=c.getContext('2d');
-  let W,H,cols,drops;
-  function init(){ W=c.width=window.innerWidth;H=c.height=window.innerHeight;cols=Math.floor(W/14);drops=Array(cols).fill(1); }
-  init(); window.addEventListener('resize',init);
-  setInterval(()=>{
-    ctx.fillStyle='rgba(0,3,0,0.05)';ctx.fillRect(0,0,W,H);
-    ctx.font='13px Share Tech Mono';
-    drops.forEach((y,i)=>{
-      ctx.fillStyle = Math.random()>0.997 ? (Math.random()>0.5?'#00fff7':'#ff0033') : '#00ff41';
-      ctx.fillText(Math.random()>0.5?'1':'0', i*14, y*14);
-      if(y*14>H&&Math.random()>0.975)drops[i]=0;
-      drops[i]++;
+    function startMusicWithSound() {
+      if (!ytReady || firstInteractDone) return;
+      firstInteractDone = true;
+      ytPlayer.unMute();
+      ytPlayer.playVideo();
+      musicPlaying = true;
+      const btn = document.getElementById('musicToggle');
+      btn.classList.add('playing');
+      btn.innerHTML = '<i class="fas fa-volume-up"></i>';
+    }
+
+    // First tap/click/key anywhere → start music with sound
+    ['click', 'touchstart', 'keydown'].forEach(evt => {
+      document.addEventListener(evt, startMusicWithSound, { once: true, passive: true });
     });
-  },40);
-})();
 
-// ══ ACCESS SCREEN ══
-(function(){
-  const ac=document.getElementById('access-canvas'),ctx=ac.getContext('2d');
-  ac.width=window.innerWidth;ac.height=window.innerHeight;
-  const cols=Math.floor(ac.width/12),drops=Array(cols).fill(1);
-  const anim=setInterval(()=>{
-    ctx.fillStyle='rgba(0,0,0,0.08)';ctx.fillRect(0,0,ac.width,ac.height);
-    ctx.font='12px Share Tech Mono';
-    drops.forEach((y,i)=>{
-      ctx.fillStyle = Math.random()>0.995 ? (Math.random()>0.5?'#00fff7':'#ff0033') : '#00ff41';
-      ctx.fillText(Math.random()>0.5?'1':'0',i*12,y*12);
-      if(y*12>ac.height&&Math.random()>0.97)drops[i]=0;
-      drops[i]++;
+    // Music button = mute / unmute
+    document.getElementById('musicToggle').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!ytReady) return;
+      if (musicPlaying) {
+        ytPlayer.mute();
+        this.classList.remove('playing');
+        this.innerHTML = '<i class="fas fa-volume-mute"></i>';
+        musicPlaying = false;
+      } else {
+        ytPlayer.unMute();
+        ytPlayer.playVideo();
+        this.classList.add('playing');
+        this.innerHTML = '<i class="fas fa-volume-up"></i>';
+        musicPlaying = true;
+        firstInteractDone = true;
+      }
     });
-  },30);
-  const bar=document.getElementById('access-bar'),pct=document.getElementById('access-pct'),label=document.getElementById('access-label'),granted=document.getElementById('access-granted'),screen=document.getElementById('access-screen');
-  const messages=['INITIALIZING CYBER X SYSTEM...','LOADING SECURITY PROTOCOLS...','ESTABLISHING ENCRYPTED CHANNEL...','VERIFYING CREDENTIALS...','CONNECTING TO REDIS CLUSTER...','SYNCING SESSION DATA...','ACCESS GRANTED'];
-  let progress=0,msgIdx=0;
-  const interval=setInterval(()=>{
-    progress+=Math.random()*18+8; if(progress>100)progress=100;
-    bar.style.width=progress+'%'; pct.textContent=Math.floor(progress)+'%';
-    const newIdx=Math.min(Math.floor(progress/15),messages.length-2);
-    if(newIdx!==msgIdx&&newIdx<messages.length-1){msgIdx=newIdx;label.textContent=messages[msgIdx];}
-    if(progress>=100){ clearInterval(interval);clearInterval(anim);
-      setTimeout(()=>{ label.style.display='none';document.querySelector('.access-bar-wrap').style.display='none';granted.style.display='block';
-        setTimeout(()=>{ screen.style.transition='opacity 0.5s';screen.style.opacity='0';
-          setTimeout(()=>{ screen.style.display='none';document.getElementById('app').style.display='block';startServices();handleDeepLink();startTypewriter();startGlobalCounter();loadTotalUsers(); },500); },800); },200); }
-  },60);
-})();
 
-let currentPage='home';
-function enterSection(name){
-  const screen=document.getElementById('access-screen'),bar=document.getElementById('access-bar'),pct=document.getElementById('access-pct'),label=document.getElementById('access-label'),granted=document.getElementById('access-granted'),wrap=document.querySelector('.access-bar-wrap');
-  bar.style.width='0%';pct.textContent='0%';label.textContent='AUTHENTICATING MODULE...';label.style.display='block';wrap.style.display='block';granted.style.display='none';screen.style.opacity='1';screen.style.display='flex';
-  const ac=document.getElementById('access-canvas'),ctx=ac.getContext('2d');
-  ac.width=window.innerWidth;ac.height=window.innerHeight;
-  const cols=Math.floor(ac.width/12),drops=Array(cols).fill(1);
-  const binAnim=setInterval(()=>{
-    ctx.fillStyle='rgba(0,0,0,0.1)';ctx.fillRect(0,0,ac.width,ac.height);
-    ctx.font='12px Share Tech Mono';
-    drops.forEach((y,i)=>{
-      ctx.fillStyle = Math.random()>0.995 ? (Math.random()>0.5?'#00fff7':'#ff0033') : '#00ff41';
-      ctx.fillText(Math.random()>0.5?'1':'0',i*12,y*12);
-      if(y*12>ac.height&&Math.random()>0.97)drops[i]=0;
-      drops[i]++;
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('liveTime').textContent =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      document.getElementById('liveDate').textContent =
+        now.toLocaleDateString([], { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    fetch('https://ipapi.co/json/')
+      .then(r => r.json())
+      .then(d => {
+        const loc = [d.city, d.region, d.country_name].filter(Boolean).join(', ');
+        document.getElementById('liveLoc').textContent = loc || 'Unknown';
+      })
+      .catch(() => { document.getElementById('liveLoc').textContent = 'Location unavailable'; });
+
+    document.getElementById('copyrightYear').textContent = new Date().getFullYear();
+
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('page-' + tab.dataset.page).classList.add('active');
+        if (tab.dataset.page === 'sessions') loadSessions();
+      });
     });
-  },25);
-  let p2=0;
-  const fast=setInterval(()=>{
-    p2+=Math.random()*30+15; if(p2>100)p2=100;
-    bar.style.width=p2+'%';pct.textContent=Math.floor(p2)+'%';
-    if(p2>=100){ clearInterval(fast);clearInterval(binAnim);label.style.display='none';wrap.style.display='none';granted.style.display='block';
-      setTimeout(()=>{ screen.style.transition='opacity 0.4s';screen.style.opacity='0';
-        setTimeout(()=>{ screen.style.display='none';screen.style.transition='';showPage(name);
-          if(name==='session')loadSessions();
-          if(name==='panel')loadPanel();
-          if(name==='pairing'){ checkPairingStatus(); initGate(); }
-          if(name==='servers')loadServers();
-        },400); },600); }
-  },40);
-}
-function showPage(name){ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('page-'+name).classList.add('active');currentPage=name; }
-function goHome(){ showPage('home'); }
 
-// ══ WHATSAPP CHANNEL GATE ══
-const WA_CHANNEL = 'https://whatsapp.com/channel/0029VbDYRQyLtOj9bPbEGt2p';
-const GATE_KEY   = 'cyberx_wa_joined';
+    let currentMode = 'pair';
+    document.querySelectorAll('.toggle-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.toggle-option').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        currentMode = opt.dataset.mode;
+        const btn = document.getElementById('submit');
+        if (currentMode === 'pair') {
+          document.getElementById('inputGroup').classList.remove('hidden');
+          btn.innerHTML = '<i class="fas fa-key"></i> Generate Pair Code';
+          btn.classList.remove('hidden');
+          document.getElementById('qrDisplay').style.display = 'none';
+          document.getElementById('codeDisplay').style.display = 'flex';
+        } else {
+          document.getElementById('inputGroup').classList.add('hidden');
+          btn.innerHTML = '<i class="fas fa-qrcode"></i> Generate QR Code';
+          btn.classList.remove('hidden');
+          document.getElementById('codeDisplay').style.display = 'none';
+        }
+      });
+    });
 
-function initGate(){
-  // If already confirmed before, skip gate
-  if(localStorage.getItem(GATE_KEY) === '1'){
-    showPairForm(); return;
-  }
-  // Show locked form preview and gate
-  document.getElementById('pair-form-locked').style.display = 'block';
-  document.getElementById('wa-gate').style.display = 'block';
-}
+    document.getElementById('submit').addEventListener('click', async () => {
+      const loading = document.getElementById('loading');
+      const codeDisplay = document.getElementById('codeDisplay');
+      const qrDisplay = document.getElementById('qrDisplay');
+      loading.style.display = 'block';
+      codeDisplay.innerHTML = '';
+      qrDisplay.style.display = 'none';
+      try {
+        if (currentMode === 'pair') {
+          const number = document.getElementById('mobileNumber').value.trim();
+          if (!number || !/^\+[0-9]{10,}$/.test(number)) {
+            codeDisplay.innerHTML = '<span class="error-message"><i class="fas fa-exclamation-circle"></i> Enter a valid number with country code</span>';
+            loading.style.display = 'none';
+            return;
+          }
+          const res = await axios.get(`${API_BASE}/pair?phone=${encodeURIComponent(number)}`);
+          const code = res.data?.code || res.data?.pairingCode || '—';
+          codeDisplay.innerHTML = `<span class="success-message"><i class="fas fa-check-circle"></i> ${code}</span>`;
+          window._lastCode = code;
+        } else {
+          const res = await axios.get(`${API_BASE}/qr`);
+          const qr = res.data?.qr || res.data?.qrcode || '';
+          if (qr) {
+            document.getElementById('qrImage').src = qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`;
+            qrDisplay.style.display = 'block';
+            document.getElementById('qrInstructions').textContent = 'Scan this QR code with your WhatsApp app';
+          } else {
+            codeDisplay.style.display = 'flex';
+            codeDisplay.innerHTML = '<span class="error-message">QR not available</span>';
+          }
+        }
+      } catch (err) {
+        codeDisplay.style.display = 'flex';
+        codeDisplay.innerHTML = `<span class="error-message"><i class="fas fa-exclamation-circle"></i> ${err.message || 'Request failed'}</span>`;
+      } finally {
+        loading.style.display = 'none';
+      }
+    });
 
-let waitingForReturn = false;
-function onJoinClick(){
-  const timerEl = document.getElementById('wa-gate-timer');
-  const confirmBtn = document.getElementById('wa-confirm-btn');
-  waitingForReturn = true;
-  timerEl.textContent = '⏳ Complete the join in the new tab, then come back here...';
-  confirmBtn.style.display = 'none';
-}
-
-// ── Detect return to this tab after visiting the WhatsApp channel ──────────
-// Uses the Page Visibility API: fires when the browser tab regains focus
-// after being backgrounded (i.e. user switched to WhatsApp and came back).
-function handleTabReturn(){
-  if(!waitingForReturn) return;
-  const timerEl = document.getElementById('wa-gate-timer');
-  const confirmBtn = document.getElementById('wa-confirm-btn');
-  timerEl.textContent = '✅ Welcome back! Tap below to continue.';
-  confirmBtn.style.display = 'block';
-  waitingForReturn = false;
-}
-document.addEventListener('visibilitychange', () => {
-  if(document.visibilityState === 'visible') handleTabReturn();
-});
-window.addEventListener('focus', handleTabReturn);
-
-function unlockPairForm(){
-  try{ localStorage.setItem(GATE_KEY, '1'); }catch{}
-  document.getElementById('wa-gate').style.display = 'none';
-  document.getElementById('pair-form-locked').style.display = 'none';
-  showPairForm();
-}
-
-function showPairForm(){
-  document.getElementById('wa-gate').style.display = 'none';
-  document.getElementById('pair-form-locked').style.display = 'none';
-  document.getElementById('pair-form-unlocked').style.display = 'block';
-}
-
-// ══ TOTAL USERS COUNTER ══
-// Reads from /api/stats which your server.js should expose.
-// Falls back gracefully if not yet implemented.
-async function loadTotalUsers(){
-  try{
-    const r = await fetch('/api/stats', { signal: AbortSignal.timeout(8000) });
-    if(!r.ok) return;
-    const d = await r.json();
-    const total = d.totalUsers ?? d.total_users ?? d.totalPaired ?? null;
-    if(total === null) return;
-    const fmt = Number(total).toLocaleString();
-    // Update all counter elements
-    const ids = ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'];
-    ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent = fmt; });
-  }catch{}
-}
-
-// ══ DEEP LINK ══
-let preselectedSlot = null;
-function handleDeepLink(){
-  const path = window.location.pathname;
-  const match = path.match(/^\/pair\/(\d+)$/);
-  if(match){
-    preselectedSlot = parseInt(match[1], 10);
-    enterSection('pairing');
-    setTimeout(()=>{ const el=document.getElementById('pair-slot-display'); if(el) el.textContent='Server '+preselectedSlot; }, 900);
-  }
-}
-
-let hasWokenUp = false;
-async function pingService(path,cb,timeoutMs=8000){
-  try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});cb(r.ok); }catch{cb(false);}
-}
-async function fetchData(path,cb,timeoutMs=8000){
-  try{ const r=await fetch(path,{signal:AbortSignal.timeout(timeoutMs)});if(r.ok)cb(await r.json());else cb(null); }catch{cb(null);}
-}
-async function warmUpServer(){
-  const banner=document.getElementById('waking-banner');
-  if(banner) banner.classList.add('show');
-  try{ const r=await fetch('/health',{signal:AbortSignal.timeout(55000)}); hasWokenUp=r.ok; }
-  catch{ hasWokenUp=false; }
-  if(banner) banner.classList.remove('show');
-  return hasWokenUp;
-}
-
-// ══ TYPEWRITER ══
-function startTypewriter(){
-  const el = document.getElementById('typewriter-text');
-  if(!el) return;
-  const text = 'Welcome to CYBER X dashboard';
-  let i = 0; el.textContent = '';
-  function tick(){
-    if(i <= text.length){ el.textContent = text.slice(0,i); i++; setTimeout(tick,55); }
-    else { setTimeout(()=>{ i=0; tick(); }, 3000); }
-  }
-  tick();
-}
-
-// ══ GLOBAL SESSION COUNTER ══
-async function startGlobalCounter(){
-  await updateGlobalCounter();
-  setInterval(updateGlobalCounter, 10000);
-  setInterval(()=>{
-    const el = document.getElementById('global-counter-val');
-    if(!el) return;
-    el.classList.remove('glitch-pulse'); void el.offsetWidth; el.classList.add('glitch-pulse');
-  }, 2600);
-}
-async function updateGlobalCounter(){
-  fetchData('/api/slots', d => {
-    const el = document.getElementById('global-counter-val');
-    if(!el) return;
-    if(!d || !Array.isArray(d.slots)){ if(el.textContent.includes('—')) el.textContent='— / —'; return; }
-    const totalConnected = d.slots.reduce((sum,s)=>sum+(s.connected||0),0);
-    const totalCapacity  = (d.capacity||50)*(d.slotCount||d.slots.length);
-    el.textContent = totalConnected + ' / ' + totalCapacity;
-  });
-}
-
-async function startServices(){
-  setInterval(()=>{ const el=document.getElementById('sys-time');if(el)el.textContent=new Date().toUTCString().slice(17,25)+' UTC'; },1000);
-  await warmUpServer();
-  fetchData('/health',d=>{
-    if(!d)return;
-    document.getElementById('svc-wa').innerHTML='<span class="ok">✅ Online</span>';
-    document.getElementById('svc-api').innerHTML='<span class="ok">✅ Online</span>';
-    document.getElementById('p-state').innerHTML='<span class="ok">✅ Operational</span>';
-    if(d.botsAlive!==undefined){ document.getElementById('stat-bots').textContent=d.botsAlive;document.getElementById('p-bots').innerHTML='<span class="ok">'+d.botsAlive+' online</span>';document.getElementById('pair-active-bots').textContent=d.botsAlive+' online'; }
-    if(d.sessions!==undefined||d.activeSessions!==undefined){ const s=d.sessions||d.activeSessions;document.getElementById('stat-sessions').textContent=s;document.getElementById('n-active').textContent=s;document.getElementById('n-reg').textContent=s; }
-    if(d.commandsLoaded!==undefined){ document.getElementById('p-cmds').innerHTML='<span class="ok">'+d.commandsLoaded+' loaded</span>'; }
-    if(d.uptime){ document.getElementById('p-uptime').innerHTML='<span class="ok">'+d.uptime+'</span>';document.getElementById('sys-uptime').innerHTML='<span class="ok">'+d.uptime+'</span>'; }
-    if(d.memory||d.memoryMB){ const m=d.memory||d.memoryMB+'MB';document.getElementById('n-mem').textContent=m;document.getElementById('sys-mem').textContent=m; }
-    document.getElementById('wa-status-icon').textContent='✅';document.getElementById('wa-status-text').textContent='Online';
-    document.getElementById('svc-backup').innerHTML='<span class="ok">✅ Active</span>';
-    document.getElementById('sec-backup').innerHTML='<span class="ok">✅ Verified</span>';
-    // also pull totalUsers if returned in health
-    if(d.totalUsers){ const fmt=Number(d.totalUsers).toLocaleString(); ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=fmt;}); }
-  });
-  pingService('/health',ok=>{
-    if(!ok){
-      document.getElementById('svc-wa').innerHTML='<span class="fail">❌ Offline</span>';
-      document.getElementById('svc-api').innerHTML='<span class="fail">❌ Offline</span>';
-      document.getElementById('p-state').innerHTML='<span class="fail">❌ Degraded</span>';
-      document.getElementById('wa-status-icon').textContent='❌';document.getElementById('wa-status-text').textContent='Offline';
+    function copyCode() {
+      const code = window._lastCode || document.getElementById('codeDisplay').innerText;
+      if (!code || code.includes('will appear') || code.includes('error')) return;
+      navigator.clipboard.writeText(code.replace(/[^\w-]/g, '')).then(() => {
+        const btn = document.getElementById('copy');
+        const old = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(() => btn.innerHTML = old, 1500);
+      });
     }
-  });
-  fetchData('/api/status',d=>{
-    if(d&&d.redis){
-      const ok=d.redis==='ok'||d.redis===true||d.redis==='connected';
-      document.getElementById('svc-redis').innerHTML=ok?'<span class="ok">✅ Online</span>':'<span class="fail">❌ Offline</span>';
-      document.getElementById('redis-status-icon').textContent=ok?'✅':'❌';
-      document.getElementById('redis-status-text').textContent=ok?'Connected':'Offline';
-    } else {
-      document.getElementById('svc-redis').innerHTML='<span class="ok">✅ Online</span>';
-      document.getElementById('redis-status-icon').textContent='✅';
-      document.getElementById('redis-status-text').textContent='Connected';
+
+    document.getElementById('aiSend').addEventListener('click', sendAi);
+    document.getElementById('aiInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendAi(); });
+
+    function getBrowserId() {
+      let id = localStorage.getItem('zenx_browser_id');
+      if (!id) {
+        id = 'web_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('zenx_browser_id', id);
+      }
+      return id;
     }
-  });
-  setInterval(()=>{ if(currentPage==='servers') loadServers(); }, 15000);
-  // refresh total users every 30s
-  setInterval(loadTotalUsers, 30000);
-}
+    const aiHistory = [];
 
-async function checkPairingStatus(){
-  if(!hasWokenUp) await warmUpServer();
-  pingService('/health',ok=>{
-    document.getElementById('wa-status-icon').textContent=ok?'✅':'❌';
-    document.getElementById('wa-status-text').textContent=ok?'Online':'Offline';
-  });
-  fetchData('/api/status',d=>{
-    if(d&&d.redis){
-      const ok=d.redis==='ok'||d.redis===true||d.redis==='connected';
-      document.getElementById('redis-status-icon').textContent=ok?'✅':'❌';
-      document.getElementById('redis-status-text').textContent=ok?'Connected':'Offline';
+    async function sendAi() {
+      const input = document.getElementById('aiInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      const box = document.getElementById('aiChatBox');
+      box.innerHTML += `<div class="ai-msg user">${escapeHtml(msg)}</div>`;
+      input.value = '';
+      box.scrollTop = box.scrollHeight;
+
+      const typingId = 'typing-' + Date.now();
+      box.innerHTML += `<div class="ai-msg bot" id="${typingId}">🌀 ZenX is thinking...</div>`;
+      box.scrollTop = box.scrollHeight;
+
+      try {
+        const res = await axios.post(`${API_BASE}/api/ai/chat`, {
+          message: msg,
+          history: aiHistory,
+          browserId: getBrowserId(),
+        });
+        const reply = res.data?.reply || "🌀 𝗭Ξ𝗡𝗫's domain flickered — try that again.";
+        document.getElementById(typingId).outerHTML = `<div class="ai-msg bot">${escapeHtml(reply)}</div>`;
+        aiHistory.push({ role: 'user', content: msg });
+        aiHistory.push({ role: 'assistant', content: reply });
+      } catch (e) {
+        document.getElementById(typingId).outerHTML = `<div class="ai-msg bot">⚠️ ZenX is offline right now. Try again in a bit.</div>`;
+      }
+      box.scrollTop = box.scrollHeight;
     }
-  });
-}
 
-// ══ PAIR CODE ══
-let pairCountdownInterval = null;
-
-// ══ VOICE COUNTDOWN (free browser TTS — no API key needed) ══════════════
-let voiceEnabled = true;
-
-function speakSecond(seconds){
-  if(!voiceEnabled) return;
-  if(!window.speechSynthesis) return; // unsupported browser — silently skip
-  if(document.visibilityState !== 'visible') return; // tab backgrounded — stay silent
-  // Speak at 60, every 10s, then every second from 10 down — avoids talking constantly
-  const shouldSpeak = seconds === 60 || seconds % 10 === 0 || seconds <= 10;
-  if(!shouldSpeak) return;
-  const utter = new SpeechSynthesisUtterance(String(seconds));
-  utter.rate = 1.05; utter.pitch = 1; utter.volume = 0.85;
-  window.speechSynthesis.speak(utter);
-}
-function stopVoice(){
-  if(window.speechSynthesis) window.speechSynthesis.cancel();
-}
-
-/**
- * Live 60s countdown next to the pairing code. Backed by the actual
- * server-side expiry (expiresInMs from /pair), not just a client-side
- * guess — if the server says the code already expired, this reflects that.
- * Also speaks the countdown aloud (stops automatically if the tab is hidden).
- */
-function startPairCountdown(expiresInMs){
-  if(pairCountdownInterval) clearInterval(pairCountdownInterval);
-  const el = document.getElementById('pair-countdown');
-  const display = document.getElementById('pair-code-display');
-  let remainingMs = expiresInMs > 0 ? expiresInMs : 60000;
-  const tick = () => {
-    if(remainingMs <= 0){
-      clearInterval(pairCountdownInterval);
-      el.innerHTML = '<span class="fail">⌛ Code expired — generate a new one</span>';
-      if(display) display.style.opacity = '0.4';
-      stopVoice();
-      return;
+    function escapeHtml(t) {
+      const d = document.createElement('div');
+      d.textContent = t;
+      return d.innerHTML;
     }
-    const seconds = Math.ceil(remainingMs / 1000);
-    el.innerHTML = seconds <= 10
-      ? '<span class="fail">⏱ Expires in '+seconds+'s</span>'
-      : '<span class="ok">⏱ Expires in '+seconds+'s</span>';
-    speakSecond(seconds);
-    remainingMs -= 1000;
-  };
-  tick();
-  pairCountdownInterval = setInterval(tick, 1000);
-}
 
-async function requestPairCode(){
-  const phone=document.getElementById('phone-input').value.trim().replace(/\D/g,'');
-  const btn=document.getElementById('pair-btn');
-  const status=document.getElementById('pair-status');
-  const codeWrap=document.getElementById('pair-code-wrap');
-  const display=document.getElementById('pair-code-display');
-  if(!phone||phone.length<10){ status.innerHTML='<span class="fail">⚠ Enter a valid phone number with country code</span>';return; }
-  btn.disabled=true;btn.textContent='⟳ GENERATING...';
-  status.innerHTML='<span class="warn">⟳ Requesting pairing code from CYBER X server...</span>';
-  codeWrap.style.display='none';
-  if(pairCountdownInterval) clearInterval(pairCountdownInterval);
-  document.getElementById('pair-countdown').innerHTML='';
-  let pairUrl='/pair?phone='+phone;
-  if(preselectedSlot) pairUrl+='&slot='+preselectedSlot;
-  try{
-    const r=await fetch(pairUrl,{signal:AbortSignal.timeout(50000)});
-    const data=await r.json();
-    const code=data.code||data.pairingCode||data.pairing_code;
-    if(code){
-      display.textContent=code;codeWrap.style.display='block';
-      display.style.opacity='1';
-      document.getElementById('copy-btn').textContent='COPY';
-      document.getElementById('copy-btn').classList.remove('copied');
-      let slotMsg=data.slot?(' Assigned to Server '+data.slot+'.'):'';
-      status.innerHTML='<span class="ok">✅ Code generated!'+slotMsg+' Enter it in WhatsApp within 60 seconds.</span>';
-      startPairCountdown(data.expiresInMs || 60000);
-      // increment total users counter on server
-      try{ await fetch('/api/stats/increment', { method:'POST' }); }catch{}
-      // refresh counter display
-      setTimeout(loadTotalUsers, 1000);
-    } else {
-      status.innerHTML='<span class="fail">❌ '+(data.message||data.error||'Could not generate code. Try again.')+'</span>';
+    async function loadSessions() {
+      const list = document.getElementById('sessionsList');
+      const loading = document.getElementById('sessionsLoading');
+      loading.style.display = 'block';
+      list.innerHTML = '';
+      try {
+        const res = await axios.get(`${API_BASE}/api/sessions`);
+        const sessions = res.data?.sessions || res.data || [];
+        loading.style.display = 'none';
+        if (!sessions.length) {
+          list.innerHTML = '<div class="sessions-empty">No active sessions</div>';
+          return;
+        }
+        sessions.forEach(s => {
+          const online = s.online || s.status === 'open' || s.status === 'connected';
+          list.innerHTML += `
+            <div class="session-row">
+              <div>
+                <span class="session-dot ${online ? 'online' : 'offline'}"></span>
+                ${escapeHtml(s.id || s.number || s.name || 'Unknown')}
+              </div>
+              <small>${online ? 'Online' : 'Offline'}</small>
+            </div>`;
+        });
+      } catch (e) {
+        loading.style.display = 'none';
+        list.innerHTML = '<div class="sessions-empty">Could not load sessions</div>';
+      }
     }
-  }catch(e){
-    status.innerHTML='<span class="fail">❌ '+(e.name==='AbortError'?'Request timed out — server may still be cold-starting. Wait a moment and retry.':e.message||'Connection failed')+'</span>';
-  }
-  btn.disabled=false;btn.textContent='▶ GENERATE PAIRING CODE';
-}
-
-function copyPairCode(){
-  const display=document.getElementById('pair-code-display');
-  const btn=document.getElementById('copy-btn');
-  const code=display.textContent.trim();
-  if(!code)return;
-  const done=()=>{ btn.textContent='✓ COPIED';btn.classList.add('copied');setTimeout(()=>{btn.textContent='COPY';btn.classList.remove('copied');},2000); };
-  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(code).then(done).catch(()=>{ fallbackCopy(code,done); }); }
-  else { fallbackCopy(code,done); }
-}
-function fallbackCopy(text,done){
-  const ta=document.createElement('textarea');
-  ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
-  document.body.appendChild(ta);ta.select();
-  try{ document.execCommand('copy'); }catch{}
-  document.body.removeChild(ta); done();
-}
-
-// ══ SESSIONS ══
-async function loadSessions(){
-  const wrap=document.getElementById('session-cards');
-  wrap.innerHTML='<div style="text-align:center;padding:20px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⟳ CONNECTING TO SESSIONS...</div>';
-  try{
-    const r=await fetch('/api/sessions',{signal:AbortSignal.timeout(15000)});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const data=await r.json();
-    const sessions=Array.isArray(data)?data:(data.sessions||data.bots||[]);
-    if(!sessions.length){ wrap.innerHTML='<div style="text-align:center;padding:30px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⚠ NO ACTIVE SESSIONS</div>'; return; }
-    wrap.innerHTML=sessions.map(s=>{
-      const phone=s.phone||s.id||s.jid||'Unknown';
-      const connected=s.connected===true||s.status==='connected'||s.online===true;
-      const status=s.status||(connected?'Connected':'Disconnected');
-      const lastSeen=s.lastSeen||s.last_seen||'—';
-      const backup=s.backup||s.redisBackup||s.redis||false;
-      return `<div class="info-card" style="margin-bottom:10px;"><div class="info-card-title">💾 SESSION: ${phone}</div>
-        <div class="info-row"><span class="info-label">Connected</span><span class="info-val">${connected?'<span class="ok">✅ Yes</span>':'<span class="fail">❌ No</span>'}</span></div>
-        <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${phone}</span></div>
-        <div class="info-row"><span class="info-label">Status</span><span class="info-val"><span class="${connected?'ok':'fail'}">${status}</span></span></div>
-        <div class="info-row"><span class="info-label">Last Seen</span><span class="info-val">${lastSeen}</span></div>
-        <div class="info-row"><span class="info-label">Redis Backup</span><span class="info-val">${backup?'<span class="ok">✅ Active</span>':'<span class="warn">⚠ Not confirmed</span>'}</span></div>
-      </div>`;
-    }).join('');
-  }catch(e){
-    wrap.innerHTML='<div class="info-card"><div style="text-align:center;padding:10px;color:var(--ddg);font-size:11px;letter-spacing:1px;">⟳ Session data temporarily unavailable — retrying shortly.</div></div>';
-  }
-}
-
-// ══ SERVERS ══
-async function loadServers(){
-  const wrap=document.getElementById('servers-grid');
-  try{
-    const r=await fetch('/api/slots',{signal:AbortSignal.timeout(15000)});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const data=await r.json();
-    const slots=data.slots||[];
-    const capacity=data.capacity||50;
-    const slotCount=data.slotCount||slots.length;
-    document.getElementById('servers-capacity').textContent=capacity;
-    document.getElementById('servers-count').textContent=slotCount;
-    const descEl=document.getElementById('servers-card-desc');
-    if(descEl) descEl.textContent='View all '+slotCount+' server slots — tap one to pair into it';
-    if(!slots.length){ wrap.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--ddg);font-size:11px;letter-spacing:2px;">⚠ NO SERVER DATA</div>'; return; }
-    wrap.innerHTML=slots.map(s=>{
-      const pct=Math.min(100,Math.round((s.connected/capacity)*100));
-      const barClass=pct>=80?'high':'';
-      const isFull=s.full;
-      return `<div class="server-box ${isFull?'full':''}" onclick="${isFull?'':'goToServer('+s.slot+')'}">
-        <div class="server-box-top"><div class="server-box-title">SERVER ${s.slot}</div><div class="server-box-dot ${s.online?'online':'offline'}"></div></div>
-        <div class="server-box-count">${s.connected} / ${capacity} linked</div>
-        <div class="server-box-bar-bg"><div class="server-box-bar-fill ${barClass}" style="width:${pct}%"></div></div>
-        <div class="server-box-status-text">${isFull?'FULL — TAP NEXT':(s.online?'ONLINE':'NO SESSIONS YET')}</div>
-      </div>`;
-    }).join('');
-  }catch(e){
-    wrap.innerHTML='<div style="grid-column:1/-1;" class="info-card"><div style="text-align:center;padding:10px;color:var(--ddg);font-size:11px;letter-spacing:1px;">⟳ Server data temporarily unavailable — retrying shortly.</div></div>';
-  }
-}
-function goToServer(slotNum){ window.location.href='/pair/'+slotNum; }
-
-function switchPTab(btn,contentId){
-  document.querySelectorAll('.ptab').forEach(b=>b.classList.remove('active'));
-  document.querySelectorAll('.ptab-content').forEach(c=>c.classList.remove('active'));
-  btn.classList.add('active');document.getElementById(contentId).classList.add('active');
-}
-function loadPanel(){
-  fetchData('/health',d=>{
-    if(d){
-      document.getElementById('svc-wa').innerHTML='<span class="ok">✅ Online</span>';
-      document.getElementById('svc-api').innerHTML='<span class="ok">✅ Online</span>';
-      document.getElementById('p-state').innerHTML='<span class="ok">✅ Operational</span>';
-      if(d.botsAlive!==undefined)document.getElementById('p-bots').innerHTML='<span class="ok">'+d.botsAlive+' online</span>';
-      if(d.commandsLoaded!==undefined)document.getElementById('p-cmds').innerHTML='<span class="ok">'+d.commandsLoaded+' loaded</span>';
-      if(d.uptime){document.getElementById('p-uptime').innerHTML='<span class="ok">'+d.uptime+'</span>';document.getElementById('sys-uptime').innerHTML='<span class="ok">'+d.uptime+'</span>';}
-      if(d.memory||d.memoryMB){const m=d.memory||d.memoryMB+'MB';document.getElementById('n-mem').textContent=m;document.getElementById('sys-mem').textContent=m;}
-      if(d.sessions||d.activeSessions){const s=d.sessions||d.activeSessions;document.getElementById('n-active').textContent=s;document.getElementById('n-reg').textContent=s;}
-      document.getElementById('svc-backup').innerHTML='<span class="ok">✅ Active</span>';
-      document.getElementById('svc-redis').innerHTML='<span class="ok">✅ Online</span>';
-      document.getElementById('sec-backup').innerHTML='<span class="ok">✅ Verified</span>';
-      if(d.totalUsers){ const fmt=Number(d.totalUsers).toLocaleString(); ['home-total-users','stat-total-users','pair-total-users','p-total-users','n-total'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=fmt;}); }
-    }
-  });
-}
-
-// ══ SHIVAN AI ══
-const SYSTEM_PROMPT=`You are Shivan — the AI assistant built into CYBER X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (charlescoding300).
-ABOUT CYBER X: Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys). Hosted on Render. Uses Upstash Redis for session persistence. Features: multi-session management, AI responses, antilink, welcome/goodbye, music/video download, Pokémon, slot machine, admin commands, sticker maker, antidelete, and more. Developer: Charles Chukwu, Nigeria.
-YOUR JOB: General-purpose conversational AI. Chat about anything. When asked about CYBER X or pairing, answer with the details above. Be honest about uncertainty. Match response length to what's needed.
-PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about CYBER X.`;
-
-let chatHistory=[],aiThinking=false;
-function getBrowserId(){
-  let id=localStorage.getItem('cyberx_browser_id');
-  if(!id){ id='b_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12); try{localStorage.setItem('cyberx_browser_id',id);}catch{} }
-  return id;
-}
-function handleAIKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIMessage();} }
-async function sendAIMessage(){
-  if(aiThinking)return;
-  const input=document.getElementById('ai-input');
-  const text=input.value.trim();
-  if(!text)return;
-  input.value='';
-  appendMsg('user',text);
-  chatHistory.push({role:'user',content:text});
-  aiThinking=true;
-  document.getElementById('ai-send').disabled=true;
-  document.getElementById('typing').classList.add('show');
-  scrollChat();
-  try{
-    const messages=chatHistory.slice(-10).map(m=>({role:m.role,content:m.content}));
-    const r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:messages,systemPrompt:SYSTEM_PROMPT,browserId:getBrowserId()}),signal:AbortSignal.timeout(40000)});
-    const data=await r.json();
-    const reply=data.reply||data.response||'System error. Please try again.';
-    chatHistory.push({role:'assistant',content:reply});
-    document.getElementById('typing').classList.remove('show');
-    appendMsg('bot',reply);
-  }catch(e){
-    document.getElementById('typing').classList.remove('show');
-    appendMsg('bot','⚠ Shivan is having trouble connecting right now. Please try again in a moment.');
-  }
-  aiThinking=false;
-  document.getElementById('ai-send').disabled=false;
-  scrollChat();
-}
-function appendMsg(role,text){
-  const wrap=document.getElementById('chat-messages');
-  const div=document.createElement('div');
-  div.className='msg '+role;
-  div.innerHTML=(role==='bot'?'<div class="msg-label">◈ SHIVAN AI</div>':'<div class="msg-label">YOU</div>')+
-    text.replace(/\n/g,'<br>').replace(/https?:\/\/[^\s<]+/g,url=>`<a href="${url}" target="_blank" style="color:var(--cyan)">${url}</a>`);
-  wrap.appendChild(div);
-  scrollChat();
-}
-function scrollChat(){ const wrap=document.getElementById('chat-messages');setTimeout(()=>{wrap.scrollTop=wrap.scrollHeight;},50); }
-</script>
-
-<div id="yt-player-wrap"><div id="yt-player"></div></div>
-<script>
-var ytPlayer,musicReady=false,hasUnmuted=false,YT_VIDEO_ID='wUQAlBR7-K4';
-(function(){var tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';document.head.appendChild(tag);})();
-function onYouTubeIframeAPIReady(){ytPlayer=new YT.Player('yt-player',{height:'1',width:'1',videoId:YT_VIDEO_ID,playerVars:{autoplay:1,loop:1,playlist:YT_VIDEO_ID,controls:0,disablekb:1,mute:1,playsinline:1,modestbranding:1,rel:0},events:{onReady:function(e){musicReady=true;e.target.mute();e.target.playVideo();},onStateChange:function(e){if(e.data===YT.PlayerState.ENDED)ytPlayer.playVideo();}}});}
-document.addEventListener('click',function(){if(musicReady&&!hasUnmuted&&ytPlayer){ytPlayer.unMute();ytPlayer.setVolume(70);hasUnmuted=true;}if(musicReady&&ytPlayer){var s=ytPlayer.getPlayerState();if(s!==1)ytPlayer.playVideo();}},{passive:true});
-
-// ══ TAB VISIBILITY — stop voice countdown + pause music when user leaves ══
-var musicWasPlayingBeforeHide = false;
-document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState === 'hidden'){
-    if(window.speechSynthesis) window.speechSynthesis.cancel();
-    if(musicReady && ytPlayer && typeof ytPlayer.getPlayerState === 'function'){
-      try{
-        var state = ytPlayer.getPlayerState();
-        musicWasPlayingBeforeHide = (state === 1); // 1 = YT.PlayerState.PLAYING
-        if(musicWasPlayingBeforeHide) ytPlayer.pauseVideo();
-      }catch(e){}
-    }
-  } else if(document.visibilityState === 'visible'){
-    if(musicReady && ytPlayer && musicWasPlayingBeforeHide){
-      try{ ytPlayer.playVideo(); }catch(e){}
-      musicWasPlayingBeforeHide = false;
-    }
-  }
-});
-
-</script>
+  </script>
 </body>
 </html>
+
+

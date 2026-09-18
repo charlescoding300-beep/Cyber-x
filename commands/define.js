@@ -9,17 +9,21 @@ async function fetchDefinition(word) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } },
+      { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 },
       res => {
         let d = ''
         res.on('data', c => d += c)
         res.on('end', () => {
-          try { resolve(JSON.parse(d)) } catch { resolve(null) }
+          try {
+            resolve({ status: res.statusCode, data: JSON.parse(d) })
+          } catch (e) {
+            reject(new Error(`Bad response from dictionary API (status ${res.statusCode}): ${e.message}`))
+          }
         })
       }
     )
-    req.on('error', reject)
-    req.setTimeout(15000, () => req.destroy())
+    req.on('error', e => reject(new Error(`Network error reaching dictionary API: ${e.message}`)))
+    req.on('timeout', () => req.destroy(new Error('Dictionary API timed out after 15s')))
   })
 }
 
@@ -77,17 +81,16 @@ ${CREDIT}`,
       })
     }
 
-    // ── Send searching message ──
+    // ── Send the one message we'll keep editing ──
     const searchMsg = await sock.sendMessage(from, {
       text: `📖 *Looking up:* _${word}_...`,
     }, { quoted: msg })
 
     try {
-      const data = await fetchDefinition(word)
+      const { status, data } = await fetchDefinition(word)
 
       // ── Word not found ──
       if (!data || !Array.isArray(data) || data[0]?.title === 'No Definitions Found') {
-        sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
         return sock.sendMessage(from, {
           text:
 `📖 *Word not found:* _${word}_
@@ -100,7 +103,7 @@ ${CREDIT}`,
   _Example: use "run" instead of "running"_
 
 ${CREDIT}`,
-          quoted: msg
+          edit: searchMsg.key
         })
       }
 
@@ -144,13 +147,10 @@ ${origin ? `🌍 *Origin:* ${origin}` : ''}
 
       output += `\n\n${CREDIT}`
 
-      // ── Delete searching message ──
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-
-      // ── Send definition ──
+      // ── Edit the searching message into the final result ──
       await sock.sendMessage(from, {
         text: output,
-        quoted: msg
+        edit: searchMsg.key
       })
 
       // ── React success ──
@@ -159,7 +159,7 @@ ${origin ? `🌍 *Origin:* ${origin}` : ''}
       }).catch(() => {})
 
     } catch (e) {
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+      // Real cause goes to your logs — pm2 logs cyber-x | grep DEFINE
       console.error('[DEFINE]', e.message)
 
       await sock.sendMessage(from, {
@@ -168,7 +168,7 @@ ${origin ? `🌍 *Origin:* ${origin}` : ''}
 
       await sock.sendMessage(from, {
         text: `❌ *Failed to fetch definition.*\nPlease try again.\n\n${CREDIT}`,
-        quoted: msg
+        edit: searchMsg.key
       })
     }
   }

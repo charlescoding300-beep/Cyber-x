@@ -1,92 +1,116 @@
-// commands/del.js — CYBER X AI (Simple Delete)
-
-const CREDIT = "© 𝕮𝖄𝕭𝙀𝙍 𝖃"
-
-let isAdminLib
-try { isAdminLib = require("../lib/isAdmin") } catch { isAdminLib = null }
+'use strict'
 
 module.exports = {
   pattern: "del",
-  alias:   ["delete"],
-  category: 'utility',
+  aliases: ["delete"],
+  category: "utility",
+  description: "Delete a replied message",
 
-  run: async ({ sock, from, msg, sender, isOwner }) => {
+  run: async ({ sock, from, msg, isAdmin, isOwner, isGroup }) => {
 
-    const isGroup = from.endsWith("@g.us")
-
-    // ── Get replied message ─────────────────────────────
-    const quoted = msg.message?.extendedTextMessage?.contextInfo
-
-    if (!quoted?.stanzaId) {
-      return sock.sendMessage(from, {
-        text:
-          `❌ Reply to a message to delete it\n\n> ${CREDIT}`
-      }, { quoted: msg })
-    }
-
-    // ── Group admin check ───────────────────────────────
-    // Uses lib/isAdmin.js instead of a manual participants.filter check.
-    // The manual version checked `p.admin !== null`, which misjudges
-    // admins on setups where WhatsApp returns @lid-keyed participants
-    // with admin info split across p.lid/p.phoneNumber instead of a
-    // plain p.admin string on the matching id — the exact issue already
-    // fixed in lib/isAdmin.js's buildAdminSet(), which indexes every
-    // identity form (id, lid, phoneNumber) for each admin. Reusing that
-    // here instead of re-implementing a second, less reliable check.
-    if (isGroup && !isOwner) {
-      let isAdmin = false
-
-      if (isAdminLib) {
-        try {
-          const meta = await sock.groupMetadata(from)
-          const groupCache = { [from]: meta }
-          const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
-          isAdmin = isAdminLib.isAdmin(groupCache, from, sender, sock, null, senderAlt)
-        } catch (e) {
-          console.error("DEL ADMIN CHECK ERROR:", e.message)
-          isAdmin = false
-        }
-      } else {
-        // Fallback if lib/isAdmin.js somehow isn't available
-        try {
-          const meta = await sock.groupMetadata(from)
-          const admins = meta.participants
-            .filter(p => p.admin === "admin" || p.admin === "superadmin")
-            .map(p => p.id)
-          isAdmin = admins.includes(sender)
-        } catch (e) {
-          isAdmin = false
-        }
-      }
-
-      if (!isAdmin) {
-        return sock.sendMessage(from, {
-          text:
-            `❌ Only group admins can delete messages\n\n> ${CREDIT}`
-        }, { quoted: msg })
-      }
+    // React to the .del command itself
+    const react = async (emoji) => {
+      try {
+        await sock.sendMessage(from, {
+          react: {
+            text: emoji,
+            key: msg.key
+          }
+        })
+      } catch {}
     }
 
     try {
+      // ── Get the replied message ────────────────────────────
+      const message =
+        msg.message?.extendedTextMessage ||
+        msg.message?.imageMessage ||
+        msg.message?.videoMessage ||
+        msg.message?.documentMessage ||
+        msg.message?.conversation
+
+      const contextInfo = message?.contextInfo
+
+      if (!contextInfo?.quotedMessage || !contextInfo?.stanzaId) {
+        return await react("❌")
+      }
+
+      const quotedMessage = contextInfo.quotedMessage
+      const quotedStanzaId = contextInfo.stanzaId
+      const quotedParticipant = contextInfo.participant
+
+      // ── Detect whether the quoted message is from the bot ──
+      const botJid = sock.user?.id || ""
+      const botNumber = botJid.split(":")[0].split("@")[0]
+
+      const quotedNumber =
+        (quotedParticipant || "").split(":")[0].split("@")[0]
+
+      const isOwnMessage =
+        quotedMessage?.key?.fromMe === true ||
+        quotedParticipant === botJid ||
+        (quotedNumber && botNumber && quotedNumber === botNumber)
+
+      // ── PRIVATE CHAT ───────────────────────────────────────
+      // In a DM, deletion follows WhatsApp's normal permissions.
+      if (!isGroup) {
+        await sock.sendMessage(from, {
+          delete: {
+            remoteJid: from,
+            fromMe: isOwnMessage,
+            id: quotedStanzaId,
+            ...(quotedParticipant
+              ? { participant: quotedParticipant }
+              : {})
+          }
+        })
+
+        return await react("🗑️")
+      }
+
+      // ── GROUP ──────────────────────────────────────────────
+      //
+      // Own message:
+      // Allowed even when the bot is NOT a group admin.
+      //
+      // Somebody else's message:
+      // Bot MUST be a group admin.
+      //
+
+      if (isOwnMessage) {
+        await sock.sendMessage(from, {
+          delete: {
+            remoteJid: from,
+            fromMe: true,
+            id: quotedStanzaId
+          }
+        })
+
+        return await react("🗑️")
+      }
+
+      // Someone else's message requires bot admin.
+      if (!isAdmin) {
+        return await react("❌")
+      }
+
+      // Bot is admin — delete the other person's message.
       await sock.sendMessage(from, {
         delete: {
           remoteJid: from,
           fromMe: false,
-          id: quoted.stanzaId,
-          participant: quoted.participant
+          id: quotedStanzaId,
+          participant: quotedParticipant
         }
       })
 
-      await sock.sendMessage(from, {
-        text: `🗑️ Message deleted\n\n> ${CREDIT}`
-      }, { quoted: msg })
+      return await react("🗑️")
 
-    } catch (e) {
-      console.error("DELETE ERROR:", e.message)
+    } catch (error) {
+      console.error("[DEL ERROR]", error.message)
 
-      await sock.sendMessage(from, {
-        text: `❌ Failed to delete message\n\n> ${CREDIT}`
-      }, { quoted: msg })
+      // No text — only ❌ on the .del command.
+      await react("❌")
     }
   }
 }

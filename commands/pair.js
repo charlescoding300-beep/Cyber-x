@@ -1,214 +1,206 @@
 'use strict'
 
+// 𓃦 𝗭Ξ𝗡 𝗫 — WhatsApp Pairing
+//
+// Uses the SAME pairing engine as the Telegram pairing system:
+// VPS /pair?phone=NUMBER
+//
+// No second Baileys socket is created here.
+
+const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+
+// VPS pairing server
+const PAIR_SERVER = 'http://3.235.9.247:3000'
+
+const ZEN_X_CHANNEL_JID  = '120363431058647261@newsletter'
+const ZEN_X_CHANNEL_NAME = 'ZEN X'
+
+function buildChannelContext() {
+  return {
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: ZEN_X_CHANNEL_JID,
+      newsletterName: ZEN_X_CHANNEL_NAME,
+      serverMessageId: -1,
+    },
+  }
+}
+
+function normalizeNumber(raw) {
+  return String(raw || '').replace(/\D/g, '')
+}
+
+function validNumber(number) {
+  return number.length >= 10 && number.length <= 15
+}
+
 module.exports = {
   pattern: 'pair',
-  desc: 'Shows how to deploy your own CYBER X bot',
+  desc: 'Generate a WhatsApp pairing code',
+  usage: '.pair <number>',
   category: 'owner',
 
-  run: async ({ sock, from, msg }) => {
-    // React with 🖕🏻
+  run: async ({ sock, from, msg, args }) => {
+
+    const raw = (args || []).join(' ').trim()
+    const number = normalizeNumber(raw)
+
+    if (!number) {
+      return sock.sendMessage(
+        from,
+        {
+          text:
+`> 🔗 *ZEN X PAIRING*
+>
+> Usage: *.pair <number>*
+>
+> Example:
+> *.pair 2348012345678*
+>
+${CREDIT}`,
+          contextInfo: buildChannelContext(),
+        },
+        { quoted: msg }
+      )
+    }
+
+    if (!validNumber(number)) {
+      return sock.sendMessage(
+        from,
+        {
+          text:
+`> ❌ *INVALID NUMBER*
+>
+> Include the full international country code.
+>
+> Example:
+> *.pair 2348012345678*
+>
+${CREDIT}`,
+          contextInfo: buildChannelContext(),
+        },
+        { quoted: msg }
+      )
+    }
+
     await sock.sendMessage(from, {
-      react: { text: '🖕🏻', key: msg.key }
-    })
+      react: {
+        text: '🔗',
+        key: msg.key,
+      },
+    }).catch(() => {})
 
-    const imageUrl = 'https://i.ibb.co/spf35QYC/file-00000000a30c71f48bb49e183e1d43cb.png'
+    try {
 
-    const text = `🤣🤣🤣😩😩 *You can't pair me directly*
-*This is what you should do* 👇🏻 *Only the lengend can get.
+      /*
+       * Call the SAME endpoint used by telegram.js.
+       */
+      const url =
+        `${PAIR_SERVER}/pair?phone=${encodeURIComponent(number)}`
 
-╔═══════════════════════════╗
-║   𝕮𝖄𝕭𝙴𝚁 𝖃 ™ — DEPLOY GUIDE   ║
-╚═══════════════════════════╝
+      console.log(`[PAIR] Requesting VPS pairing for ${number}`)
 
-Hey! So you want your *own* CYBER X bot? 
-Let me explain this like you're 5 years old 😄
+      const response = await fetch(url)
 
-Think of CYBER X like a *robot friend* living on the internet.
-Right now you're talking to *my* robot.
-But you can have *your very own* — on *your* WhatsApp number!
+      let result
 
-Here's how 👇🏻
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error(
+          `Pairing server returned invalid data (${response.status})`
+        )
+      }
 
-━━━━━━━━━━━━━━━━━━━
-🧰 *WHAT YOU NEED FIRST*
-━━━━━━━━━━━━━━━━━━━
+      if (
+        !response.ok ||
+        !result?.status ||
+        !result?.code
+      ) {
+        throw new Error(
+          result?.error ||
+          `Pairing server returned HTTP ${response.status}`
+        )
+      }
 
-Before anything, make sure you have these 3 things:
+      const code = String(result.code)
 
-✅ Your own *WhatsApp number*
-✅ A free account on 👉 *github.com*
-✅ A free account on 👉 *render.com*
+      console.log(
+        `[PAIR] VPS generated code for ${number}: ${code}`
+      )
 
-Both GitHub and Render are totally free to sign up.
-Think of GitHub as a place where the bot's "brain" is stored,
-and Render as the place where the brain "wakes up" and runs.
+      /*
+       * Information message.
+       */
+      await sock.sendMessage(
+        from,
+        {
+          text:
+`> 🔗 *ZEN X PAIRING CODE*
+>
+> 📱 Number: *${number}*
+> 🧩 Slot: *${result.slot ?? 'auto'}*
+>
+> Your pairing code is in the next message.
+>
+> On the WhatsApp phone:
+>
+> *Settings → Linked Devices → Link a Device → Link with phone number instead*
+>
+> Enter the code from the next message.
+>
+> The code expires quickly.
+>
+${CREDIT}`,
+          contextInfo: buildChannelContext(),
+        },
+        { quoted: msg }
+      )
 
-━━━━━━━━━━━━━━━━━━━
-🍴 *STEP 1 — COPY THE BOT*
-━━━━━━━━━━━━━━━━━━━
+      /*
+       * RAW CODE ONLY.
+       */
+      await sock.sendMessage(from, {
+        text: code,
+      })
 
-1. Go to the CYBER X GitHub page 👇🏻
+      await sock.sendMessage(from, {
+        react: {
+          text: '✅',
+          key: msg.key,
+        },
+      }).catch(() => {})
 
-👇🏻👇🏻👇🏻👇🏻👇🏻👇🏻👇🏻👇🏻👇🏻👇🏻
-╔══════════════════════════════════════╗
-║ 🖥️  👆🏻👆🏻 *OFFICIAL CYBER X REPO* 👆🏻👆🏻 🖥️  ║
-║                                      ║
-║  🔗 github.com/charlescoding300-beep  ║
-║           */Cyber-x* 🔗              ║
-║                                      ║
-║  🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟  ║
-║   This is where the magic lives 🪄   ║
-║  🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟⭐🌟  ║
-╚══════════════════════════════════════╝
-☝🏻☝🏻☝🏻☝🏻☝🏻☝🏻☝🏻☝🏻☝🏻☝🏻
+    } catch (error) {
 
-2. You'll see a button at the top right that says *Fork*
-3. Click it!
+      console.error(
+        '[PAIR ERROR]',
+        error?.message || error
+      )
 
-That's it. You just made your own copy of the bot 🎉
-Think of it like photocopying a recipe so you can cook it yourself.
+      await sock.sendMessage(from, {
+        react: {
+          text: '❌',
+          key: msg.key,
+        },
+      }).catch(() => {})
 
-━━━━━━━━━━━━━━━━━━━
-🌐 *STEP 2 — SET UP RENDER*
-━━━━━━━━━━━━━━━━━━━
-
-Now go to *render.com* and log in.
-
-1. Click *New → Web Service*
-2. Connect your GitHub account when it asks
-3. Find and select your *Cyber-x* copy
-4. Fill in these boxes exactly like this:
-
-┌─────────────────────────────┐
-│ Name        → cyber-x       │
-│ Runtime     → Node          │
-│ Build Cmd   → npm install   │
-│ Start Cmd   → node index.js │
-│ Type        → Free          │
-└─────────────────────────────┘
-
-━━━━━━━━━━━━━━━━━━━
-🔑 *STEP 3 — ENTER YOUR INFO*
-━━━━━━━━━━━━━━━━━━━
-
-Still on Render, click the *Environment* tab.
-Add these 4 things (called "environment variables"):
-
-┌──────────────────┬──────────────────────────┐
-│ PAIRING_NUMBER   │ Your number (e.g.         │
-│                  │ 2348012345678)            │
-│                  │ No + or spaces or dashes! │
-├──────────────────┼──────────────────────────┤
-│ BOT_NAME         │ Whatever you want 😄      │
-├──────────────────┼──────────────────────────┤
-│ PREFIX           │ . (just a dot)            │
-├──────────────────┼──────────────────────────┤
-│ OWNER_NUMBER     │ Same as your number above │
-└──────────────────┴──────────────────────────┘
-
-━━━━━━━━━━━━━━━━━━━
-🚀 *STEP 4 — LAUNCH & CONNECT*
-━━━━━━━━━━━━━━━━━━━
-
-1. Click *Deploy*
-2. Wait a minute or two for it to build
-3. Click on *Logs* — you'll see something like this:
-
-╔══════════════════════════╗
-║  WHATSAPP PAIRING CODE   ║
-║  👉  ABCD-WXYZ           ║
-╚══════════════════════════╝
-
-4. Now on your WhatsApp:
-   → Go to *Settings*
-   → Tap *Linked Devices*
-   → Tap *Link a Device*
-   → Tap *"Link with phone number instead"*
-   → Type in the code from the logs
-
-Done! Your bot is now *LIVE* 🟢✅
-
-━━━━━━━━━━━━━━━━━━━
-💤 *WILL IT STAY ONLINE?*
-━━━━━━━━━━━━━━━━━━━
-
-Yes! CYBER X has a built-in auto-ping 
-that taps itself every *4 minutes* so it 
-never goes to sleep on the free plan 😴❌
-
-If it still sleeps, add this to your environment:
-
-┌─────────────────────┬────────────────────────┐
-│ RENDER_EXTERNAL_URL │ your Render service URL │
-└─────────────────────┴────────────────────────┘
-
-━━━━━━━━━━━━━━━━━━━
-⚠️ *VERY IMPORTANT*
-━━━━━━━━━━━━━━━━━━━
-
-🔴 Use *your own* WhatsApp number
-🔴 Never share your *session/* folder — 
-   it's like your password
-🔴 Don't use the bot to spam people
-   (WhatsApp will ban your number)
-
-━━━━━━━━━━━━━━━━━━━
-📁 *WHAT'S INSIDE THE BOT?*
-━━━━━━━━━━━━━━━━━━━
-
-Cyber-x/
-├── index.js     ← The brain (don't touch!)
-├── commands/    ← All bot commands live here
-├── lib/         ← Helper tools
-├── session/     ← Your login info (auto-made)
-└── .env         ← Settings (use Render dashboard)
-
-━━━━━━━━━━━━━━━━━━━
-➕ *ADDING YOUR OWN COMMANDS*
-━━━━━━━━━━━━━━━━━━━
-
-Want to teach your bot new tricks?
-Just create a new file in the *commands/* folder:
-
-\`\`\`js
-module.exports = {
-  pattern: 'hello',
-  desc: 'Say hello',
-  category: 'owner',
-  run: async ({ sock, from, msg }) => {
-    await sock.sendMessage(from, {
-      text: 'Hello from CYBER X! 👋'
-    }, { quoted: msg })
+      await sock.sendMessage(
+        from,
+        {
+          text:
+`> ❌ *PAIRING FAILED*
+>
+> ${error?.message || 'Could not contact the pairing server.'}
+>
+> Check the number and try again.
+>
+${CREDIT}`,
+          contextInfo: buildChannelContext(),
+        },
+        { quoted: msg }
+      ).catch(() => {})
+    }
   },
-}
-\`\`\`
-
-Push it to GitHub → Render redeploys → Done! 🎉
-
-━━━━━━━━━━━━━━━━━━━
-❓ *SOMETHING WRONG?*
-━━━━━━━━━━━━━━━━━━━
-
-*Bot not connecting?*
-→ Make sure your number has no +, spaces or dashes
-→ Delete the session/ folder and redeploy
-
-*Commands not working?*
-→ Double-check PREFIX and OWNER_NUMBER
-
-*Bot going offline?*
-→ Add RENDER_EXTERNAL_URL to your env vars
-*If you having problems deploying the bot. DM
->>> 234 812 038 2097, 234 811 775 0075.
-╔═══════════════════════════╗
-║  Bot    : CYBER X ™       ║
-║  By     : Charles Chucks  ║
-║  © All rights reserved    ║
-╚═══════════════════════════╝`
-
-    await sock.sendMessage(from, {
-      image: { url: imageUrl },
-      caption: text
-    }, { quoted: msg })
-  }
 }

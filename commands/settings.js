@@ -1,12 +1,16 @@
 // commands/settings.js  —  CYBER X
 // ─────────────────────────────────────────────────────────────────────────────
-// All presence/bot settings commands.
-// OWNER ONLY — checked inside every single command.
-// Each command reads/writes state.settings = settingsLib.forUser(phone)
-// so every linked session has its own independent settings.
+// All presence/bot settings commands. OWNER ONLY — checked inside every
+// single command. Each command reads/writes state.settings =
+// settingsLib.forUser(phone) so every linked session has its own
+// independent settings, flushed to disk + Redis immediately on every
+// .set() — no debounce window for a restart to race against.
 //
-// On bot startup these load automatically from data/users/<phone>.json
-// so whatever was set before a restart stays active — no re-typing needed.
+// NOTE: the "prefix" command lives exclusively in commands/setprefix.js.
+// It used to also be defined here, colliding with setprefix.js over the
+// same command name — whichever file loaded last silently won, which is
+// exactly the kind of ambiguity that made prefix changes look like they
+// "didn't save." Removed here so there is exactly one owner of it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use strict"
@@ -20,7 +24,6 @@ function parseBool(val = "") {
   if (OFF.has(v)) return false
   return null
 }
-
 function icon(val) { return val ? "✅ *ON*" : "❌ *OFF*" }
 
 // ── Shared toggle runner ──────────────────────────────────────────────────────
@@ -29,7 +32,6 @@ async function toggle(key, label, { sock, msg, args, settings, helper, isOwner }
   if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
 
   const input = (args[0] || "").toLowerCase()
-
   if (!input) {
     const cur = settings.get(key)
     return helper.reply(sock, msg,
@@ -43,13 +45,10 @@ async function toggle(key, label, { sock, msg, args, settings, helper, isOwner }
   settings.set(key, val)
   return helper.reply(sock, msg, `${label} → ${icon(val)}`)
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 module.exports = [
 
   // ── .autotyping on/off ───────────────────────────────────────────────────
-  // Shows "typing..." in the chat the moment anyone messages this session.
-  // Pauses automatically after 5 seconds.
   {
     pattern:  "autotyping",
     alias:    ["autotype", "typing"],
@@ -60,8 +59,6 @@ module.exports = [
   },
 
   // ── .autorecording on/off ────────────────────────────────────────────────
-  // Shows "recording audio..." — same as autoTyping but for voice feel.
-  // If autoTyping is ON this is skipped (can't show both at once).
   {
     pattern:  "autorecording",
     alias:    ["autorecord", "recording"],
@@ -72,8 +69,6 @@ module.exports = [
   },
 
   // ── .alwaysonline on/off ─────────────────────────────────────────────────
-  // Pushes "available" presence to every chat that messages this session.
-  // Makes this session always appear online to anyone who checks.
   {
     pattern:  "alwaysonline",
     alias:    ["online", "setonline"],
@@ -84,7 +79,6 @@ module.exports = [
   },
 
   // ── .autoread on/off ─────────────────────────────────────────────────────
-  // Marks every incoming message as read (blue ticks) immediately.
   {
     pattern:  "autoread",
     alias:    ["autoread"],
@@ -95,7 +89,6 @@ module.exports = [
   },
 
   // ── .autoviewstatus on/off ───────────────────────────────────────────────
-  // Auto-views WhatsApp statuses posted by contacts.
   {
     pattern:  "autoviewstatus",
     alias:    ["viewstatus", "autoview"],
@@ -106,7 +99,6 @@ module.exports = [
   },
 
   // ── .autoreactstatus on/off ──────────────────────────────────────────────
-  // Auto-reacts to statuses with the configured emoji.
   {
     pattern:  "autoreactstatus",
     alias:    ["reactstatus", "autoreact"],
@@ -117,7 +109,6 @@ module.exports = [
   },
 
   // ── .statusemoji <emoji> ─────────────────────────────────────────────────
-  // Sets the emoji used when auto-reacting to statuses.
   {
     pattern:  "statusemoji",
     alias:    ["reactemoji", "setemoji"],
@@ -224,25 +215,6 @@ module.exports = [
     },
   },
 
-  // ── .prefix <char> ───────────────────────────────────────────────────────
-  {
-    pattern:  "prefix",
-    alias:    ["setprefix", "changeprefix"],
-    desc:     "Change the bot command prefix",
-    usage:    ".prefix !",
-    category: 'owner',
-    async run({ sock, msg, args, settings, helper, isOwner }) {
-      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
-      const val = args[0]
-      if (!val) return helper.reply(sock, msg,
-        `Current prefix: *${settings.get("prefix")}*\n\nUsage: .prefix <character>`
-      )
-      if (val.length > 3) return helper.reply(sock, msg, "❌ Prefix must be 1–3 characters.")
-      settings.set("prefix", val)
-      return helper.reply(sock, msg, `✅ Prefix changed to: *${val}*`)
-    },
-  },
-
   // ── .settings — view all ─────────────────────────────────────────────────
   {
     pattern:  "settings",
@@ -273,4 +245,3 @@ module.exports = [
   },
 
 ]
-

@@ -1,0 +1,117 @@
+const isAdmin = require("../lib/isAdmin")
+
+module.exports = {
+  pattern: "del",
+  aliases: ["delete"],
+  category: "utility",
+  description: "Delete a replied message",
+
+  async execute(sock, msg, args, context) {
+    const from = msg.key.remoteJid
+
+    // ── React to the command message itself ──────────────────
+    const react = async (emoji) => {
+      try {
+        await sock.sendMessage(from, {
+          react: {
+            text: emoji,
+            key: msg.key
+          }
+        })
+      } catch {}
+    }
+
+    try {
+      // ── Get replied message ────────────────────────────────
+      const message =
+        msg.message?.extendedTextMessage ||
+        msg.message?.imageMessage ||
+        msg.message?.videoMessage
+
+      const contextInfo = message?.contextInfo
+      const quotedMessage = contextInfo?.quotedMessage
+      const quotedStanzaId = contextInfo?.stanzaId
+      const quotedParticipant = contextInfo?.participant
+
+      if (!quotedMessage || !quotedStanzaId) {
+        return await react("❌")
+      }
+
+      // ── Private chat ───────────────────────────────────────
+      // No group-admin restriction is needed here.
+      if (!from.endsWith("@g.us")) {
+        await sock.sendMessage(from, {
+          delete: {
+            remoteJid: from,
+            fromMe: quotedParticipant === msg.key.participant,
+            id: quotedStanzaId,
+            participant: quotedParticipant
+          }
+        })
+
+        return await react("🗑️")
+      }
+
+      // ── GROUP ───────────────────────────────────────────────
+      //
+      // If the quoted message belongs to the bot's own account,
+      // the bot can delete its own message even when it isn't
+      // a group admin.
+      //
+      // For everybody else's message, the bot must be a
+      // group admin.
+      //
+
+      const quotedFromMe =
+        contextInfo?.fromMe === true ||
+        quotedParticipant === msg.key.participant ||
+        quotedParticipant === sock.user?.id
+
+      let botIsAdmin = false
+
+      try {
+        botIsAdmin = await isAdmin(
+          sock,
+          from,
+          msg.key.participant || sock.user?.id
+        )
+      } catch {}
+
+      // ── Own message: allowed even without group admin ──────
+      if (quotedFromMe) {
+        await sock.sendMessage(from, {
+          delete: {
+            remoteJid: from,
+            fromMe: true,
+            id: quotedStanzaId
+          }
+        })
+
+        return await react("🗑️")
+      }
+
+      // ── Someone else's message: admin required ─────────────
+      if (!botIsAdmin) {
+        return await react("❌")
+      }
+
+      // ── Bot is admin: can delete anyone's message ──────────
+      await sock.sendMessage(from, {
+        delete: {
+          remoteJid: from,
+          fromMe: false,
+          id: quotedStanzaId,
+          participant: quotedParticipant
+        }
+      })
+
+      return await react("🗑️")
+
+    } catch (error) {
+      console.error("[DEL ERROR]", error)
+
+      // No error text — only ❌ on the .del command.
+      await react("❌")
+    }
+  }
+}

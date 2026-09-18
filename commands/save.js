@@ -34,6 +34,8 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
 const Pino = require("pino")
 
+const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+
 function getQuotedInfo(msg) {
   const ctx =
     msg.message?.extendedTextMessage?.contextInfo ||
@@ -84,23 +86,23 @@ function getOwnJid(sock) {
 
 module.exports = {
   name:     "save",
-  aliases:  ["s", "sv"],
+  aliases:  ["sv"],
   desc:     "Reply to a status/VN/image/video/sticker/document/view-once with .save — it's re-sent privately to your own DM in full quality.",
   usage:    "Reply to media (or a status), then send: .save",
   category: "owner",
 
   async run({ sock, from, msg, isOwner, helper }) {
-    if (!isOwner) return helper.reply(sock, msg, "❌ Owner only.")
+    if (!isOwner) return helper.reply(sock, msg, "> ❌ *Owner only.*")
 
     const quoted = getQuotedInfo(msg)
     if (!quoted) {
       return helper.reply(sock, msg,
-        "❌ Reply to a status, voice note, image, video, sticker, or document with *.save*.")
+        "> ❌ *Reply to a status, voice note, image, video, sticker, or document with .save.*")
     }
 
     const media = detectMedia(quoted.quotedMessage)
     if (!media) {
-      return helper.reply(sock, msg, "❌ That message doesn't contain saveable media.")
+      return helper.reply(sock, msg, "> ❌ *That message doesn't contain saveable media.*")
     }
 
     // Reconstruct a minimal message object Baileys can download from —
@@ -123,14 +125,19 @@ module.exports = {
         logger: Pino({ level: "silent" }),
       })
     } catch (e) {
-      return helper.reply(sock, msg, `❌ Couldn't download that media — it may have expired: ${e.message}`)
+      return helper.reply(sock, msg, `> ❌ *Couldn't download that media — it may have expired:* ${e.message}`)
     }
     if (!buffer || buffer.length < 10) {
-      return helper.reply(sock, msg, "❌ Download came back empty — the media may have expired.")
+      return helper.reply(sock, msg, "> ❌ *Download came back empty — the media may have expired.*")
     }
 
     const ownJid  = getOwnJid(sock)
-    const caption = "✅ *Saved via .save*\n\nUse WhatsApp's Save/Download button to put this on your device.\n\n© 𝕮𝖄𝕭𝙴𝚁 𝖃 ™"
+    const caption =
+`> ✅ *Saved via .save*
+>
+> Use WhatsApp's Save/Download button to put this on your device.
+>
+${CREDIT}`
 
     try {
       if (media.type === "image") {
@@ -154,11 +161,10 @@ module.exports = {
         })
       }
     } catch (e) {
-      return helper.reply(sock, msg, `❌ Failed to send to your DM: ${e.message}`)
+      return helper.reply(sock, msg, `> ❌ *Failed to send to your DM:* ${e.message}`)
     }
 
     // Confirm back in the original chat, quoting the .save command itself.
-    return helper.reply(sock, msg, `✅ Saved — sent privately to your DM (${media.type}).`)
+    return helper.reply(sock, msg, `> ✅ *Saved — sent privately to your DM (${media.type}).*`)
   },
 }
-

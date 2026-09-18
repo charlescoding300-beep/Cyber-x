@@ -1,3 +1,20 @@
+'use strict'
+
+const ZEN_X_CHANNEL_JID  = '120363431058647261@newsletter'
+const ZEN_X_CHANNEL_NAME = 'ZEN X'
+
+function buildChannelContext() {
+  return {
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid:   ZEN_X_CHANNEL_JID,
+      newsletterName:  ZEN_X_CHANNEL_NAME,
+      serverMessageId: -1,
+    },
+  }
+}
+
 module.exports = {
   pattern:  "alive",
   alias:    ["status"],
@@ -19,7 +36,7 @@ module.exports = {
 
     const start = Date.now()
     const sent = await sock.sendMessage(from, {
-      text: "🔄 *Pinging CYBER X...*\n\n[░░░░░░░░░░] 0%"
+      text: "> 🔄 *Pinging ZEN X...*\n>\n> *[░░░░░░░░░░] 0%*"
     }, { quoted: msg })
     const ping = Date.now() - start
 
@@ -40,14 +57,14 @@ module.exports = {
       await new Promise(r => setTimeout(r, 180))
       try {
         await sock.sendMessage(from, {
-          text: `🔄 *Pinging CYBER X...*\n\n${frame}`,
+          text: `> 🔄 *Pinging ZEN X...*\n>\n> *${frame}*`,
           edit: sent.key
         })
       } catch {}
     }
 
-    const text = [
-      "╭━━━『 *𝐂𝐘𝐁𝐄𝐑 𝐗* 』━━━╮",
+    const lines = [
+      "╭━━━『 *𝐙Ξ𝐍 𝐗* 』━━━╮",
       "┃",
       "┃  ✅  *STATUS:* Online",
       "┃  🟢  *Bot is Active!*",
@@ -60,14 +77,21 @@ module.exports = {
       "┃",
       "╰━━━━━━━━━━━━━━━━━━╯",
       "",
-      "> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™",
-      "> _Type .menu to see all commands_"
-    ].join("\n")
+      "© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦",
+      "_Type .menu to see all commands_"
+    ]
+
+    // Every line gets the grey/bold WhatsApp quote treatment
+    const text = lines
+      .map(line => line.length ? `> *${line}*` : '>')
+      .join('\n')
+
+    const contextInfo = buildChannelContext()
 
     try {
-      await sock.sendMessage(from, { text, edit: sent.key })
+      await sock.sendMessage(from, { text, edit: sent.key, contextInfo })
     } catch {
-      await sock.sendMessage(from, { text }, { quoted: msg })
+      await sock.sendMessage(from, { text, contextInfo }, { quoted: msg })
     }
   }
 }

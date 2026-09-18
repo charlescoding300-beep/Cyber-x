@@ -24,3 +24,15 @@ cyberx-gateway/
 !data/antidelete.json
 cyberx-server/
 cyberx-server.zip
+
+# Local secrets / temporary files
+cookies.txt
+backups/
+cloudflared.deb
+index.js.before-pair-fix
+index.py
+patches/
+*.save
+*.bak
+*.tmp
+*.deb

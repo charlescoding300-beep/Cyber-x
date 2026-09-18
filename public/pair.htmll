@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ZEN X - WhatsApp Linker</title>
+
+  <!-- Open Graph / link-preview -->
+  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="ZEN X - WhatsApp Linker" />
+  <meta property="og:description" content="Link your WhatsApp device instantly with pair code or QR. Built by Charles Tech." />
+  <meta property="og:image"       content="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url"         content="" />
+  <meta name="twitter:card"       content="summary_large_image" />
+  <meta name="twitter:title"      content="ZEN X - WhatsApp Linker" />
+  <meta name="twitter:description" content="Link your WhatsApp device instantly with pair code or QR." />
+  <meta name="twitter:image"      content="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" />
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
+  <style>
+    :root {
+      --primary-color: #000000;
+      --secondary-color: #ffffff;
+      --accent-color: #f0f0f0;
+      --text-color: #000000;
+      --background-color: #ffffff;
+      --hover-color: #f5f5f5;
+      --border-color: rgba(0, 0, 0, 0.1);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--background-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 15px;
+    }
+    .container {
+      width: 100%;
+      max-width: 450px;
+      background: var(--background-color);
+      border-radius: 16px;
+      padding: 25px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      border: 2px solid var(--border-color);
+    }
+    .header { text-align: center; margin-bottom: 25px; }
+    .hero-banner {
+      width: 100%;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      display: block;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .logo {
+      width: 70px; height: 70px;
+      margin: 0 auto 16px;
+      background: var(--primary-color);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; color: white;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    }
+    .title { font-size: 24px; font-weight: 900; margin-bottom: 8px; color: var(--primary-color); }
+    .subtitle { font-size: 14px; color: rgba(0, 0, 0, 0.7); margin-bottom: 20px; }
+
+    .live-timer {
+      background: var(--hover-color);
+      border: 2px solid var(--border-color);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 18px;
+      font-size: 13px; font-weight: 600;
+      display: flex; flex-direction: column; gap: 4px; text-align: center;
+    }
+    .live-timer .time { font-size: 18px; font-weight: 900; letter-spacing: 1px; color: var(--primary-color); }
+    .live-timer .date-loc {
+      font-size: 12px; color: rgba(0,0,0,0.6);
+      display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+    }
+    .live-timer .date-loc span { display: inline-flex; align-items: center; gap: 4px; }
+
+    .social-icons { display: flex; justify-content: center; gap: 12px; margin-bottom: 20px; }
+    .social-icons a {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 18px; text-decoration: none;
+      transition: all 0.3s ease;
+    }
+    .social-icons a.whatsapp { background: #0cfa10; }
+    .social-icons a.github { background: #333; }
+    .social-icons a:hover { transform: scale(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+
+    .music-btn {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 18px;
+      background: var(--primary-color);
+      border: none; cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .music-btn:hover { transform: scale(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .music-btn.playing { background: #000aff; }
+
+    .nav-tabs {
+      display: flex; gap: 8px; margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color); padding-bottom: 12px;
+    }
+    .nav-tab {
+      flex: 1; text-align: center; padding: 8px;
+      font-size: 13px; font-weight: 800; border-radius: 8px;
+      cursor: pointer; color: rgba(0,0,0,0.5); transition: all 0.2s ease;
+    }
+    .nav-tab.active { background: var(--primary-color); color: #fff; }
+    .nav-tab:hover:not(.active) { background: var(--hover-color); }
+    .page-section { display: none; }
+    .page-section.active { display: block; }
+
+    .toggle-container {
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px; background: var(--hover-color);
+      border-radius: 12px; padding: 4px; border: 2px solid var(--border-color);
+    }
+    .toggle-option {
+      flex: 1; padding: 10px 16px; text-align: center; cursor: pointer;
+      border-radius: 8px; font-size: 14px; font-weight: 700;
+      transition: all 0.3s ease;
+    }
+    .toggle-option.active { background: var(--primary-color); color: var(--secondary-color); }
+    .toggle-option:not(.active) { color: var(--text-color); }
+    .toggle-option:hover:not(.active) { background: var(--background-color); }
+
+    .copy-btn {
+      width: 100%; padding: 12px;
+      background: var(--hover-color); border: 2.5px solid var(--border-color);
+      border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .copy-btn:hover { background: var(--background-color); border-color: var(--primary-color); }
+
+    .input-group { margin-bottom: 20px; transition: all 0.3s ease; }
+    .input-group.hidden { display: none; }
+    .input-label { display: block; margin-bottom: 8px; font-weight: 700; font-size: 13px; }
+    .input-field {
+      width: 100%; padding: 12px;
+      border: 2.5px solid var(--border-color); border-radius: 12px;
+      background: var(--background-color); color: var(--text-color); font-size: 15px;
+    }
+    .input-field:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1); }
+
+    .generate-btn {
+      width: 100%; padding: 12px; background: var(--primary-color);
+      border: none; border-radius: 12px; color: var(--secondary-color);
+      font-size: 15px; font-weight: 800; cursor: pointer;
+      transition: all 0.3s ease; margin-bottom: 16px;
+    }
+    .generate-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+    .generate-btn.hidden { display: none; }
+
+    .code-display {
+      background: var(--hover-color); padding: 12px; border-radius: 12px;
+      text-align: center; font-size: 16px; font-weight: 800;
+      margin-bottom: 16px; min-height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      border: 2.5px solid var(--border-color);
+    }
+    .qr-display {
+      background: var(--hover-color); padding: 30px; border-radius: 12px;
+      text-align: center; margin-bottom: 16px;
+      border: 2.5px solid var(--border-color); display: none;
+    }
+    .qr-image { max-width: 280px; max-height: 280px; margin: 0 auto 20px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); }
+    .qr-instructions { font-size: 13px; color: rgba(0, 0, 0, 0.7); line-height: 1.5; }
+
+    .success-message { color: #000aff; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; }
+    .error-message { color: #e74c3c; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; }
+
+    .loading { display: none; text-align: center; margin: 16px 0; }
+    .loading i { font-size: 24px; color: var(--primary-color); animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .ai-chat-box {
+      background: var(--hover-color); border: 2.5px solid var(--border-color);
+      border-radius: 12px; padding: 12px; height: 260px; overflow-y: auto;
+      margin-bottom: 12px; font-size: 13px;
+    }
+    .ai-msg { margin-bottom: 10px; line-height: 1.4; }
+    .ai-msg.user { text-align: right; color: #000aff; }
+    .ai-msg.bot { text-align: left; color: var(--text-color); }
+    .ai-input-row { display: flex; gap: 8px; }
+    .ai-input-row .input-field { flex: 1; margin-bottom: 0; }
+    .ai-send-btn {
+      padding: 12px 16px; background: var(--primary-color); color: #fff;
+      border: none; border-radius: 12px; cursor: pointer; font-weight: 800;
+    }
+
+    .sessions-list { max-height: 320px; overflow-y: auto; }
+    .session-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 12px; border: 2.5px solid var(--border-color);
+      border-radius: 10px; margin-bottom: 8px; font-size: 13px;
+    }
+    .session-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .session-dot.online { background: #0cfa10; }
+    .session-dot.offline { background: #e74c3c; }
+    .sessions-empty { text-align: center; font-size: 13px; color: rgba(0,0,0,0.5); padding: 20px 0; }
+
+    .footer { text-align: center; margin-top: 20px; font-size: 12px; color: rgba(0, 0, 0, 0.5); }
+
+    @media (max-width: 480px) {
+      .container { padding: 20px; border-radius: 12px; max-width: 400px; }
+      .code-display { font-size: 16px; min-height: 50px; }
+      .qr-image { max-width: 240px; max-height: 240px; }
+      .qr-display { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="https://i.ibb.co/CszhzK2x/grok-1789408754214-1.jpg" alt="ZEN X" class="hero-banner"/>
+      <div class="logo"><i class="fas fa-robot"></i></div>
+      <h1 class="title">ZEN X</h1>
+      <p class="subtitle">Link your WhatsApp device</p>
+
+      <div class="live-timer" id="liveTimer">
+        <div class="time" id="liveTime">--:--:--</div>
+        <div class="date-loc">
+          <span><i class="fas fa-calendar-alt"></i> <span id="liveDate">Loading…</span></span>
+          <span><i class="fas fa-map-marker-alt"></i> <span id="liveLoc">Detecting…</span></span>
+        </div>
+      </div>
+
+      <div class="social-icons">
+        <a href="https://whatsapp.com/channel/0029Vb8U73N1yT211FynJ01n" target="_blank" class="whatsapp"><i class="fab fa-whatsapp"></i></a>
+        <a href="https://github.com/charlescoding300-beep" target="_blank" class="github"><i class="fab fa-github"></i></a>
+        <button class="music-btn" id="musicToggle" title="Mute / Unmute music">
+          <i class="fas fa-volume-mute"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="nav-tabs">
+      <div class="nav-tab active" data-page="home"><i class="fas fa-key"></i> Home</div>
+      <div class="nav-tab" data-page="ai"><i class="fas fa-robot"></i> AI</div>
+      <div class="nav-tab" data-page="sessions"><i class="fas fa-users"></i> Sessions</div>
+    </div>
+
+    <div class="page-section active" id="page-home">
+      <div class="toggle-container">
+        <div class="toggle-option active" data-mode="pair"><i class="fas fa-key"></i> Pair Code</div>
+        <div class="toggle-option" data-mode="qr"><i class="fas fa-qrcode"></i> QR Code</div>
+      </div>
+
+      <div class="input-group" id="inputGroup">
+        <label class="input-label">Enter your WhatsApp number with country code</label>
+        <input type="text" id="mobileNumber" class="input-field" placeholder="+2348012345678" pattern="[+][0-9]{10,}" title="Please enter country code starting with + followed by number">
+      </div>
+
+      <button class="generate-btn" id="submit"><i class="fas fa-key"></i> Generate Pair Code</button>
+
+      <div class="loading" id="loading"><i class="fas fa-spinner"></i></div>
+      <div class="code-display" id="codeDisplay">Your pair code will appear here</div>
+
+      <div class="qr-display" id="qrDisplay">
+        <img id="qrImage" class="qr-image" src="" alt="QR Code">
+        <div class="qr-instructions" id="qrInstructions">Scan this QR code with your WhatsApp app</div>
+      </div>
+
+      <button class="copy-btn" id="copy" onclick="copyCode()"><i class="fas fa-copy"></i> Copy Code</button>
+    </div>
+
+    <div class="page-section" id="page-ai">
+      <div class="ai-chat-box" id="aiChatBox">
+        <div class="ai-msg bot">👋 Hi, I'm the ZEN X assistant. Ask me anything.</div>
+      </div>
+      <div class="ai-input-row">
+        <input type="text" id="aiInput" class="input-field" placeholder="Type a message..."/>
+        <button class="ai-send-btn" id="aiSend"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div>
+
+    <div class="page-section" id="page-sessions">
+      <div class="loading" id="sessionsLoading" style="display:block;"><i class="fas fa-spinner"></i></div>
+      <div class="sessions-list" id="sessionsList"></div>
+    </div>
+
+    <div class="footer">
+      <p>© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦 | Built by <span style="font-weight:900;font-size:16px;">Charles Tech</span><br/>All Rights Reserved © <span id="copyrightYear"></span></p>
+    </div>
+  </div>
+
+  <div id="yt-player-wrap" style="position:fixed;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;">
+    <div id="yt-player"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script>
+    const API_BASE = window.location.origin;
+
+    const YT_VIDEO_ID = 'H5v3kku4y6Q';
+    let ytPlayer, musicPlaying = false, ytReady = false, firstInteractDone = false;
+
+    function onYouTubeIframeAPIReady() {
+      ytPlayer = new YT.Player('yt-player', {
+        videoId: YT_VIDEO_ID,
+        playerVars: { autoplay: 1, mute: 1, controls: 0, loop: 1, playlist: YT_VIDEO_ID },
+        events: {
+          onReady: (e) => {
+            ytReady = true;
+            e.target.mute();
+            e.target.playVideo();
+          }
+        }
+      });
+    }
+
+    function startMusicWithSound() {
+      if (!ytReady || firstInteractDone) return;
+      firstInteractDone = true;
+      ytPlayer.unMute();
+      ytPlayer.playVideo();
+      musicPlaying = true;
+      const btn = document.getElementById('musicToggle');
+      btn.classList.add('playing');
+      btn.innerHTML = '<i class="fas fa-volume-up"></i>';
+    }
+
+    // First tap/click/key anywhere → start music with sound
+    ['click', 'touchstart', 'keydown'].forEach(evt => {
+      document.addEventListener(evt, startMusicWithSound, { once: true, passive: true });
+    });
+
+    // Music button = mute / unmute
+    document.getElementById('musicToggle').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!ytReady) return;
+      if (musicPlaying) {
+        ytPlayer.mute();
+        this.classList.remove('playing');
+        this.innerHTML = '<i class="fas fa-volume-mute"></i>';
+        musicPlaying = false;
+      } else {
+        ytPlayer.unMute();
+        ytPlayer.playVideo();
+        this.classList.add('playing');
+        this.innerHTML = '<i class="fas fa-volume-up"></i>';
+        musicPlaying = true;
+        firstInteractDone = true;
+      }
+    });
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('liveTime').textContent =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      document.getElementById('liveDate').textContent =
+        now.toLocaleDateString([], { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    fetch('https://ipapi.co/json/')
+      .then(r => r.json())
+      .then(d => {
+        const loc = [d.city, d.region, d.country_name].filter(Boolean).join(', ');
+        document.getElementById('liveLoc').textContent = loc || 'Unknown';
+      })
+      .catch(() => { document.getElementById('liveLoc').textContent = 'Location unavailable'; });
+
+    document.getElementById('copyrightYear').textContent = new Date().getFullYear();
+
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('page-' + tab.dataset.page).classList.add('active');
+        if (tab.dataset.page === 'sessions') loadSessions();
+      });
+    });
+
+    let currentMode = 'pair';
+    document.querySelectorAll('.toggle-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.toggle-option').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        currentMode = opt.dataset.mode;
+        const btn = document.getElementById('submit');
+        if (currentMode === 'pair') {
+          document.getElementById('inputGroup').classList.remove('hidden');
+          btn.innerHTML = '<i class="fas fa-key"></i> Generate Pair Code';
+          btn.classList.remove('hidden');
+          document.getElementById('qrDisplay').style.display = 'none';
+          document.getElementById('codeDisplay').style.display = 'flex';
+        } else {
+          document.getElementById('inputGroup').classList.add('hidden');
+          btn.innerHTML = '<i class="fas fa-qrcode"></i> Generate QR Code';
+          btn.classList.remove('hidden');
+          document.getElementById('codeDisplay').style.display = 'none';
+        }
+      });
+    });
+
+    document.getElementById('submit').addEventListener('click', async () => {
+      const loading = document.getElementById('loading');
+      const codeDisplay = document.getElementById('codeDisplay');
+      const qrDisplay = document.getElementById('qrDisplay');
+      loading.style.display = 'block';
+      codeDisplay.innerHTML = '';
+      qrDisplay.style.display = 'none';
+      try {
+        if (currentMode === 'pair') {
+          const number = document.getElementById('mobileNumber').value.trim();
+          if (!number || !/^\+[0-9]{10,}$/.test(number)) {
+            codeDisplay.innerHTML = '<span class="error-message"><i class="fas fa-exclamation-circle"></i> Enter a valid number with country code</span>';
+            loading.style.display = 'none';
+            return;
+          }
+          const res = await axios.get(`${API_BASE}/pair?phone=${encodeURIComponent(number)}`);
+          const code = res.data?.code || res.data?.pairingCode || '—';
+          codeDisplay.innerHTML = `<span class="success-message"><i class="fas fa-check-circle"></i> ${code}</span>`;
+          window._lastCode = code;
+        } else {
+          const res = await axios.get(`${API_BASE}/qr`);
+          const qr = res.data?.qr || res.data?.qrcode || '';
+          if (qr) {
+            document.getElementById('qrImage').src = qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`;
+            qrDisplay.style.display = 'block';
+            document.getElementById('qrInstructions').textContent = 'Scan this QR code with your WhatsApp app';
+          } else {
+            codeDisplay.style.display = 'flex';
+            codeDisplay.innerHTML = '<span class="error-message">QR not available</span>';
+          }
+        }
+      } catch (err) {
+        codeDisplay.style.display = 'flex';
+        codeDisplay.innerHTML = `<span class="error-message"><i class="fas fa-exclamation-circle"></i> ${err.message || 'Request failed'}</span>`;
+      } finally {
+        loading.style.display = 'none';
+      }
+    });
+
+    function copyCode() {
+      const code = window._lastCode || document.getElementById('codeDisplay').innerText;
+      if (!code || code.includes('will appear') || code.includes('error')) return;
+      navigator.clipboard.writeText(code.replace(/[^\w-]/g, '')).then(() => {
+        const btn = document.getElementById('copy');
+        const old = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(() => btn.innerHTML = old, 1500);
+      });
+    }
+
+    document.getElementById('aiSend').addEventListener('click', sendAi);
+    document.getElementById('aiInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendAi(); });
+
+    function getBrowserId() {
+      let id = localStorage.getItem('zenx_browser_id');
+      if (!id) {
+        id = 'web_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('zenx_browser_id', id);
+      }
+      return id;
+    }
+    const aiHistory = [];
+
+    async function sendAi() {
+      const input = document.getElementById('aiInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      const box = document.getElementById('aiChatBox');
+      box.innerHTML += `<div class="ai-msg user">${escapeHtml(msg)}</div>`;
+      input.value = '';
+      box.scrollTop = box.scrollHeight;
+
+      const typingId = 'typing-' + Date.now();
+      box.innerHTML += `<div class="ai-msg bot" id="${typingId}">🌀 ZenX is thinking...</div>`;
+      box.scrollTop = box.scrollHeight;
+
+      try {
+        const res = await axios.post(`${API_BASE}/api/ai/chat`, {
+          message: msg,
+          history: aiHistory,
+          browserId: getBrowserId(),
+        });
+        const reply = res.data?.reply || "🌀 ZenX's domain flickered — try that again.";
+        document.getElementById(typingId).outerHTML = `<div class="ai-msg bot">${escapeHtml(reply)}</div>`;
+        aiHistory.push({ role: 'user', content: msg });
+        aiHistory.push({ role: 'assistant', content: reply });
+      } catch (e) {
+        document.getElementById(typingId).outerHTML = `<div class="ai-msg bot">⚠️ ZenX is offline right now. Try again in a bit.</div>`;
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function escapeHtml(t) {
+      const d = document.createElement('div');
+      d.textContent = t;
+      return d.innerHTML;
+    }
+
+    async function loadSessions() {
+      const list = document.getElementById('sessionsList');
+      const loading = document.getElementById('sessionsLoading');
+      loading.style.display = 'block';
+      list.innerHTML = '';
+      try {
+        const res = await axios.get(`${API_BASE}/api/sessions`);
+        const sessions = res.data?.sessions || res.data || [];
+        loading.style.display = 'none';
+        if (!sessions.length) {
+          list.innerHTML = '<div class="sessions-empty">No active sessions</div>';
+          return;
+        }
+        sessions.forEach(s => {
+          const online = s.online || s.status === 'open' || s.status === 'connected';
+          list.innerHTML += `
+            <div class="session-row">
+              <div>
+                <span class="session-dot ${online ? 'online' : 'offline'}"></span>
+                ${escapeHtml(s.id || s.number || s.name || 'Unknown')}
+              </div>
+              <small>${online ? 'Online' : 'Offline'}</small>
+            </div>`;
+        });
+      } catch (e) {
+        loading.style.display = 'none';
+        list.innerHTML = '<div class="sessions-empty">Could not load sessions</div>';
+      }
+    }
+  </script>
+</body>
+</html>
+

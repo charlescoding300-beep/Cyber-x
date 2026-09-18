@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// commands/vv.js — CYBER X VIEW ONCE REVEALER v4
+// commands/vv.js — ZEN X VIEW ONCE REVEALER v4
 // Fixed: quoted message view-once detection
 // ═══════════════════════════════════════════════════════════════
 
@@ -7,6 +7,8 @@ const {
   downloadMediaMessage,
   getContentType,
 } = require("@whiskeysockets/baileys")
+
+const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 
 // ─────────────────────────────────────────────────────────
 // GET CONTEXT INFO from any message type
@@ -159,25 +161,39 @@ module.exports = {
       }).catch(() => {})
       return sock.sendMessage(from, {
         text:
-`╔════════════════════╗
-║  👁️ *VV COMMAND*   ║
-╚════════════════════╝
-
-┌─────〔 ℹ️ *HOW TO USE* 〕─────
-│ Reply to a view-once message
-│ then type *.vv*
-│
-│ Works for:
-│  📷 View-once image
-│  🎥 View-once video
-│  🎤 View-once voice note
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+`> 👁️ *VV COMMAND*
+>
+> ℹ️ *HOW TO USE*
+> Reply to a view-once message then type *.vv*
+>
+> Works for:
+>  📷 View-once image
+>  🎥 View-once video
+>  🎤 View-once voice note
+>
+${CREDIT}`,
         quoted: msg
       })
     }
 
     const quotedMsg = ctx.quotedMessage
+
+    // ── Owner protection: nobody but the owner can reveal a
+    // view-once that was originally sent BY the bot's own linked
+    // number. The owner themselves is always exempt from this. ──
+    const ownerJid = (sock.user?.id || "").split(":")[0].split("@")[0] + "@s.whatsapp.net"
+    const senderIsOwner = sender === ownerJid
+    const targetIsOwner = ctx.participant === ownerJid
+
+    if (targetIsOwner && !senderIsOwner) {
+      await sock.sendMessage(from, {
+        react: { text: "🚫", key: msg.key }
+      }).catch(() => {})
+      return sock.sendMessage(from, {
+        text: `> *Action Denied*\n>\n> 🚫 You can't reveal the owner's view-once messages.\n>\n${CREDIT}`,
+        quoted: msg
+      })
+    }
 
     try {
       // ── Unwrap all layers ──
@@ -193,7 +209,7 @@ module.exports = {
           react: { text: "❌", key: msg.key }
         }).catch(() => {})
         return sock.sendMessage(from, {
-          text: "❌ *Reply to a view-once* 📷 *image,* 🎥 *video or* 🎤 *voice note.*",
+          text: `> ❌ *Reply to a view-once* 📷 *image,* 🎥 *video or* 🎤 *voice note.*\n>\n${CREDIT}`,
           quoted: msg
         })
       }
@@ -202,7 +218,7 @@ module.exports = {
       const mime = mediaNode?.mimetype || (
         contentType === "imageMessage" ? "image/jpeg"           :
         contentType === "videoMessage" ? "video/mp4"            :
-                                         "audio/ogg; codecs=opus"
+                                          "audio/ogg; codecs=opus"
       )
       const isPtt = contentType === "audioMessage" && mediaNode?.ptt === true
 
@@ -229,13 +245,12 @@ module.exports = {
                      :                                  "🔊 Audio"
 
       const caption =
-`👁️ *View Once Revealed*
-
-┌─────〔 📤 *CYBER X* 〕─────
-│ 👤 *From:* @${tag}
-│ 🔓 *Type:* ${typeIcon}
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`
+`> 👁️ *View Once Revealed*
+>
+> 👤 *From:* @${tag}
+> 🔓 *Type:* ${typeIcon}
+>
+${CREDIT}`
 
       const mentions = ctx.participant ? [ctx.participant] : []
 
@@ -281,14 +296,12 @@ module.exports = {
 
       await sock.sendMessage(from, {
         text:
-`╔════════════════════╗
-║  ❌ *VV FAILED*    ║
-╚════════════════════╝
-
-┌─────〔 ⚠️ *ERROR* 〕─────
-│ ${errText}
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+`> ❌ *VV FAILED*
+>
+> ⚠️ *ERROR*
+> ${errText}
+>
+${CREDIT}`,
         quoted: msg
       })
     }

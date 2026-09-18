@@ -10,6 +10,10 @@
 //
 // FEATURES:
 //   - Static images AND animated (gif/video) → WebP sticker
+//   - Always outputs full 512x512 (WhatsApp's actual native sticker size) —
+//     fallback tiers reduce duration/fps/quality to hit size limits, never
+//     the canvas dimensions, so stickers never come out looking smaller/blurrier
+//     than a real WhatsApp sticker
 //   - Multi-tier fallback compression for animated stickers that come out
 //     too large (WhatsApp caps sticker size around ~1MB)
 //   - Embeds CYBER X pack name + emoji into the sticker EXIF metadata
@@ -128,16 +132,16 @@ module.exports = {
         mediaMessage.mimetype?.includes('video') ||
         mediaMessage.seconds > 0
 
-      // ── Convert to WebP ──────────────────────────────────────────────────────
+      // ── Convert to WebP — full 512x512, higher quality than before ──────────
       const baseCmd = isAnimated
-        ? `ffmpeg -y -i "${tempInput}" -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`
-        : `ffmpeg -y -i "${tempInput}" -vf "scale=512:512:force_original_aspect_ratio=decrease,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`
+        ? `ffmpeg -y -i "${tempInput}" -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 90 -compression_level 6 "${tempOutput}"`
+        : `ffmpeg -y -i "${tempInput}" -vf "scale=512:512:force_original_aspect_ratio=decrease,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 90 -compression_level 6 "${tempOutput}"`
 
       await run(baseCmd)
 
       let webpBuffer = fs.readFileSync(tempOutput)
 
-      // ── Fallback tier 1: re-encode harder if animated sticker is too big ──────
+      // ── Fallback tier 1: too big — trim duration/fps/quality, canvas stays 512x512 ──
       if (isAnimated && webpBuffer.length > 1000 * 1024) {
         const tempOutput2 = path.join(tmpDir, `fb1_${id}.webp`)
         cleanupPaths.push(tempOutput2)
@@ -146,8 +150,8 @@ module.exports = {
         const isLargeFile = fileSizeKB > 5000
 
         const fallbackCmd = isLargeFile
-          ? `ffmpeg -y -i "${tempInput}" -t 2 -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=8,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 100k -max_muxing_queue_size 1024 "${tempOutput2}"`
-          : `ffmpeg -y -i "${tempInput}" -t 3 -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=12,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 45 -compression_level 6 -b:v 150k -max_muxing_queue_size 1024 "${tempOutput2}"`
+          ? `ffmpeg -y -i "${tempInput}" -t 2 -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=10,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 50 -compression_level 6 -b:v 150k -max_muxing_queue_size 1024 "${tempOutput2}"`
+          : `ffmpeg -y -i "${tempInput}" -t 3 -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=12,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 60 -compression_level 6 -b:v 200k -max_muxing_queue_size 1024 "${tempOutput2}"`
 
         try {
           await run(fallbackCmd)
@@ -160,12 +164,12 @@ module.exports = {
       // ── Embed CYBER X pack metadata ─────────────────────────────────────────
       let finalBuffer = await embedMetadata(webpBuffer)
 
-      // ── Fallback tier 2: still too large — shrink to 320px ───────────────────
+      // ── Fallback tier 2: still too large — shorter/lower fps, still 512x512 ──
       if (isAnimated && finalBuffer.length > 900 * 1024) {
         const tempOutput3 = path.join(tmpDir, `fb2_${id}.webp`)
         cleanupPaths.push(tempOutput3)
 
-        const smallCmd = `ffmpeg -y -i "${tempInput}" -t 2 -vf "scale=320:320:force_original_aspect_ratio=decrease,fps=8,pad=320:320:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 80k -max_muxing_queue_size 1024 "${tempOutput3}"`
+        const smallCmd = `ffmpeg -y -i "${tempInput}" -t 1.5 -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=8,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 35 -compression_level 6 -b:v 100k -max_muxing_queue_size 1024 "${tempOutput3}"`
 
         try {
           await run(smallCmd)
@@ -180,6 +184,8 @@ module.exports = {
 
       // ── Send the sticker ──────────────────────────────────────────────────────
       await sock.sendMessage(from, { sticker: finalBuffer }, { quoted: msg })
+
+      await sock.sendMessage(from, { react: { text: '❤️', key: msg.key } }).catch(() => {})
 
     } catch (e) {
       console.error('[STICKER]', e.message)

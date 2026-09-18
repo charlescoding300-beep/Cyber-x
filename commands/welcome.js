@@ -1,162 +1,171 @@
-const fs   = require("fs")
-const path = require("path")
+'use strict'
+// ════════════════════════════════════════════════════════════════════
+//  commands/welcome.js  —  ZEN X  |  Welcome
+//
+//  index.js's WATCHDOG calls this directly:
+//      const welcomeCmd = require('./commands/welcome.js')
+//      const greetData  = welcomeCmd.loadGreet(phone, groupId)
+//      const settings   = greetData.welcome
+//  That is the ENTIRE reason .welcome on wasn't working before — this
+//  file must export loadGreet()/saveGreet() with this exact shape, on
+//  top of the normal pattern/run command interface.
+// ════════════════════════════════════════════════════════════════════
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared greet store: data/greet/<phone>.json
-//   { groups: { <groupId>: { welcome: {enabled, message}, goodbye: {enabled, message} } } }
-// welcome.js and goodbye.js both read/write this same file so index.js's
-// single loadGreet(phone, groupId) call returns a consistent view either way.
-// ─────────────────────────────────────────────────────────────────────────────
-const GREET_DIR = path.join(__dirname, "..", "data", "greet")
+const fs   = require('fs')
+const path = require('path')
+
+const GREET_DIR = path.join(__dirname, '..', 'data', 'greet')
 if (!fs.existsSync(GREET_DIR)) fs.mkdirSync(GREET_DIR, { recursive: true })
 
 function safePhone(phone) {
-  return (phone || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_")
+    return (phone || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 function filePath(phone) {
-  return path.join(GREET_DIR, `${safePhone(phone)}.json`)
+    return path.join(GREET_DIR, `${safePhone(phone)}.json`)
 }
-function loadRaw(phone) {
-  const file = filePath(phone)
-  try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch (e) {
-    console.error(`[GREET] load error for ${phone}:`, e.message)
-  }
-  return { groups: {} }
+function load(phone) {
+    const file = filePath(phone)
+    try {
+        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch (e) {
+        console.error(`[GREET] load error for ${phone}:`, e.message)
+    }
+    return { groups: {} }
 }
-function saveRaw(phone, data) {
-  try {
-    fs.writeFileSync(filePath(phone), JSON.stringify(data, null, 2))
-  } catch (e) {
-    console.error(`[GREET] save error for ${phone}:`, e.message)
-  }
+function save(phone, data) {
+    try {
+        fs.writeFileSync(filePath(phone), JSON.stringify(data, null, 2))
+    } catch (e) {
+        console.error(`[GREET] save error for ${phone}:`, e.message)
+    }
 }
 
-// ── Defaults — ON by default, your exact box design ──────────────────────────
-const DEFAULT_WELCOME_MSG =
-`╭━━❰ 🎊 *WELCOME* 🎊 ❱━━╮
+/**
+ * Called directly by index.js's WATCHDOG. Returns BOTH welcome and
+ * goodbye settings for this group — goodbye.js calls this same function
+ * (it requires this file) so both stay in sync from one data file.
+ */
+function loadGreet(phone, groupId) {
+    const data = load(phone)
+    const g = data.groups[groupId] || {}
+    return {
+        welcome: g.welcome || { enabled: false, message: null },
+        goodbye: g.goodbye || { enabled: false, message: null },
+    }
+}
 
-「 @{tag} 」
+function saveGreet(phone, groupId, type, updates) {
+    const data = load(phone)
+    if (!data.groups[groupId]) data.groups[groupId] = {}
+    if (!data.groups[groupId][type]) data.groups[groupId][type] = {}
+    Object.assign(data.groups[groupId][type], updates)
+    save(phone, data)
+    return data.groups[groupId][type]
+}
 
-✨ A new legend has joined *{group}*!
+// ── Rich gray-bold welcome box (optional upgrade — see index.js note) ──
+function grayBold(raw) {
+    return raw.split('\n').map(l => (l.length ? `> *${l}*` : '>')).join('\n')
+}
+function pad(label, width) {
+    return label + ' '.repeat(Math.max(1, width - label.length))
+}
+async function getBio(sock, jid) {
+    try {
+        const res = await sock.fetchStatus(jid)
+        if (res?.status) return res.status
+    } catch {}
+    return 'No bio set'
+}
+function getDateParts() {
+    const now = new Date()
+    const tz  = { timeZone: 'Africa/Lagos' }
+    return {
+        date: now.toLocaleDateString('en-GB', tz),
+        time: now.toLocaleTimeString('en-US', { ...tz, hour: '2-digit', minute: '2-digit', hour12: true }),
+        day:  now.toLocaleDateString('en-US', { ...tz, weekday: 'long' }),
+    }
+}
+function getRole(meta, jid) {
+    const p = meta?.participants?.find(pt => pt.id === jid)
+    if (p?.admin === 'superadmin') return 'Super Admin'
+    if (p?.admin === 'admin') return 'Admin'
+    return 'Member'
+}
 
-────────────────────
-📖 Read the group description.
-🤝 Respect every member.
-💬 Stay active and have fun.
-🚫 No spam or unnecessary links.
-────────────────────
+/**
+ * Builds the full detailed gray-bold welcome text. index.js's WATCHDOG
+ * can call this instead of its plain {tag}/{group}/{members} template —
+ * see the small patch note below for the one line that needs to change.
+ */
+async function buildRichWelcomeText(sock, { groupId, participantJid, pushName, groupName, memberCount, meta }) {
+    const memberPhone = participantJid.split('@')[0]
+    const [bio, role] = await Promise.all([
+        getBio(sock, participantJid),
+        Promise.resolve(getRole(meta, participantJid)),
+    ])
+    const { date, time, day } = getDateParts()
+    const name = pushName || memberPhone
+    const W = 10
 
-👥 *Total Members:* {members}
-
-🌟 We hope you enjoy your stay.
-🔥 Let's make unforgettable memories together!
-
-╰━━❰ ❤️ *ENJOY YOUR STAY* ❤️ ❱━━╯
-
-© 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
-
-const DEFAULT_GOODBYE_MSG =
-`╭━━❰ 👋 *GOODBYE* ❱━━╮
-
-@{tag} has left *{group}*.
-
-🥀 Every goodbye marks the start of a new journey.
-
-━━━━━━━━━━━━━━━━━━
-💙 Thanks for being part of our community.
-🌟 We wish you success and happiness.
-🚪 You'll always be welcome back.
-━━━━━━━━━━━━━━━━━━
-
-👥 *Members Remaining:* {members}
-
-👋 Farewell & take care!
-
+    const raw =
+`╭━━━〔 𓃦 ZΞN X 〕━━━╮
+┃  👋 WELCOME NEW MEMBER
 ╰━━━━━━━━━━━━━━━━━━╯
 
-© 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
+👤 ${pad('Name', W)}: @${name}
+🏷️ ${pad('Tag', W)}: @${memberPhone}
+📝 ${pad('Bio', W)}: ${bio}
+📱 ${pad('Number', W)}: +${memberPhone}
 
-function ensureGroupDefaults(data, groupId) {
-  if (!data.groups[groupId]) data.groups[groupId] = {}
-  if (!data.groups[groupId].welcome) {
-    data.groups[groupId].welcome = { enabled: true, message: DEFAULT_WELCOME_MSG }
-  }
-  if (!data.groups[groupId].goodbye) {
-    data.groups[groupId].goodbye = { enabled: true, message: DEFAULT_GOODBYE_MSG }
-  }
-  return data
-}
+📅 ${pad('Joined', W)}: ${date}
+⏰ ${pad('Time', W)}: ${time}
+📆 ${pad('Day', W)}: ${day}
 
-// The bot's own session number, cleaned of the ":device" suffix — this is
-// the correct storage key. Using the group JID here (a past bug) meant
-// toggles wrote to the wrong file entirely and never took effect.
-function getSessionPhone(sock) {
-  const raw = sock?.user?.id || ""
-  return raw.split("@")[0].split(":")[0]
-}
+👥 ${pad('Group', W)}: ${groupName}
+🔢 ${pad('Members', W)}: ${memberCount}
+🛡️ ${pad('Role', W)}: ${role}
 
-// Called by index.js: cmdModule.loadGreet(phone, groupId) -> { welcome, goodbye }
-// Auto-provisions defaults (enabled: true) the first time a group is seen,
-// so welcome/goodbye work out of the box with no setup command required.
-function loadGreet(phone, groupId) {
-  let data = loadRaw(phone)
-  const before = JSON.stringify(data.groups[groupId] || null)
-  data = ensureGroupDefaults(data, groupId)
-  const after = JSON.stringify(data.groups[groupId])
-  if (before !== after) saveRaw(phone, data) // persist auto-provisioned defaults
-  return {
-    welcome: data.groups[groupId].welcome,
-    goodbye: data.groups[groupId].goodbye,
-  }
-}
+━━━━━━━━━━━━━━━━━━━━
+✨ Welcome to the group!
 
-function setWelcome(phone, groupId, patch) {
-  let data = loadRaw(phone)
-  data = ensureGroupDefaults(data, groupId)
-  Object.assign(data.groups[groupId].welcome, patch)
-  saveRaw(phone, data)
-  return data.groups[groupId].welcome
+© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
+
+    return grayBold(raw)
 }
 
 module.exports = {
-  name:     "welcome",
-  aliases:  ["welcomemsg"],
-  desc:     "Toggle the welcome message on/off. ON by default.",
-  usage:    ".welcome on | .welcome off | .welcome (status)",
-  category: "group",
-  loadGreet,
+    loadGreet,
+    saveGreet,
+    buildRichWelcomeText,
 
-  async run({ sock, from, msg, args, isGroup, isOwner, isAdmin, helper }) {
-    if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
-    if (!isOwner && !isAdmin) return helper.reply(sock, msg, "❌ Only group admins or the bot owner can change this.")
+    pattern:  'welcome',
+    alias:    [],
+    category: 'group',
+    desc:     'Enable or disable the join welcome message for this group',
+    usage:    '.welcome on | .welcome off',
 
-    const phone = getSessionPhone(sock)
-    const sub = (args[0] || "").toLowerCase()
+    run: async ({ sock, from, msg, args }) => {
+        const isGroup = from.endsWith('@g.us')
+        if (!isGroup) {
+            return sock.sendMessage(from, { text: '*This command only works inside a group.*' }, { quoted: msg })
+        }
 
-    if (sub === "on") {
-      setWelcome(phone, from, { enabled: true })
-      return helper.reply(sock, msg, helper.box("🎊 WELCOME — ENABLED", [
-        "Welcome messages are now ON for this group.",
-        "New members will get the welcome card automatically.",
-      ]))
-    }
+        const phone = (sock.user?.id || '').split(':')[0].split('@')[0]
+        const sub = (args?.[0] || '').toLowerCase()
 
-    if (sub === "off") {
-      setWelcome(phone, from, { enabled: false })
-      return helper.reply(sock, msg, helper.box("🎊 WELCOME — DISABLED", [
-        "Welcome messages are now OFF for this group.",
-      ]))
-    }
+        if (sub !== 'on' && sub !== 'off') {
+            const state = loadGreet(phone, from).welcome.enabled ? 'ON ✅' : 'OFF ❌'
+            return sock.sendMessage(from, {
+                text: `*Welcome is currently: ${state}*\n\nUse *.welcome on* or *.welcome off*`,
+            }, { quoted: msg })
+        }
 
-    // No args → show current status
-    const current = loadGreet(phone, from).welcome
-    return helper.reply(sock, msg, helper.box("🎊 WELCOME STATUS", [
-      `Status: ${current.enabled ? "✅ ON" : "❌ OFF"}`,
-      "",
-      "Commands:",
-      ".welcome on / .welcome off",
-    ]))
-  },
+        saveGreet(phone, from, 'welcome', { enabled: sub === 'on' })
+        const reply = sub === 'on'
+            ? '*Welcome Command Enabled successfully ✅*'
+            : '*Welcome Command Disabled successfully ❌*'
+
+        await sock.sendMessage(from, { text: reply }, { quoted: msg })
+    },
 }

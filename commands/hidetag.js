@@ -9,7 +9,7 @@
 module.exports = {
     pattern:  'hidetag',
     alias:    ['ht', 'tagall', 'everyone'],
-    category: 'group/admin',
+    category: 'group',
     desc:     'Silently tag all group members',
     usage:    '.hidetag <message>',
 

@@ -5,15 +5,12 @@
 //  Admin only | Category: group/admin
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const CREDIT =
-`*╭══ ✕-CYBER X ⚡*
-*┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
-*╰═════════════════⊷*`
+const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 
 module.exports = {
     pattern:  'kick',
     alias:    ['remove'],
-    category: 'group/admin',
+    category: 'group',
     desc:     'Kick a member from the group',
     usage:    '.kick (reply to someone)',
 
@@ -22,7 +19,7 @@ module.exports = {
         // ── Group only ─────────────────────────────────────────
         if (!from.endsWith('@g.us')) {
             return sock.sendMessage(from, {
-                text: `❌ This command only works in groups.\n\n${CREDIT}`
+                text: `> ❌ *This command only works in groups.*\n>\n${CREDIT}`
             }, { quoted: msg })
         }
 
@@ -35,7 +32,7 @@ module.exports = {
 
             if (!isAdmin) {
                 return sock.sendMessage(from, {
-                    text: `❌ Only admins can use this command.\n\n${CREDIT}`
+                    text: `> ❌ *Only admins can use this command.*\n>\n${CREDIT}`
                 }, { quoted: msg })
             }
 
@@ -46,14 +43,14 @@ module.exports = {
 
             if (!quoted) {
                 return sock.sendMessage(from, {
-                    text: `❌ Reply to someone's message to kick them.\n\nExample: Reply to a message then type *.kick*\n\n${CREDIT}`
+                    text: `> ❌ *Reply to someone's message to kick them.*\n>\n> Example: Reply to a message then type *.kick*\n>\n${CREDIT}`
                 }, { quoted: msg })
             }
 
             // ── Can't kick yourself ────────────────────────────
             if (quoted === sender) {
                 return sock.sendMessage(from, {
-                    text: `😂 You can't kick yourself!\n\n${CREDIT}`
+                    text: `> 😂 *You can't kick yourself!*\n>\n${CREDIT}`
                 }, { quoted: msg })
             }
 
@@ -61,7 +58,7 @@ module.exports = {
             const botId = sock.user.id.replace(/:.*@/, '@')
             if (quoted === botId) {
                 return sock.sendMessage(from, {
-                    text: `😅 I won't kick myself out!\n\n${CREDIT}`
+                    text: `> 😅 *I won't kick myself out!*\n>\n${CREDIT}`
                 }, { quoted: msg })
             }
 
@@ -71,7 +68,7 @@ module.exports = {
 
             if (targetIsAdmin) {
                 return sock.sendMessage(from, {
-                    text: `❌ You can't kick an admin.\n\n${CREDIT}`
+                    text: `> ❌ *You can't kick an admin.*\n>\n${CREDIT}`
                 }, { quoted: msg })
             }
 
@@ -79,26 +76,17 @@ module.exports = {
             const num = quoted.split('@')[0]
 
             await sock.sendMessage(from, {
-                text:
-`╔═══════════════════════════╗
-║  🦵 *CYBER X — KICKED*    ║
-╚═══════════════════════════╝
-
-👤 @${num} has been kicked from the group!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-${CREDIT}`,
+                text: `> *Kicked Out Successfully ✅*\n>\n> 👤 @${num} has been removed from the group.\n>\n${CREDIT}`,
                 mentions: [quoted]
-            })
+            }, { quoted: msg })
 
             await sock.groupParticipantsUpdate(from, [quoted], 'remove')
 
         } catch (e) {
             console.error('[KICK]', e.message)
             await sock.sendMessage(from, {
-                text: `⚠️ Failed to kick. Make sure I'm an admin.\n\n${CREDIT}`
+                text: `> ⚠️ *Failed to kick. Make sure I'm an admin.*\n>\n${CREDIT}`
             }, { quoted: msg })
         }
     }
 }
-

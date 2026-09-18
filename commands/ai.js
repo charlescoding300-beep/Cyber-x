@@ -1,8 +1,11 @@
-// commands/ai.js — CYBER X AI Command (Groq + Vision + Full Support)
+// commands/ai.js — ZEN X_Bot AI Command (Groq + Vision + Voice + Full Support)
 const https = require("https")
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
 
 const histories = new Map()
+
+const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
+const VOICE_CHANCE = 0.6 // 60% voice, 40% text
 
 function getHistory(jid) {
   if (!histories.has(jid)) histories.set(jid, [])
@@ -20,8 +23,8 @@ async function askGroq(jid, text, imageBase64 = null, imageMime = null) {
   const history = getHistory(jid)
 
   const model = imageBase64
-    ? "meta-llama/llama-4-scout-17b-16e-instruct"
-    : "llama-3.1-8b-instant"
+    ? "qwen/qwen3.6-27b"
+    : "openai/gpt-oss-20b"
 
   const userContent = imageBase64
     ? [
@@ -43,7 +46,7 @@ async function askGroq(jid, text, imageBase64 = null, imageMime = null) {
     messages: [
       {
         role: "system",
-        content: `You are CYBER X AI — a powerful, smart, witty and very friendly AI assistant built into the CYBER X WhatsApp bot by Charles Chukwu (Charles Tech) from Nigeria.
+        content: `You are ZEN X_Bot AI — a powerful, smart, witty and very friendly AI assistant built into the ZEN X_Bot WhatsApp bot by Charles Chukwu (Charles Tech) from Nigeria.
 
 Your personality:
 - You are warm, fun and conversational — like talking to a smart friend
@@ -70,8 +73,8 @@ Rules:
 - Keep responses concise and natural unless the user needs detail
 - For code always wrap in backticks with the language name
 - Never refuse reasonable requests
-- If asked who you are say you are CYBER X AI by Charles Chukwu (Charles Tech)
-- If asked what model or AI you are say CYBER X AI powered by Groq
+- If asked who you are say you are ZEN X_Bot AI by Charles Chukwu (Charles Tech)
+- If asked what model or AI you are say ZEN X_Bot AI powered by Groq
 - Never start your response with "I" — vary your openings
 - Never sound stiff or formal unless the situation calls for it`
       },
@@ -116,12 +119,59 @@ Rules:
   return reply
 }
 
+// ── VoiceRSS TTS — smooth UK female voice (Amy) ──
+// Docs: https://www.voicerss.org/api/
+function stripForSpeech(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, "code block, check the text above")
+    .replace(/[*_~`]/g, "")
+    .replace(/https?:\/\/\S+/g, "link, check the text above")
+    .slice(0, 900) // keep it within a sane TTS length
+}
+
+async function voiceRssTTS(text) {
+  const VOICE_KEY = process.env.VOICERSS_API_KEY
+  if (!VOICE_KEY) throw new Error("VOICERSS_API_KEY not set")
+
+  const clean = stripForSpeech(text)
+  const params = new URLSearchParams({
+    key:  VOICE_KEY,
+    hl:   "en-gb",
+    v:    "Amy",          // smooth UK female voice
+    c:    "MP3",
+    f:    "44khz_16bit_stereo",
+    src:  clean,
+  })
+
+  const data = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: "api.voicerss.org",
+      path:     `/?${params.toString()}`,
+      method:   "GET",
+    }, res => {
+      const chunks = []
+      res.on("data", c => chunks.push(c))
+      res.on("end",  () => resolve(Buffer.concat(chunks)))
+    })
+    req.on("error", reject)
+    req.setTimeout(20000, () => req.destroy())
+    req.end()
+  })
+
+  // VoiceRSS returns plain-text "ERROR: ..." (not audio) on failure
+  const head = data.slice(0, 20).toString("utf8")
+  if (head.startsWith("ERROR")) throw new Error(data.toString("utf8"))
+  if (!data || data.length < 500) throw new Error("empty audio response")
+
+  return data
+}
+
 const run = async ({ sock, from, message, text }) => {
 
   if (text.trim().toLowerCase() === "reset") {
     clearHistory(from)
     return sock.sendMessage(from, {
-      text: "🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n> ⚡ *CYBER X AI* — Engineered by Charles Tech",
+      text: `🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n${CREDIT}`,
       quoted: message
     })
   }
@@ -135,10 +185,10 @@ const run = async ({ sock, from, message, text }) => {
     return sock.sendMessage(from, {
       text:
 `╔═══════════════════════════╗
-║  🤖 *CYBER X AI*          ║
+║  🤖 *ZEN X_Bot AI*        ║
 ╚═══════════════════════════╝
 
-Hey! 👋 I'm CYBER X AI — your smart assistant right here in WhatsApp.
+Hey! 👋 I'm ZEN X_Bot AI — your smart assistant right here in WhatsApp.
 
 *Here's what I can do for you:*
 • 💬 Answer any question on any topic
@@ -147,6 +197,7 @@ Hey! 👋 I'm CYBER X AI — your smart assistant right here in WhatsApp.
 • 😂 Tell jokes, roast you, casual chat
 • ✍️ Essays, stories, translations, math
 • 🧠 Advice, explanations, summaries
+• 🎙️ Replies switch between voice note & text
 
 *How to use me:*
 • *.ai <your question>* — Ask me anything
@@ -162,7 +213,7 @@ Hey! 👋 I'm CYBER X AI — your smart assistant right here in WhatsApp.
 
 Just talk to me naturally — I got you! 🔥
 
-> ⚡ *CYBER X AI* — Engineered by Charles Tech`,
+${CREDIT}`,
       quoted: message
     })
   }
@@ -196,7 +247,7 @@ Just talk to me naturally — I got you! 🔥
       } catch (e) {
         console.warn("[AI] Image download failed:", e.message)
         await sock.sendMessage(from, {
-          text: "⚠️ *Could not download the image.* Try sending it again and I'll take a look! 👀\n\n> ⚡ *CYBER X AI*",
+          text: `⚠️ *Could not download the image.* Try sending it again and I'll take a look! 👀\n\n${CREDIT}`,
           quoted: message
         })
         return
@@ -205,10 +256,26 @@ Just talk to me naturally — I got you! 🔥
 
     const reply = await askGroq(from, text, imageBase64, imageMime)
 
-    await sock.sendMessage(from, {
-      text:   reply,
-      quoted: message
-    })
+    // ── Hard 60/40 switch: 60% voice note, 40% text. No fallback. ──
+    const useVoice = Math.random() < VOICE_CHANCE
+
+    if (useVoice) {
+      const audio = await voiceRssTTS(reply)
+      await sock.sendMessage(from, {
+        audio,
+        mimetype: "audio/mpeg",
+        ptt: true,
+      }, { quoted: message })
+
+      await sock.sendMessage(from, {
+        text: `🎙️ *Voice reply*\n\n${CREDIT}`,
+      }, { quoted: message })
+    } else {
+      await sock.sendMessage(from, {
+        text: `${reply}\n\n${CREDIT}`,
+        quoted: message
+      })
+    }
 
     await sock.sendMessage(from, {
       react: { text: "✅", key: message.key }
@@ -224,6 +291,8 @@ Just talk to me naturally — I got you! 🔥
     const friendly =
       e.message.includes("API_KEY")
         ? "❌ *GROQ_API_KEY not set!*\nAdd it to your .env file."
+      : e.message.includes("VOICERSS_API_KEY")
+        ? "❌ *VOICERSS_API_KEY not set!*\nAdd it to your .env file."
       : e.message.includes("429") || e.message.includes("rate") || e.message.includes("quota")
         ? "⚠️ *Too many requests.* Give me 30 seconds and try again! 😅"
       : e.message.includes("empty")
@@ -235,7 +304,7 @@ Just talk to me naturally — I got you! 🔥
         : `❌ *Error:* ${e.message}`
 
     await sock.sendMessage(from, {
-      text: `${friendly}\n\n> ⚡ *CYBER X AI* — Engineered by Charles Tech`,
+      text: `${friendly}\n\n${CREDIT}`,
       quoted: message
     })
   }
@@ -244,7 +313,7 @@ Just talk to me naturally — I got you! 🔥
 module.exports = {
   name:     "ai",
   aliases:  ["ask", "chat", "gpt"],
-  desc:     "Chat with CYBER X AI — text, images, code, anything",
+  desc:     "Chat with ZEN X_Bot AI — text, images, code, anything. Replies switch between voice note and text (60/40).",
   usage:    ".ai <question> | .ai reset | reply image + .ai",
   category: 'ai',
   run

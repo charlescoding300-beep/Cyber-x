@@ -16,6 +16,7 @@ const {
 const isAdminLib    = require("./lib/isAdmin")
 const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
+const settingsBackup = require("./lib/settingsBackup")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -47,71 +48,10 @@ for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, API_DIR, CONFIG_DIR, TEMP_DIR, SES
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PERSISTENT SESSION SETTINGS ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-const sessionSettingsCache = new Map()
-
-function getSettingsFile(phone) {
-  return path.join(SETTINGS_ROOT, `${phone}.json`)
-}
-
-function loadSessionSettings(phone) {
-  if (sessionSettingsCache.has(phone)) return sessionSettingsCache.get(phone)
-  const file = getSettingsFile(phone)
-  let data = {}
-  try {
-    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch (e) {
-    console.error(`[SETTINGS] ✗ Load failed for ${phone}:`, e.message)
-  }
-  sessionSettingsCache.set(phone, data)
-  return data
-}
-
-function saveSessionSettings(phone) {
-  const data = sessionSettingsCache.get(phone) || {}
-  const file = getSettingsFile(phone)
-  try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2))
-  } catch (e) {
-    console.error(`[SETTINGS] ✗ Save failed for ${phone}:`, e.message)
-  }
-}
-
-function makeSessionSettings(phone) {
-  const data = loadSessionSettings(phone)
-  return {
-    get(key)      { return data[key] },
-    set(key, val) {
-      data[key] = val
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-      console.log(`[SETTINGS:${phone}] ✔ ${key} = ${JSON.stringify(val)}`)
-    },
-    delete(key) {
-      delete data[key]
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-    },
-    getAll() { return { ...data } },
-    reset()  {
-      sessionSettingsCache.set(phone, {})
-      saveSessionSettings(phone)
-    },
-    merge(obj) {
-      Object.assign(data, obj)
-      sessionSettingsCache.set(phone, data)
-      saveSessionSettings(phone)
-      console.log(`[SETTINGS:${phone}] ✔ merged ${Object.keys(obj).join(", ")}`)
-    },
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SERVER SLOTS
 // ─────────────────────────────────────────────────────────────────────────────
-const SLOT_COUNT    = 10
-const SLOT_CAPACITY = parseInt(process.env.SLOT_CAPACITY || "50", 10)
+const SLOT_COUNT    = parseInt(process.env.SLOT_COUNT    || "50", 10)
+const SLOT_CAPACITY = parseInt(process.env.SLOT_CAPACITY || "1000", 10)
 const SLOTS_FILE    = path.join(__dirname, "data", "slots.json")
 
 let slotAssignments = {}
@@ -268,17 +208,65 @@ function cleanupTempDir(maxAgeMs = 30 * 60 * 1000) {
 cleanupTempDir()
 setInterval(cleanupTempDir, 15 * 60 * 1000)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO RAM DETECTION — replaces the old hardcoded MAX_RAM_MB=450.
+//
+// This build runs MULTIPLE WhatsApp sessions in one process, so a fixed
+// 450MB ceiling makes even less sense here than on a single-session bot —
+// a small 512MB box and a 32GB VPS both running this code would hit wildly
+// different realities with the same hardcoded number. Instead we detect
+// the box's total RAM at boot (os.totalmem()), reserve a slice for the
+// OS + Node's own overhead, and use whatever's left as the process-wide
+// restart threshold — the same threshold the memory guard below already
+// checks against, just auto-sized instead of hardcoded.
+//
+// "Divide" across sessions: since SLOT_CAPACITY * SLOT_COUNT is the most
+// sessions this deployment could ever hold, dividing the auto-detected
+// budget by that gives a rough per-session RAM allowance — useful as a
+// sizing/monitoring number even though the actual shutdown check below
+// still applies to the whole process (Node doesn't sandbox memory per
+// WhatsApp session, so a true per-session cap isn't enforceable — this
+// number is diagnostic, to help you judge whether SLOT_CAPACITY is set
+// too high for the box you're on).
+//
+// Override anytime with MAX_RAM_MB or MEM_RESERVE_MB in .env if you want
+// to hand-tune it instead of relying on auto-detection.
+// ─────────────────────────────────────────────────────────────────────────────
+const os = require("os")
+
+const TOTAL_RAM_MB = Math.round(os.totalmem() / (1024 * 1024))
+
+const MEM_RESERVE_MB = parseInt(
+  process.env.MEM_RESERVE_MB || Math.max(50, Math.round(TOTAL_RAM_MB * 0.12)),
+  10
+)
+
+const AUTO_MAX_RAM_MB = Math.max(150, TOTAL_RAM_MB - MEM_RESERVE_MB)
+
+const MAX_RAM_MB = parseInt(process.env.MAX_RAM_MB || AUTO_MAX_RAM_MB, 10)
+
+const MAX_POSSIBLE_SESSIONS  = SLOT_COUNT * SLOT_CAPACITY
+const PER_SESSION_BUDGET_MB  = Math.max(1, Math.floor(MAX_RAM_MB / MAX_POSSIBLE_SESSIONS))
+
+console.log(
+  `[RAM] Detected host RAM: ${TOTAL_RAM_MB}MB | Reserved for OS/overhead: ${MEM_RESERVE_MB}MB | ` +
+  `Restart threshold: ${MAX_RAM_MB}MB${process.env.MAX_RAM_MB ? " (manual override via .env)" : " (auto-calculated)"}`
+)
+console.log(
+  `[RAM] Divided across max possible sessions (${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity = ${MAX_POSSIBLE_SESSIONS}): ` +
+  `~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
+)
+
 // ── Memory guard ──────────────────────────────────────────────────────────────
 setInterval(() => { if (global.gc) global.gc() }, 60_000)
 
 let memoryShutdownInProgress = false
 setInterval(async () => {
-  const usedMB  = process.memoryUsage().rss / 1024 / 1024
-  const limitMB = parseInt(process.env.MAX_RAM_MB || "450", 10)
+  const usedMB = process.memoryUsage().rss / 1024 / 1024
 
-  if (usedMB > limitMB && !memoryShutdownInProgress) {
+  if (usedMB > MAX_RAM_MB && !memoryShutdownInProgress) {
     memoryShutdownInProgress = true
-    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB) — pushing backup then exiting for clean restart`)
+    console.log(`[MEMORY] ⚠ RAM too high (${usedMB.toFixed(0)}MB / limit ${MAX_RAM_MB}MB) — pushing backup then exiting for clean restart`)
 
     try {
       await Promise.race([
@@ -604,10 +592,6 @@ const helper = {
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
 }
 
-// api.fetch / api.fetchJson / api.fetchBuffer are the recommended entry
-// points for command files that need to hit external APIs — every call
-// automatically gets retries + timeout + keep-alive without the command
-// author having to think about it.
 api.fetch       = fetchWithRetry
 api.fetchJson   = fetchJsonSafe
 api.fetchBuffer = fetchBufferSafe
@@ -616,6 +600,10 @@ api.fetchBuffer = fetchBufferSafe
 // SESSION STATE
 // ─────────────────────────────────────────────────────────────────────────────
 const sessions = new Map()
+
+function makeSessionSettings(phone) {
+  return settingsLib.forUser(phone)
+}
 
 function makeSessionState(phone) {
   const sessDir = path.join(SESS_ROOT, phone)
@@ -627,14 +615,46 @@ function makeSessionState(phone) {
     retries:       0,
     sock:                 null,
     connected:            false,
+    startingUp:           false,
     pairingCode:          null,
     pairingCodeExpiresAt: null,
+    lastPairingAttemptAt: null,
     presenceTimer:        null,
   }
 }
 
 function nowWAT() {
   return new Date().toLocaleString("en-NG", { timeZone: "Africa/Lagos" })
+}
+
+// Known-good WA web version to fall back on if fetchLatestBaileysVersion()
+// ever returns something stale (it has, in the wild) — never let the socket
+// go out with an older version than we've already seen work.
+let LAST_GOOD_WA_VERSION = null
+async function getSafeWaVersion() {
+  try {
+    const { version, isLatest } = await fetchLatestBaileysVersion()
+    if (!LAST_GOOD_WA_VERSION || version[2] >= LAST_GOOD_WA_VERSION[2]) {
+      LAST_GOOD_WA_VERSION = version
+    }
+    if (!isLatest) {
+      console.log(`[WA-VERSION] ⚠ fetchLatestBaileysVersion reports non-latest (${version.join(".")}) — using it anyway, watching for drift`)
+    }
+    return LAST_GOOD_WA_VERSION
+  } catch (e) {
+    console.error("[WA-VERSION] fetch failed, reusing last known-good version:", e.message)
+    return LAST_GOOD_WA_VERSION
+  }
+}
+
+// Prevents the same status line from spamming the log on every reconnect tick —
+// only prints when the message actually changed for that phone+key.
+const _lastLog = new Map()
+function logOnce(phone, key, msg, level = "log") {
+  const id = `${phone}:${key}`
+  if (_lastLog.get(id) === msg) return
+  _lastLog.set(id, msg)
+  console[level](msg)
 }
 
 const PAIRING_CODE_TTL_MS = 60 * 1000
@@ -665,35 +685,66 @@ function loadMetaPhones() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AUTO PRESENCE — typing (16s) / recording (17s), fired on ANY sign of
+// activity in a chat: ordinary messages, commands, and reactions. Always
+// fire-and-forget (never awaited by the caller) so it never delays a
+// command's actual response.
+// ─────────────────────────────────────────────────────────────────────────────
+async function triggerAutoPresence(state, sock, from) {
+  const s = state.settings
+
+  // Auto typing — 20 second WhatsApp presence window.
+  if (s.get("autoTyping")) {
+    try {
+      await sock.presenceSubscribe(from).catch(() => {})
+      await sock.sendPresenceUpdate("composing", from)
+      await helper.sleep(20000)
+      await sock.sendPresenceUpdate("paused", from)
+    } catch {}
+  }
+
+  // Auto recording — 20 second presence window. Runs after typing when
+  // both are on (back-to-back, not simultaneous — WhatsApp only shows
+  // one presence indicator at a time anyway).
+  if (s.get("autoRecording")) {
+    try {
+      await sock.presenceSubscribe(from).catch(() => {})
+      await sock.sendPresenceUpdate("recording", from)
+      await helper.sleep(20000)
+      await sock.sendPresenceUpdate("paused", from)
+    } catch {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ORDINARY MESSAGE SIDE EFFECTS
 // ─────────────────────────────────────────────────────────────────────────────
 async function handleOrdinaryMessage(state, sock, msg, from) {
   const s = state.settings
-  if (s.get("autoTyping")) {
-    try { await sock.sendPresenceUpdate("composing", from); await helper.sleep(10000); await sock.sendPresenceUpdate("paused", from) } catch {}
-  }
-  if (s.get("autoRecording")) {
-    try { await sock.sendPresenceUpdate("recording", from); await helper.sleep(7000); await sock.sendPresenceUpdate("paused", from) } catch {}
-  }
+
+  await triggerAutoPresence(state, sock, from)
+
+  // Auto reply.
   if (s.get("autoReply")) {
     const prefix = s.get("prefix") || BOT_PREFIX
     const text = (s.get("autoReplyText") || "").replace(/\{prefix\}/g, prefix)
-    if (text) { try { await sock.sendMessage(from, { text }, { quoted: msg }) } catch {} }
+
+    if (text) {
+      try {
+        await sock.sendMessage(
+          from,
+          { text },
+          { quoted: msg }
+        )
+      } catch {}
+    }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATUS AUTO-VIEW / AUTO-REACT — hardened queue + retry.
-//
-// Root cause of "it randomly doesn't work": WhatsApp silently rate-limits
-// rapid-fire read-receipts/reactions when several statuses land close
-// together (busy contacts, right after reconnect, etc). Firing them all in
-// parallel — like the old code did — means some succeed and some get
-// silently dropped server-side with no error to catch. This version
-// processes statuses one at a time per session, retries each step on
-// failure, and staggers calls so WhatsApp never sees a burst.
 // ─────────────────────────────────────────────────────────────────────────────
-const statusQueues = new Map() // phone -> promise chain (keeps jobs sequential)
+const statusQueues = new Map()
 
 function queueStatusJob(phone, job) {
   const prev = statusQueues.get(phone) || Promise.resolve()
@@ -742,8 +793,6 @@ async function handleStatus(state, sock, msg) {
       }
     }
 
-    // Stagger so back-to-back statuses never fire fast enough to trip
-    // WhatsApp's anti-spam limits on read receipts / reactions.
     await new Promise(r => setTimeout(r, 300))
   })
 }
@@ -944,21 +993,163 @@ function antilinkSave(phone, data) {
 
 const ANTILINK_HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD]/g
 
+// Fullwidth Unicode block (Ａ-Ｚ ａ-ｚ ０-９ ．etc.) → ASCII. Fullwidth forms
+// sit at a fixed offset (0xFEE0) above their ASCII twin.
+function antilinkDefullwidth(str) {
+  return str.replace(/[\uFF01-\uFF5E]/g, ch =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
+  ).replace(/\u3000/g, " ")
+}
+
+// Common homoglyphs used to spoof domains — Cyrillic/Greek letters that
+// render visually identical to Latin ones.
+const ANTILINK_CONFUSABLES = {
+  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
+  "і": "i", "ѕ": "s", "һ": "h", "ԁ": "d", "ⅰ": "i", "ⅼ": "l",
+  "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K",
+  "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+  "α": "a", "ο": "o", "ρ": "p", "ι": "i", "υ": "u", "ν": "v",
+}
+function antilinkDeconfuse(str) {
+  return str.replace(/[\u0370-\u03FF\u0400-\u04FF]/g, ch => ANTILINK_CONFUSABLES[ch] || ch)
+}
+
+// Unicode "dot" lookalikes: 。．․‧
+const ANTILINK_DOT_LOOKALIKES = /[\u3002\uFF0E\u2024\u2027]/g
+
 function antilinkNormalize(text) {
   if (!text) return ""
   let t = text.replace(ANTILINK_HIDDEN_CHARS, "")
+  t = antilinkDefullwidth(t)
+  t = antilinkDeconfuse(t)
+  t = t.replace(ANTILINK_DOT_LOOKALIKES, ".")
   t = t.replace(/\s*[\(\[]\s*dot\s*[\)\]]\s*/gi, ".")
        .replace(/\s+dot\s+/gi, ".")
   t = t.replace(/(?:[a-zA-Z0-9.]\s+){2,}[a-zA-Z0-9.]/g, m => m.replace(/\s+/g, ""))
+  t = t.replace(/[.]{2,}/g, ".").replace(/\s{2,}/g, " ")
   return t
 }
+
+// Full official IANA TLD list (1,287 entries) — data.iana.org/TLD
+const IANA_TLDS = [
+  'aaa','aarp','abb','abbott','abbvie','abc','able','abogado','abudhabi','ac','academy','accenture',
+  'accountant','accountants','aco','actor','ad','ads','adult','ae','aeg','aero','aetna','af','afl',
+  'africa','ag','agakhan','agency','ai','aig','airbus','airforce','airtel','akdn','al','alibaba',
+  'alipay','allfinanz','allstate','ally','alsace','alstom','am','amazon','americanexpress',
+  'americanfamily','amex','amfam','amica','amsterdam','analytics','android','anquan','anz','ao','aol',
+  'apartments','app','apple','aq','aquarelle','ar','arab','aramco','archi','army','arpa','art','arte',
+  'as','asda','asia','associates','at','athleta','attorney','au','auction','audi','audible','audio',
+  'auspost','author','auto','autos','aw','aws','ax','axa','az','azure','ba','baby','baidu','banamex',
+  'band','bank','bar','barcelona','barclaycard','barclays','barefoot','bargains','baseball',
+  'basketball','bauhaus','bayern','bb','bbc','bbt','bbva','bcg','bcn','bd','be','beats','beauty',
+  'beer','berlin','best','bestbuy','bet','bf','bg','bh','bharti','bi','bible','bid','bike','bing',
+  'bingo','bio','biz','bj','black','blackfriday','blockbuster','blog','bloomberg','blue','bm','bms',
+  'bmw','bn','bnpparibas','bo','boats','boehringer','bofa','bom','bond','boo','book','booking','bosch',
+  'bostik','boston','bot','boutique','box','br','bradesco','bridgestone','broadway','broker','brother',
+  'brussels','bs','bt','build','builders','business','buy','buzz','bv','bw','by','bz','bzh','ca','cab',
+  'cafe','cal','call','calvinklein','cam','camera','camp','canon','capetown','capital','capitalone',
+  'car','caravan','cards','care','career','careers','cars','casa','case','cash','casino','cat',
+  'catering','catholic','cba','cbn','cbre','cc','cd','center','ceo','cern','cf','cfa','cfd','cg','ch',
+  'chanel','channel','charity','chase','chat','cheap','chintai','christmas','chrome','church','ci',
+  'cipriani','circle','cisco','citadel','citi','citic','city','ck','cl','claims','cleaning','click',
+  'clinic','clinique','clothing','cloud','club','clubmed','cm','cn','co','coach','codes','coffee',
+  'college','cologne','com','commbank','community','company','compare','computer','comsec','condos',
+  'construction','consulting','contact','contractors','cooking','cool','coop','corsica','country',
+  'coupon','coupons','courses','cpa','cr','credit','creditcard','creditunion','cricket','crown','crs',
+  'cruise','cruises','cu','cuisinella','cv','cw','cx','cy','cymru','cyou','cz','dad','dance','data',
+  'date','dating','datsun','day','dclk','dds','de','deal','dealer','deals','degree','delivery','dell',
+  'deloitte','delta','democrat','dental','dentist','desi','design','dev','dhl','diamonds','diet',
+  'digital','direct','directory','discount','discover','dish','diy','dj','dk','dm','dnp','do','docs',
+  'doctor','dog','domains','dot','download','drive','dtv','dubai','dupont','durban','dvag','dvr','dz',
+  'earth','eat','ec','eco','edeka','edu','education','ee','eg','email','emerck','energy','engineer',
+  'engineering','enterprises','epson','equipment','er','ericsson','erni','es','esq','estate','et','eu',
+  'eurovision','eus','events','exchange','expert','exposed','express','extraspace','fage','fail',
+  'fairwinds','faith','family','fan','fans','farm','farmers','fashion','fast','fedex','feedback',
+  'ferrari','ferrero','fi','fidelity','fido','film','final','finance','financial','fire','firestone',
+  'firmdale','fish','fishing','fit','fitness','fj','fk','flickr','flights','flir','florist','flowers',
+  'fly','fm','fo','foo','food','football','ford','forex','forsale','forum','foundation','fox','fr',
+  'free','fresenius','frl','frogans','frontier','ftr','fujitsu','fun','fund','furniture','futbol',
+  'fyi','ga','gal','gallery','gallo','gallup','game','games','gap','garden','gay','gb','gbiz','gd',
+  'gdn','ge','gea','gent','genting','george','gf','gg','ggee','gh','gi','gift','gifts','gives',
+  'giving','gl','glass','gle','global','globo','gm','gmail','gmbh','gmo','gmx','gn','godaddy','gold',
+  'goldpoint','golf','goodyear','goog','google','gop','got','gov','gp','gq','gr','grainger','graphics',
+  'gratis','green','gripe','grocery','group','gs','gt','gu','gucci','guge','guide','guitars','guru',
+  'gw','gy','hair','hamburg','hangout','haus','hbo','hdfc','hdfcbank','health','healthcare','help',
+  'helsinki','here','hermes','hiphop','hisamitsu','hitachi','hiv','hk','hkt','hm','hn','hockey',
+  'holdings','holiday','homedepot','homegoods','homes','homesense','honda','horse','hospital','host',
+  'hosting','hot','hotels','hotmail','house','how','hr','hsbc','ht','hu','hughes','hyatt','hyundai',
+  'ibm','icbc','ice','icu','id','ie','ieee','ifm','ikano','il','im','imamat','imdb','immo',
+  'immobilien','in','inc','industries','infiniti','info','ing','ink','institute','insurance','insure',
+  'int','international','intuit','investments','io','ipiranga','iq','ir','irish','is','ismaili','ist',
+  'istanbul','it','itau','itv','jaguar','java','jcb','je','jeep','jetzt','jewelry','jio','jll','jm',
+  'jmp','jnj','jo','jobs','joburg','jot','joy','jp','jpmorgan','jprs','juegos','juniper','kaufen',
+  'kddi','ke','kerryhotels','kerryproperties','kfh','kg','kh','ki','kia','kids','kim','kindle',
+  'kitchen','kiwi','km','kn','koeln','komatsu','kosher','kp','kpmg','kpn','kr','krd','kred',
+  'kuokgroup','kw','ky','kyoto','kz','la','lacaixa','lamborghini','lamer','land','landrover','lanxess',
+  'lasalle','lat','latino','latrobe','law','lawyer','lb','lc','lds','lease','leclerc','lefrak','legal',
+  'lego','lexus','lgbt','li','lidl','life','lifeinsurance','lifestyle','lighting','like','lilly',
+  'limited','limo','lincoln','link','live','living','lk','llc','llp','loan','loans','locker','locus',
+  'lol','london','lotte','lotto','love','lpl','lplfinancial','lr','ls','lt','ltd','ltda','lu',
+  'lundbeck','luxe','luxury','lv','ly','ma','madrid','maif','maison','makeup','man','management',
+  'mango','map','market','marketing','markets','marriott','marshalls','mattel','mba','mc','mckinsey',
+  'md','me','med','media','meet','melbourne','meme','memorial','men','menu','merck','merckmsd','mg',
+  'mh','miami','microsoft','mil','mini','mint','mit','mitsubishi','mk','ml','mlb','mls','mm','mma',
+  'mn','mo','mobi','mobile','moda','moe','moi','mom','monash','money','monster','mormon','mortgage',
+  'moscow','moto','motorcycles','mov','movie','mp','mq','mr','ms','msd','mt','mtn','mtr','mu','museum',
+  'music','mv','mw','mx','my','mz','na','nab','nagoya','name','navy','nba','nc','ne','nec','net',
+  'netbank','netflix','network','neustar','new','news','next','nextdirect','nexus','nf','nfl','ng',
+  'ngo','nhk','ni','nico','nike','nikon','ninja','nissan','nissay','nl','no','nokia','norton','now',
+  'nowruz','nowtv','np','nr','nra','nrw','ntt','nu','nyc','nz','obi','observer','office','okinawa',
+  'olayan','olayangroup','ollo','om','omega','one','ong','onl','online','ooo','open','oracle','orange',
+  'org','organic','origins','osaka','otsuka','ott','ovh','pa','page','panasonic','paris','pars',
+  'partners','parts','party','pay','pccw','pe','pet','pf','pfizer','pg','ph','pharmacy','phd',
+  'philips','phone','photo','photography','photos','physio','pics','pictet','pictures','pid','pin',
+  'ping','pink','pioneer','pizza','pk','pl','place','play','playstation','plumbing','plus','pm','pn',
+  'pnc','pohl','poker','politie','porn','post','pr','praxi','press','prime','pro','prod','productions',
+  'prof','progressive','promo','properties','property','protection','pru','prudential','ps','pt','pub',
+  'pw','pwc','py','qa','qpon','quebec','quest','racing','radio','re','read','realestate','realtor',
+  'realty','recipes','red','redumbrella','rehab','reise','reisen','reit','reliance','ren','rent',
+  'rentals','repair','report','republican','rest','restaurant','review','reviews','rexroth','rich',
+  'richardli','ricoh','ril','rio','rip','ro','rocks','rodeo','rogers','room','rs','rsvp','ru','rugby',
+  'ruhr','run','rw','rwe','ryukyu','sa','saarland','safe','safety','sakura','sale','salon','samsclub',
+  'samsung','sandvik','sandvikcoromant','sanofi','sap','sarl','sas','save','saxo','sb','sbi','sbs',
+  'sc','scb','schaeffler','schmidt','scholarships','school','schule','schwarz','science','scot','sd',
+  'se','search','seat','secure','security','seek','select','sener','services','seven','sew','sex',
+  'sexy','sfr','sg','sh','shangrila','sharp','shell','shia','shiksha','shoes','shop','shopping',
+  'shouji','show','si','silk','sina','singles','site','sj','sk','ski','skin','sky','skype','sl',
+  'sling','sm','smart','smile','sn','sncf','so','soccer','social','softbank','software','sohu','solar',
+  'solutions','song','sony','soy','spa','space','sport','spot','sr','srl','ss','st','stada','staples',
+  'star','statebank','statefarm','stc','stcgroup','stockholm','storage','store','stream','studio',
+  'study','style','su','sucks','supplies','supply','support','surf','surgery','suzuki','sv','swatch',
+  'swiss','sx','sy','sydney','systems','sz','tab','taipei','talk','taobao','target','tatamotors',
+  'tatar','tattoo','tax','taxi','tc','tci','td','tdk','team','tech','technology','tel','temasek',
+  'tennis','teva','tf','tg','th','thd','theater','theatre','tiaa','tickets','tienda','tips','tires',
+  'tirol','tj','tjmaxx','tjx','tk','tkmaxx','tl','tm','tmall','tn','to','today','tokyo','tools','top',
+  'toray','toshiba','total','tours','town','toyota','toys','tr','trade','trading','training','travel',
+  'travelers','travelersinsurance','trust','trv','tt','tube','tui','tunes','tushu','tv','tvs','tw',
+  'tz','ua','ubank','ubs','ug','uk','unicom','university','uno','uol','ups','us','uy','uz','va',
+  'vacations','vana','vanguard','vc','ve','vegas','ventures','verisign','versicherung','vet','vg','vi',
+  'viajes','video','vig','viking','villas','vin','vip','virgin','visa','vision','viva','vivo',
+  'vlaanderen','vn','vodka','volvo','vote','voting','voto','voyage','vu','wales','walmart','walter',
+  'wang','wanggou','watch','watches','weather','weatherchannel','web','webcam','weber','website','wed',
+  'wedding','weibo','weir','wf','whoswho','wien','wiki','williamhill','win','windows','wine','winners',
+  'wme','woodside','work','works','world','wow','ws','wtc','wtf','xbox','xerox','xihuan','xin','xxx',
+  'xyz','yachts','yahoo','yamaxun','yandex','ye','yodobashi','yoga','yokohama','you','youtube','yt',
+  'yun','za','zappos','zara','zero','zip','zm','zone','zuerich','zw'
+]
+
+const ANTILINK_TLD_GROUP = IANA_TLDS.join("|")
 
 const ANTILINK_PATTERNS = [
   /(?:https?|ftp):\/\/[^\s<>"{}|\\^`[\]]{2,}/gi,
   /chat\.whatsapp\.com\/[A-Za-z0-9]{10,}/gi,
   /(?:t|telegram)\.me\/[^\s]{2,}/gi,
+  /discord(?:\.gg|\.com\/invite)\/[^\s]{2,}/gi,
+  /wa\.me\/[^\s]{2,}/gi,
   /www\.[a-z0-9][-a-z0-9]{0,61}(?:\.[a-z]{2,})+(?:\/[^\s]*)?/gi,
-  /\b[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.(?:com|net|org|io|co|xyz|top|info|biz|me|link|click|shop|store|online|site|app|dev|tv)\b(?:\/[^\s]*)?/gi,
+  new RegExp(`\\b[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.(?:${ANTILINK_TLD_GROUP})\\b(?:\\/[^\\s]*)?`, "gi"),
+  // bare IPv4 used as a link host
+  /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{2,5})?(?:\/[^\s]*)?/g,
 ]
 
 function antilinkContainsLink(text) {
@@ -1228,10 +1419,25 @@ async function handleAntitagInline(sock, msg, phone) {
     const sessionPhone = normalizeNum(sock.user?.id || "")
 
     if (senderNorm === sessionPhone) return
+    if (OWNER_NUMBERS.includes(senderNorm)) return
+
+    try {
+      const groupMeta = await sock.groupMetadata(groupId)
+      const isSenderAdmin = groupMeta.participants?.some(p =>
+        normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
+      if (isSenderAdmin) return
+    } catch (e) {
+      console.error(`[ANTITAG:${phone}] admin check failed:`, e.message)
+    }
 
     try {
       await sock.sendMessage(groupId, { delete: msg.key })
       console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} (${mentions.length} mention(s))`)
+
+      await sock.sendMessage(groupId, {
+        text: '> *Tags are not allowed in this group*',
+        mentions: [sender],
+      })
     } catch (e) {
       console.error(`[ANTITAG:${phone}] delete failed (bot may not be admin):`, e.message)
     }
@@ -1399,11 +1605,8 @@ async function handleAntistatusInline(sock, msg, phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BAN SYSTEM — hardened, cached, applied uniformly everywhere
 // ─────────────────────────────────────────────────────────────────────────────
-// Short-lived in-memory cache so a banned user's every message doesn't
-// have to hit userDb/Redis again — this is on the hot path for EVERY
-// incoming message, so it has to be nearly free.
 const BAN_CACHE_TTL_MS = 15000
-const banCache = new Map() // key: `${sessionPhone}:${targetPhone}` -> { banned, expiresAt }
+const banCache = new Map()
 
 function banCacheKey(sessionPhone, targetPhone) {
   return `${sessionPhone}:${targetPhone}`
@@ -1430,20 +1633,12 @@ async function isBannedFast(sessionPhone, targetPhone, chatJid) {
 global.__banCacheInvalidate = banCacheInvalidate
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRIVATE-MODE LOCKDOWN — persistent, session-scoped, applies everywhere
-// (group chats, DMs, and even non-command "ordinary" messages).
-// The flag lives in state.settings ("mode"), which is written straight to
-// disk on every .set() call (see makeSessionSettings above), so a restart
-// or crash-restart can never silently drop it back to "public".
+// PRIVATE-MODE LOCKDOWN
 // ─────────────────────────────────────────────────────────────────────────────
 function isPrivateLockdownActive(state) {
   return (state.settings.get("mode") || "public") === "private"
 }
 
-// Returns true if this message should be fully ignored because of an
-// active private-mode lockdown. isOwner/fromMe/sudo always bypass it,
-// in both groups and DMs — this is the single source of truth other
-// handlers should defer to instead of re-implementing their own check.
 function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
   if (isOwner || fromMe) return false
   if (!isPrivateLockdownActive(state)) return false
@@ -1463,7 +1658,6 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
-  // ── BAN CHECK — first thing, before any other logic runs ──────────────
   if (!fromMe) {
     const sessionPhone = normalizeNum(sock.user?.id || "")
     const senderPhone  = normalizeNum(sender || from)
@@ -1473,8 +1667,6 @@ async function handleMessage(state, sock, msg) {
     }
   }
 
-  // ── PRIVATE-MODE LOCKDOWN — checked before prefix parsing so it also
-  // silences ordinary (non-command) messages in both groups and DMs ─────
   const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
   if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
     console.log(`[${state.phone}] 🔒 Private-mode lockdown: ignoring ${normalizeNum(sender || from)} in ${from}`)
@@ -1487,9 +1679,13 @@ async function handleMessage(state, sock, msg) {
 
   const prefix = state.settings.get("prefix") || BOT_PREFIX
   if (!body.startsWith(prefix)) {
-    if (!fromMe) handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
+    handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
     return
   }
+
+  // Command path: fire typing/recording in parallel — the command still
+  // runs and replies instantly, this just runs alongside it, never awaited.
+  triggerAutoPresence(state, sock, from).catch(() => {})
 
   const isOwner = isOwnerEarly
   const isGroup = from.endsWith("@g.us")
@@ -1537,27 +1733,12 @@ async function handleMessage(state, sock, msg) {
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
 
-  // NOTE: the previous 15-second timeout here used Promise.race() to
-  // "give up" on a slow command and retry it. That doesn't actually stop
-  // the slow command — the original call keeps running in the
-  // background, so when a command like .play just took >15s (slow API,
-  // not actually broken), BOTH the original and the retry finished and
-  // BOTH sent a result. That's what caused double responses. Removed
-  // entirely — a command now gets exactly one attempt, plus one retry
-  // ONLY if it actually throws a real error (not a timeout), so nothing
-  // can ever run twice from this path.
   const startedAt = Date.now()
 
   try {
     await runOnce()
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
-    // One of the most common causes of "works for one person, fails for
-    // another" in group bots is stale cached group metadata (it only
-    // auto-refreshes every 5 minutes — see checkGroupAdmin above). If a
-    // command throws, force a fresh metadata fetch and retry exactly
-    // once before showing the error, so a stale-cache hiccup self-heals
-    // instead of surfacing as an inconsistent per-user failure.
     console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
     try {
       if (isGroup) {
@@ -1582,8 +1763,21 @@ async function startBot(phone) {
   let state = sessions.get(phone)
   if (!state) { state = makeSessionState(phone); sessions.set(phone, state) }
 
+  // Refuse to open a second live socket for a phone that's already
+  // connected or mid-connect — this is what causes the 440 "replaced"
+  // conflict loop when addSession/reconnect timers race each other.
+  if (state.connected) {
+    console.log(`[${phone}] ℹ startBot called but already connected — ignoring duplicate start`)
+    return state
+  }
+  if (state.sock && state.startingUp) {
+    console.log(`[${phone}] ℹ startBot called but a connection attempt is already in progress — ignoring duplicate start`)
+    return state
+  }
+  state.startingUp = true
+
   const { state: authState, saveCreds } = await useMultiFileAuthState(state.sessDir)
-  const { version } = await fetchLatestBaileysVersion()
+  const version = await getSafeWaVersion()
 
   const sock = makeWASocket({
     version,
@@ -1591,13 +1785,14 @@ async function startBot(phone) {
       creds: authState.creds,
       keys:  makeCacheableSignalKeyStore(authState.keys, Pino({ level: "silent" })),
     },
-    browser:             Browsers.macOS("Chrome"),
+    browser:             ['Mac OS', 'Chrome', '14.4.1'],
     logger:              Pino({ level: "silent" }),
     printQRInTerminal:   false,
     markOnlineOnConnect: false,
     syncFullHistory:     false,
     keepAliveIntervalMs: 25000,
     connectTimeoutMs:    60000,
+    defaultQueryTimeoutMs: undefined,
     retryRequestDelayMs: 2000,
     maxMsgRetryCount:    5,
     shouldSyncHistoryMessage: m => m.syncType === 0,
@@ -1725,15 +1920,19 @@ async function startBot(phone) {
           continue
         }
 
-        const defaultMsg = type === "welcome"
-          ? "Welcome to *{group}*, @{tag}! 🎉\nWe now have *{members}* members."
-          : "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
-
-        const template = settings.message || defaultMsg
-        const text = template
-          .replace(/{tag}/g,     memberPhone)
-          .replace(/{group}/g,   groupName)
-          .replace(/{members}/g, String(memberCount))
+        let text
+        if (type === "welcome") {
+          text = await welcomeCmd.buildRichWelcomeText(sock, {
+            groupId, participantJid, pushName, groupName, memberCount, meta,
+          })
+        } else {
+          const defaultMsg = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
+          const template = settings.message || defaultMsg
+          text = template
+            .replace(/{tag}/g,     memberPhone)
+            .replace(/{group}/g,   groupName)
+            .replace(/{members}/g, String(memberCount))
+        }
 
         const ppUrl = await getProfilePictureSafe(sock, participantJid, { retries: 2, delayMs: 800 })
 
@@ -1760,7 +1959,6 @@ async function startBot(phone) {
         const callerJid = call.from || call.peerJid || call.chatId
         if (!callerJid) continue
 
-        // Ban check applies to calls too now, not just messages.
         const sessionPhone = normalizeNum(sock.user?.id || "")
         const callerPhone  = normalizeNum(callerJid)
         const callerBanned = await isBannedFast(sessionPhone, callerPhone, callerJid)
@@ -1791,6 +1989,7 @@ async function startBot(phone) {
   })
 
   let pairingCodeRequested = false
+  const PAIRING_MIN_GAP_MS = 20000 // never re-request a pairing code faster than this, even across reconnects
 
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update
@@ -1801,24 +2000,31 @@ async function startBot(phone) {
       connection === "connecting" &&
       !qr
     ) {
-      pairingCodeRequested = true
-      const number = phone.replace(/\D/g, "")
-      try {
-        await new Promise(r => setTimeout(r, 3000))
-        const code = await sock.requestPairingCode(number)
-        state.pairingCode          = code
-        state.pairingCodeExpiresAt = Date.now() + PAIRING_CODE_TTL_MS
-        console.log(`[${phone}] 📱 PAIRING CODE: ${code} (generated ${nowWAT()} WAT — expires in 60s)`)
-      } catch (e) {
-        console.error(`[${phone}] PAIR ERR:`, e.message)
-        pairingCodeRequested = false
-        state.pairingCode          = null
-        state.pairingCodeExpiresAt = null
+      const sinceLast = state.lastPairingAttemptAt ? Date.now() - state.lastPairingAttemptAt : Infinity
+      if (sinceLast < PAIRING_MIN_GAP_MS) {
+        logOnce(phone, "pair-cooldown", `[${phone}] ⏳ Skipping pairing request — last one was ${Math.round(sinceLast / 1000)}s ago, waiting for ${PAIRING_MIN_GAP_MS / 1000}s cooldown`)
+      } else {
+        pairingCodeRequested = true
+        state.lastPairingAttemptAt = Date.now()
+        const number = phone.replace(/\D/g, "")
+        try {
+          await new Promise(r => setTimeout(r, 3000))
+          const code = await sock.requestPairingCode(number)
+          state.pairingCode          = code
+          state.pairingCodeExpiresAt = Date.now() + PAIRING_CODE_TTL_MS
+          logOnce(phone, "pair-code", `[${phone}] 📱 PAIRING CODE: ${code} (generated ${nowWAT()} WAT — expires in 60s)`)
+        } catch (e) {
+          console.error(`[${phone}] PAIR ERR:`, e.message)
+          pairingCodeRequested = false
+          state.pairingCode          = null
+          state.pairingCodeExpiresAt = null
+        }
       }
     }
 
     if (connection === "open") {
       state.connected            = true
+      state.startingUp           = false
       state.retries              = 0
       state.pairingCode          = null
       state.pairingCodeExpiresAt = null
@@ -1839,18 +2045,21 @@ async function startBot(phone) {
     }
 
     if (connection === "close") {
-      state.connected = false
+      state.connected  = false
+      state.startingUp = false
       const statusCode = lastDisconnect?.error?.output?.statusCode
       const loggedOut  = statusCode === DisconnectReason.loggedOut
       if (loggedOut) {
         console.log(`[${phone}] ✗ Logged out — removing session`)
         await removeSession(phone)
         await sessionBackup.deleteSession(phone).catch(() => {})
+        await settingsBackup.deleteSettings(phone).catch(() => {})
+        if (slotAssignments[phone]) { delete slotAssignments[phone]; saveSlotAssignments() }
         return
       }
       state.retries++
       const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
-      console.log(`[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode})`)
+      logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt #${state.retries}`)
       setTimeout(() => startBot(phone).catch(e => console.error(`[${phone}] RESTART ERR:`, e.message)), delay)
     }
   })
@@ -1866,9 +2075,6 @@ async function startBot(phone) {
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
 
-      // ── FAST-PATH BAN GATE — runs before ANY other per-message handler
-      // (antilink/antitag/badword/antibot/memory), so a banned user gets
-      // zero side effects anywhere in the bot, not just in commands. ────
       if (!m.key.fromMe && m.key.remoteJid !== "status@broadcast") {
         const senderPhone = normalizeNum(m.key.participant || m.key.remoteJid)
         if (await isBannedFast(sessionPhone, senderPhone, m.key.remoteJid)) continue
@@ -1900,57 +2106,25 @@ async function startBot(phone) {
     )
   })
 
+  // Any reaction in a group or DM counts as activity too.
+  sock.ev.on("messages.reaction", async (reactions) => {
+    for (const r of reactions) {
+      const from = r.key?.remoteJid
+      if (!from || from === "status@broadcast") continue
+      triggerAutoPresence(state, sock, from).catch(() => {})
+    }
+  })
+
   return state
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEAD SESSION CLEANUP
+// SESSION REMOVAL
 // ─────────────────────────────────────────────────────────────────────────────
-async function cleanupDeadSessions(waitMs = 60000) {
-  console.log(`[SESSION-GUARD] ⏳ Watching sessions — will remove any that fail to connect within ${waitMs / 1000}s...`)
-  await new Promise(r => setTimeout(r, waitMs))
-  const dead = []
-  for (const [phone, state] of sessions.entries()) {
-    if (!state.connected) dead.push(phone)
-  }
-  if (!dead.length) {
-    console.log("[SESSION-GUARD] ✅ All sessions connected successfully — nothing to remove")
-    return
-  }
-  console.log(`[SESSION-GUARD] 🧹 ${dead.length} session(s) failed after ${waitMs / 1000}s — permanently removing: ${dead.join(", ")}`)
-  for (const phone of dead) {
-    try {
-      const state = sessions.get(phone)
-      if (state) {
-        if (state.presenceTimer) clearInterval(state.presenceTimer)
-        try { state.sock?.end(undefined) } catch {}
-        sessions.delete(phone)
-        console.log(`[SESSION-GUARD] 🗑 Removed from bot memory: ${phone}`)
-      }
-      try {
-        const sessDir = path.join(SESS_ROOT, phone)
-        if (fs.existsSync(sessDir)) {
-          fs.rmSync(sessDir, { recursive: true, force: true })
-          console.log(`[SESSION-GUARD] 🗑 Removed from disk: ${phone}`)
-        }
-      } catch (e) {
-        console.error(`[SESSION-GUARD] ✗ Disk remove failed for ${phone}:`, e.message)
-      }
-      try {
-        await sessionBackup.deleteSession(phone)
-        console.log(`[SESSION-GUARD] 🗑 Wiped from Redis: ${phone}`)
-      } catch (e) {
-        console.error(`[SESSION-GUARD] ✗ Redis wipe failed for ${phone}:`, e.message)
-      }
-      if (slotAssignments[phone]) delete slotAssignments[phone]
-    } catch (e) {
-      console.error(`[SESSION-GUARD] ✗ Error cleaning up ${phone}:`, e.message)
-    }
-  }
-  saveMeta()
-  saveSlotAssignments()
-  console.log(`[SESSION-GUARD] ✅ Cleanup done — removed ${dead.length} dead session(s). Active sessions: ${sessions.size}`)
-}
+// Sessions are removed only when WhatsApp explicitly reports
+// DisconnectReason.loggedOut in the connection.update close handler.
+// A slow reconnect, VPS restart, temporary network failure, or timeout
+// must NOT delete valid authentication credentials.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC API
@@ -2010,6 +2184,20 @@ async function init() {
   })
   if (restoredCount > 0) console.log(`[INIT] ✔ Restored ${restoredCount} session(s) from backup`)
 
+  try {
+    const settingsUsersDir = path.join(__dirname, "data", "users")
+    await settingsBackup.restoreAllSettings(settingsUsersDir)
+
+    // Start the global per-session settings safety net.
+    // Any command that changes data/users/<PHONE>.json is automatically
+    // synchronized to Redis settings:<PHONE>.
+    settingsBackup.watchAndSync(settingsUsersDir)
+
+    console.log("[SETTINGS-BACKUP] 🛡 Per-session settings protection ACTIVE")
+  } catch (e) {
+    console.error("[SETTINGS-BACKUP] ✗ Restore/watch setup failed:", e.message)
+  }
+
   console.log("[INIT] 🔄 Restoring user/group settings from backup...")
   const dbRestoredCount = await lib.userDb?.restoreAllFromRedis?.().catch(e => {
     console.error("[INIT] ✗ User DB restore failed:", e.message)
@@ -2042,12 +2230,33 @@ async function init() {
   }
 
   saveMeta()
-  cleanupDeadSessions(60000).catch(e => console.error("[SESSION-GUARD] ✗", e.message))
+  // NOTE: sessions are no longer wiped on a blind boot-time timer. A
+  // session that just takes a while to reconnect after a restart is not
+  // the same as a real logout. Removal now happens only when WhatsApp
+  // itself confirms a logout (DisconnectReason.loggedOut, in the
+  // connection.update "close" handler above) — that's the one signal
+  // that actually means "this phone unlinked the bot."
 }
 
 async function addSession(phone, preferredSlot = null) {
   const clean = phone.replace(/\D/g, "")
   if (!clean) throw new Error("Invalid phone number")
+
+  // Already live? Don't spin up a second socket on the same WhatsApp
+  // identity — that's what causes the endless 440 "replaced" conflict
+  // loop (two live sockets fighting over one device registration).
+  const existing = sessions.get(clean)
+  if (existing?.connected) {
+    console.log(`[${clean}] ℹ addSession called but already connected — returning existing state, not restarting`)
+    return {
+      phone:       clean,
+      pairingCode: null,
+      expiresInMs: 0,
+      connected:   true,
+      slot:        slotAssignments[clean] || null,
+    }
+  }
+
   const slot = assignToSlot(clean, preferredSlot)
   if (slot === null) throw new Error("All server slots are full. Please try again later.")
   await startBot(clean)
@@ -2104,4 +2313,5 @@ global.__listBots = listBots
 module.exports = {
   init, addSession, removeSession, listBots,
   getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY,
+  TOTAL_RAM_MB, MAX_RAM_MB, MEM_RESERVE_MB, PER_SESSION_BUDGET_MB,
 }

@@ -1,59 +1,154 @@
-// commands/play.js — CYBER X Play Command (Powerful Standalone)
 'use strict'
 
-const axios = require('axios')
-const yts   = require('yt-search')
-const { toAudio, detectFormat } = require('../lib/converter')
+// 𓃦 𝗭Ξ𝗡 𝗫 — YouTube Play
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const fs   = require('fs')
+const path = require('path')
+const os   = require('os')
+const { execFile } = require('child_process')
+const { promisify } = require('util')
+const axios = require('axios')
+
+const execFileAsync = promisify(execFile)
+
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  'Accept': '*/*',
 }
 
-async function tryGet(fn, tries = 3) {
-  let last
-  for (let i = 0; i < tries; i++) {
-    try { return await fn() } catch (e) {
-      last = e
-      if (i < tries - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)))
-    }
+function formatDuration(seconds) {
+  if (!seconds || !Number.isFinite(Number(seconds))) return 'Unknown'
+
+  seconds = Math.floor(Number(seconds))
+
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
-  throw last
+
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function cleanFileName(name) {
+  return String(name || 'audio')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100) || 'audio'
 }
 
 async function fetchBuffer(url) {
-  try {
-    const r = await axios.get(url, {
-      responseType: 'arraybuffer', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400
-    })
-    return Buffer.from(r.data)
-  } catch {
-    const r = await axios.get(url, {
-      responseType: 'stream', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400
-    })
-    const chunks = []
-    await new Promise((res, rej) => {
-      r.data.on('data', c => chunks.push(c))
-      r.data.on('end', res)
-      r.data.on('error', rej)
-    })
-    return Buffer.concat(chunks)
+  const r = await axios.get(url, {
+    responseType: 'arraybuffer', timeout: 30000, headers: HEADERS,
+    validateStatus: s => s >= 200 && s < 400
+  })
+  return Buffer.from(r.data)
+}
+
+// YouTube returns a small valid placeholder JPG (HTTP 200) when a size
+// doesn't exist for a video — walk largest-first, reject anything tiny.
+async function fetchRealThumbnail(videoId) {
+  const sizes = ['maxresdefault', 'sddefault', 'hqdefault', 'mqdefault', 'default']
+  for (const size of sizes) {
+    try {
+      const buf = await fetchBuffer(`https://i.ytimg.com/vi/${videoId}/${size}.jpg`)
+      if (buf?.length > 5000) return buf
+    } catch {}
+  }
+  return null
+}
+
+function extractVideoId(url) {
+  return url?.match(/(?:v=|youtu\.be\/|\/shorts\/)([\w-]{11})/)?.[1] || null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH — yt-dlp first (fastest, richest metadata), falling back to the
+// yt-search npm package (scrapes YouTube's own search page — a different
+// request pattern, not blocked by the same bot-detection as yt-dlp's
+// dedicated YouTube extractor).
+// ─────────────────────────────────────────────────────────────────────────────
+async function searchViaYtDlp(query) {
+  const { stdout } = await execFileAsync(
+    'yt-dlp',
+    ['--dump-single-json', '--skip-download', '--no-playlist', '--no-warnings', `ytsearch1:${query}`],
+    { maxBuffer: 10 * 1024 * 1024, timeout: 60000 }
+  )
+  const info = JSON.parse(stdout)
+  if (!info?.webpage_url && !info?.id) throw new Error('yt-dlp: no result')
+
+  return {
+    title:    info.title || query,
+    author:   info.uploader || info.channel || info.creator || 'Unknown',
+    duration: formatDuration(info.duration),
+    url:      info.webpage_url || `https://www.youtube.com/watch?v=${info.id}`,
+    videoId:  info.id || extractVideoId(info.webpage_url),
   }
 }
 
-// ── More download sources than song.js ──
+async function searchViaYtSearch(query) {
+  const yts = require('yt-search')
+  const search = await yts(query)
+  const best = search?.videos?.[0]
+  if (!best) throw new Error('yt-search: no result')
+
+  return {
+    title:    best.title,
+    author:   best.author?.name || 'Unknown',
+    duration: best.timestamp || 'Unknown',
+    url:      best.url,
+    videoId:  best.videoId || extractVideoId(best.url),
+  }
+}
+
+async function smartSearch(query) {
+  try {
+    const r = await searchViaYtDlp(query)
+    console.log(`[ZEN X PLAY] search OK via yt-dlp: "${r.title}" (${r.url})`)
+    return r
+  } catch (e) {
+    console.error('[ZEN X PLAY] yt-dlp search failed:', e.message)
+    const r = await searchViaYtSearch(query)
+    console.log(`[ZEN X PLAY] search OK via yt-search fallback: "${r.title}" (${r.url})`)
+    return r
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOWNLOAD — yt-dlp first, falling back to third-party download APIs that
+// fetch from their own servers (sidesteps this VPS's IP being flagged by
+// YouTube's bot detection, which is what "Sign in to confirm you're not a
+// bot" means — it's an IP-reputation block, not something fixable in code
+// alone without cookies).
+// ─────────────────────────────────────────────────────────────────────────────
+async function downloadViaYtDlp(youtubeUrl) {
+  const workDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'zenx-play-'))
+  const outputTemplate = path.join(workDir, 'audio.%(ext)s')
+  try {
+    await execFileAsync(
+      'yt-dlp',
+      ['--no-playlist', '--no-warnings', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', outputTemplate, youtubeUrl],
+      { maxBuffer: 10 * 1024 * 1024, timeout: 180000 }
+    )
+    const files = await fs.promises.readdir(workDir)
+    const audioFile = files.find(f => f.toLowerCase().endsWith('.mp3'))
+    if (!audioFile) throw new Error('yt-dlp: no audio file produced')
+    const buf = await fs.promises.readFile(path.join(workDir, audioFile))
+    if (buf.length < 10000) throw new Error('yt-dlp: output too small')
+    return buf
+  } finally {
+    fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 const MP3_APIS = [
   {
     name: 'EliteProTech',
     get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp3`,
-        { timeout: 30000, headers: HEADERS }))
+      const r = await axios.get(`https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp3`,
+        { timeout: 30000, headers: HEADERS })
       if (r?.data?.success && r?.data?.downloadURL) return r.data.downloadURL
       throw new Error('No URL')
     }
@@ -61,9 +156,8 @@ const MP3_APIS = [
   {
     name: 'Yupra',
     get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
+      const r = await axios.get(`https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`,
+        { timeout: 30000, headers: HEADERS })
       if (r?.data?.success && r?.data?.data?.download_url) return r.data.data.download_url
       throw new Error('No URL')
     }
@@ -71,213 +165,123 @@ const MP3_APIS = [
   {
     name: 'Okatsu',
     get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
+      const r = await axios.get(`https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`,
+        { timeout: 30000, headers: HEADERS })
       if (r?.data?.dl) return r.data.dl
-      throw new Error('No URL')
-    }
-  },
-  {
-    name: 'Y2Mate',
-    get: async (url) => {
-      const r = await tryGet(() => axios.post(
-        'https://www.y2mate.com/mates/analyzeV2/ajax',
-        `k_query=${encodeURIComponent(url)}&k_page=home&hl=en&q_auto=0`,
-        { timeout: 30000, headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' } }
-      ))
-      const vid = r?.data?.vid
-      if (!vid) throw new Error('No vid')
-      const r2 = await tryGet(() => axios.post(
-        'https://www.y2mate.com/mates/convertV2/index',
-        `vid=${vid}&k=140`,
-        { timeout: 30000, headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' } }
-      ))
-      if (r2?.data?.dlink) return r2.data.dlink
       throw new Error('No URL')
     }
   },
   {
     name: 'Cobalt',
     get: async (url) => {
-      const r = await tryGet(() => axios.post(
-        'https://api.cobalt.tools/',
+      const r = await axios.post('https://api.cobalt.tools/',
         { url, isAudioOnly: true, filenamePattern: 'basic' },
-        { timeout: 30000, headers: { ...HEADERS, 'Content-Type': 'application/json', 'Accept': 'application/json' } }
-      ))
+        { timeout: 30000, headers: { ...HEADERS, 'Content-Type': 'application/json', 'Accept': 'application/json' } })
       if (r?.data?.url) return r.data.url
-      throw new Error('No URL')
-    }
-  },
-  {
-    name: 'SaveFrom',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://worker.savefrom.net/api/convert?url=${encodeURIComponent(url)}&audio=true`,
-        { timeout: 30000, headers: HEADERS }
-      ))
-      const link = r?.data?.url || r?.data?.data?.url
-      if (link) return link
       throw new Error('No URL')
     }
   },
 ]
 
-function fmtViews(n) {
-  if (!n) return 'N/A'
-  if (n >= 1e9) return `${(n/1e9).toFixed(1)}B 🔥`
-  if (n >= 1e6) return `${(n/1e6).toFixed(1)}M 🔥`
-  if (n >= 1e3) return `${(n/1e3).toFixed(1)}K`
-  return n.toLocaleString()
+function looksLikeAudio(buf) {
+  if (!buf || buf.length < 10000) return false
+  const head = buf.slice(0, 16).toString('latin1')
+  // Reject obvious non-audio payloads (HTML/JSON error bodies from a
+  // flaky API) that would otherwise pass a bare size check.
+  if (head.startsWith('<') || head.startsWith('{') || head.startsWith('[')) return false
+  return true
 }
 
-async function downloadMp3(ytUrl) {
+async function downloadAudio(youtubeUrl) {
+  try {
+    const buf = await downloadViaYtDlp(youtubeUrl)
+    console.log(`[ZEN X PLAY] download OK via yt-dlp (${(buf.length / 1e6).toFixed(2)}MB)`)
+    return buf
+  } catch (e) {
+    console.error('[ZEN X PLAY] yt-dlp download failed:', e.message)
+  }
+
   for (const api of MP3_APIS) {
     try {
-      console.log(`[PLAY] Trying ${api.name}...`)
-      const dlUrl = await api.get(ytUrl)
+      const dlUrl = await api.get(youtubeUrl)
       const buf   = await fetchBuffer(dlUrl)
-      if (buf?.length > 10000) {
-        console.log(`[PLAY] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
-        return { buf, source: api.name }
+      if (looksLikeAudio(buf)) {
+        console.log(`[ZEN X PLAY] download OK via ${api.name} (${(buf.length / 1e6).toFixed(2)}MB)`)
+        return buf
       }
-    } catch (e) { console.log(`[PLAY] ❌ ${api.name}: ${e.message}`) }
+      console.error(`[ZEN X PLAY] ${api.name} returned a non-audio or too-small payload (${buf?.length || 0} bytes) — skipping`)
+    } catch (e) {
+      console.error(`[ZEN X PLAY] ${api.name} failed:`, e.message)
+    }
   }
-  throw new Error('All download sources failed — try again later')
-}
-
-// ── Smarter search — tries multiple results ──
-async function smartSearch(query) {
-  const isUrl = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(query)
-  if (isUrl) {
-    const r = await yts({ videoId: query.match(/(?:v=|youtu\.be\/)([^&\s]+)/)?.[1] || '' })
-    if (r?.title) return r
-  }
-  const search = await yts(query)
-  if (!search?.videos?.length) throw new Error(`No results found for "${query}"`)
-
-  // pick best result — prefer official/topic channels
-  const best = search.videos.find(v =>
-    v.author?.name?.toLowerCase().includes('topic') ||
-    v.author?.name?.toLowerCase().includes('official') ||
-    v.author?.verified
-  ) || search.videos[0]
-
-  return best
+  throw new Error('All download sources failed')
 }
 
 module.exports = {
-  pattern:  'play',
-  alias:    ['music', 'mp3'],
-  desc:     'Search and download music from YouTube',
-  usage:    '.play <song name or YouTube link>',
+  name: 'play',
+  aliases: ['ytplay', 'song'],
+  desc: 'Play a song from YouTube',
+  usage: '.play <song name>',
   category: 'download',
 
   run: async ({ sock, from, msg, args }) => {
-    const query = args.join(' ').trim()
-
-    if (!query) {
-      return sock.sendMessage(from, {
-        text:
-`╔═══════════════════════════╗
-║  🎵 *CYBER X MUSIC*       ║
-╚═══════════════════════════╝
-
-*How to use:*
-• *.play <song name>* — Search and download
-• *.play <YouTube link>* — Direct download
-• *.music <song name>* — Also works
-• *.mp3 <song name>* — Also works
-
-💡 *Examples:*
-  _.play Burna Boy Last Last_
-  _.play Wizkid Essence_
-  _.play https://youtu.be/xxxxx_
-
-${CREDIT}`,
-        quoted: msg
-      })
-    }
-
-    // ── React immediately ──
-    sock.sendMessage(from, {
-      react: { text: '🎧', key: msg.key }
-    }).catch(() => {})
-
-    // ── Send searching message ──
-    const searchMsg = await sock.sendMessage(from, {
-      text: `🔎 *Searching:* _${query}_...`,
-    }, { quoted: msg })
+    const query = Array.isArray(args) ? args.join(' ').trim() : String(args || '').trim()
+    if (!query) return
 
     try {
-      // ── Smart search ──
-      const v = await smartSearch(query)
+      // ─────────────────────────────────────────────
+      // 1. SEARCH YOUTUBE
+      // ─────────────────────────────────────────────
+      const info = await smartSearch(query)
+      if (!info?.url) return
 
-      const card =
-`┏━━━━━━━━━━━━━━━━━━━━━━━┓
-   🎵 *𝘾𝙔𝘽𝙀𝙍 𝙓 𝙈𝙐𝙎𝙄𝘾* 🎵
-┗━━━━━━━━━━━━━━━━━━━━━━━┛
+      // ─────────────────────────────────────────────
+      // 2. REAL THUMBNAIL — fetched as a Buffer, not a bare URL
+      // ─────────────────────────────────────────────
+      const thumbBuf = info.videoId ? await fetchRealThumbnail(info.videoId).catch(() => null) : null
+      console.log(`[ZEN X PLAY] thumbnail ${thumbBuf ? `OK (${thumbBuf.length} bytes)` : 'FAILED — sending without one'}`)
 
-🎼 *Title*    » ${v.title}
-🎤 *Artist*   » ${v.author?.name || 'Unknown'}
-⏱️ *Duration* » ${v.timestamp || 'N/A'}
-👁️ *Views*    » ${fmtViews(v.views)}
-📅 *Uploaded* » ${v.ago || 'N/A'}
-📺 *Platform* » YouTube
-🔗 *Link*     » ${v.url}
+      // ─────────────────────────────────────────────
+      // 3. DOWNLOAD AUDIO
+      // ─────────────────────────────────────────────
+      const audioBuf = await downloadAudio(info.url)
 
-▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-⬇️ *Downloading audio...*
-▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-${CREDIT}`
-
-      // ── Send thumbnail + card ──
-      const infoMsg = await (async () => {
-        try {
-          if (v.thumbnail) {
-            return await sock.sendMessage(from, {
-              image: { url: v.thumbnail }, caption: card,
-            }, { quoted: msg })
+      // ─────────────────────────────────────────────
+      // 4. SEND ONE AUDIO MESSAGE
+      //
+      // YouTube information is ATTACHED to the audio.
+      // No separate YouTube message.
+      // ─────────────────────────────────────────────
+      console.log(`[ZEN X PLAY] sending to ${from} — audio ${(audioBuf.length / 1e6).toFixed(2)}MB`)
+      const sent = await sock.sendMessage(
+        from,
+        {
+          audio: audioBuf,
+          mimetype: 'audio/mpeg',
+          fileName: `${cleanFileName(info.title)}.mp3`,
+          ptt: false,
+          contextInfo: {
+            externalAdReply: {
+              title: info.title,
+              body: `Author ${info.author} || Duration ${info.duration}`,
+              thumbnail: thumbBuf || undefined,
+              sourceUrl: info.url,
+              mediaType: 1,
+              renderLargerThumbnail: true,
+              showAdAttribution: false
+            }
           }
-        } catch {}
-        return sock.sendMessage(from, { text: card }, { quoted: msg })
-      })()
+        },
+        { quoted: msg }
+      )
+      console.log(`[ZEN X PLAY] sendMessage resolved — key: ${sent?.key?.id || 'NO KEY RETURNED'}`)
 
-      // ── Delete search message ──
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-
-      // ── Download ──
-      const { buf, source } = await downloadMp3(v.url)
-      const { ext } = detectFormat(buf)
-      const audio   = await toAudio(buf, ext)
-
-      // ── Send audio ──
-      await sock.sendMessage(from, {
-        audio,
-        mimetype: 'audio/mpeg',
-        fileName: `${v.title.replace(/[^\w\s]/g, '').trim()}.mp3`,
-        ptt: false,
-      }, { quoted: infoMsg })
-
-      // ── React success ──
-      await sock.sendMessage(from, {
-        react: { text: '✅', key: msg.key }
-      }).catch(() => {})
-
-      console.log(`[PLAY] ✅ Sent "${v.title}" via ${source}`)
-
-    } catch (e) {
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      console.error('[PLAY]', e.message)
-
-      await sock.sendMessage(from, {
-        react: { text: '❌', key: msg.key }
-      }).catch(() => {})
-
-      await sock.sendMessage(from, {
-        text: `❌ *Failed:* ${e.message}\n\nTry a different song name or YouTube link.\n\n${CREDIT}`,
+    } catch (error) {
+      console.error('[ZEN X PLAY]', error.message)
+      sock.sendMessage(from, {
+        text: `❌ Play failed: ${error.message}`,
         quoted: msg
-      })
+      }).catch(() => {})
     }
   }
 }

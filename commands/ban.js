@@ -75,7 +75,7 @@ function isBanned(sessionPhone, userPhone) {
 module.exports = {
   pattern: 'ban',
   alias: [],
-  category: 'group/admin',
+  category: 'group',
   desc: 'Ban/unban users from using this bot session (owner only)',
   usage: '.ban (reply) | .ban @user | .ban unban <number> | .ban list',
 
