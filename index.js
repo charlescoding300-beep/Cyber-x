@@ -17,6 +17,7 @@ const isAdminLib    = require("./lib/isAdmin")
 const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
 const settingsBackup = require("./lib/settingsBackup")
+const authStore = require("./lib/authStore")
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -139,32 +140,100 @@ function getSlotsSummary() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTO LOADER
+// AUTO LOADER — lib / utils / api / config
+// Fully active + detectable. Every .js file is required, cached by name,
+// and any exported object is also flattened onto the bucket so commands can
+// do lib.foo() or api.bar() without extra paths.
 // ─────────────────────────────────────────────────────────────────────────────
 const lib    = {}
 const api    = {}
 const config = {}
 
-function loadDir(dir, bucket, label) {
-  if (!fs.existsSync(dir)) return
-  for (const file of fs.readdirSync(dir).filter(f => f.endsWith(".js")).sort()) {
+// Track what was loaded so anything can inspect it at runtime
+const loadedModules = {
+  lib:    [],
+  utils:  [],
+  api:    [],
+  config: [],
+}
+
+function loadDir(dir, bucket, label, trackKey) {
+  if (!fs.existsSync(dir)) {
+    console.log(`[${label}] ℹ folder missing — creating: ${dir}`)
+    try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+    return 0
+  }
+
+  let ok = 0, fail = 0
+  const files = fs.readdirSync(dir).filter(f => f.endsWith(".js")).sort()
+
+  for (const file of files) {
     try {
       const full = path.join(dir, file)
-      delete require.cache[require.resolve(full)]
-      const exp  = require(full)
-      bucket[path.basename(file, ".js")] = exp
-      if (exp && typeof exp === "object") Object.assign(bucket, exp)
+      // Clear cache so hot-reload always picks up the latest version
+      try { delete require.cache[require.resolve(full)] } catch {}
+      const exp = require(full)
+      const name = path.basename(file, ".js")
+
+      // Always store under the filename
+      bucket[name] = exp
+
+      // Flatten object exports so lib.handleAntibot, api.fetch, etc. work directly
+      if (exp && typeof exp === "object" && !Array.isArray(exp)) {
+        for (const [k, v] of Object.entries(exp)) {
+          if (k === "default") continue
+          bucket[k] = v
+        }
+      }
+
+      // Also attach common default export patterns
+      if (exp && typeof exp === "function") {
+        bucket[name] = exp
+      }
+
+      loadedModules[trackKey] = loadedModules[trackKey] || []
+      if (!loadedModules[trackKey].includes(name)) loadedModules[trackKey].push(name)
+
       console.log(`[${label}] ✔ ${file}`)
-    } catch (e) { console.error(`[${label}] ✗ ${file}: ${e.message}`) }
+      ok++
+    } catch (e) {
+      console.error(`[${label}] ✗ ${file}: ${e.message}`)
+      fail++
+    }
   }
+
+  return ok
 }
 
 function loadAllSupportDirs() {
-  loadDir(LIB_DIR,    lib,    "LIB")
-  loadDir(UTILS_DIR,  lib,    "UTILS")
-  loadDir(API_DIR,    api,    "API")
-  loadDir(CONFIG_DIR, config, "CONFIG")
+  // Reset tracking lists on full reload
+  loadedModules.lib    = []
+  loadedModules.utils  = []
+  loadedModules.api    = []
+  loadedModules.config = []
+
+  const libCount    = loadDir(LIB_DIR,    lib,    "LIB",    "lib")
+  const utilsCount  = loadDir(UTILS_DIR,  lib,    "UTILS",  "utils")   // utils also land on lib
+  const apiCount    = loadDir(API_DIR,    api,    "API",    "api")
+  const configCount = loadDir(CONFIG_DIR, config, "CONFIG", "config")
+
+  console.log(
+    `[AUTO-LOAD] ✔ Active → LIB:${libCount}  UTILS: ${utilsCount}  API:${apiCount}  CONFIG: ${configCount}`
+  )
+  console.log(
+    `[AUTO-LOAD] Detectable modules → lib:[${loadedModules.lib.join(", ") || "none"}] ` +
+    `utils:[${loadedModules.utils.join(", ") || "none"}] ` +
+    `api:[${loadedModules.api.join(", ") || "none"}] ` +
+    `config:[${loadedModules.config.join(", ") || "none"}]`
+  )
 }
+
+// Make the loaded lists and buckets globally detectable
+global.__lib     = lib
+global.__api     = api
+global.__config  = config
+global.__loaded  = loadedModules
+
 loadAllSupportDirs()
 
 let supportWatchStarted = false
@@ -172,16 +241,29 @@ function watchSupportDirs() {
   if (supportWatchStarted) return
   supportWatchStarted = true
   let debounce = null
-  for (const [dir, label] of [[LIB_DIR, "LIB"], [UTILS_DIR, "UTILS"], [API_DIR, "API"], [CONFIG_DIR, "CONFIG"]]) {
-    if (!fs.existsSync(dir)) continue
-    fs.watch(dir, { persistent: false }, (_, f) => {
-      if (!f?.endsWith(".js")) return
-      clearTimeout(debounce)
-      debounce = setTimeout(() => {
-        loadAllSupportDirs()
-        console.log(`[${label}] ↺ reloaded (${f} changed)`)
-      }, 150)
-    })
+
+  for (const [dir, label] of [
+    [LIB_DIR,    "LIB"],
+    [UTILS_DIR,  "UTILS"],
+    [API_DIR,    "API"],
+    [CONFIG_DIR, "CONFIG"],
+  ]) {
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+    }
+    try {
+      fs.watch(dir, { persistent: false }, (_, f) => {
+        if (!f?.endsWith(".js")) return
+        clearTimeout(debounce)
+        debounce = setTimeout(() => {
+          loadAllSupportDirs()
+          console.log(`[${label}] ↺ hot-reloaded ( ${f} changed)`)
+        }, 150)
+      })
+      console.log(`[WATCH] 👀 Watching ${label} folder for changes`)
+    } catch (e) {
+      console.warn(`[WATCH] could not watch ${label}:`, e.message)
+    }
   }
 }
 
@@ -250,11 +332,11 @@ const PER_SESSION_BUDGET_MB  = Math.max(1, Math.floor(MAX_RAM_MB / MAX_POSSIBLE_
 
 console.log(
   `[RAM] Detected host RAM: ${TOTAL_RAM_MB}MB | Reserved for OS/overhead: ${MEM_RESERVE_MB}MB | ` +
-  `Restart threshold: ${MAX_RAM_MB}MB${process.env.MAX_RAM_MB ? " (manual override via .env)" : " (auto-calculated)"}`
+  `Restart threshold: ${MAX_RAM_MB}MB ${process.env.MAX_RAM_MB ? " (manual override via .env)" : " (auto-calculated)"}`
 )
 console.log(
   `[RAM] Divided across max possible sessions (${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity = ${MAX_POSSIBLE_SESSIONS}): ` +
-  `~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
+  `\~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
 )
 
 // ── Memory guard ──────────────────────────────────────────────────────────────
@@ -402,7 +484,7 @@ function watchCommands() {
 // JID NORMALIZER
 // ─────────────────────────────────────────────────────────────────────────────
 function normalizeNum(raw = "") {
-  return raw.replace(/@.+$/, "").replace(/:\d+$/, "").replace(/\D/g, "").trim()
+  return raw.replace(/@.+\( /, "").replace(/:\d+ \)/, "").replace(/\D/g, "").trim()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -536,7 +618,7 @@ async function fetchWithRetry(url, opts = {}) {
       if (attempt === retries) break
       const jitter = Math.random() * 200
       const delay  = Math.min(backoffMs * Math.pow(2, attempt), maxBackoff) + jitter
-      console.warn(`[NET] ⚠ ${url.split("?")[0]} attempt ${attempt + 1}/${retries + 1} failed (${e.message}) — retrying in ${Math.round(delay)}ms`)
+      console.warn(`[NET] ⚠ ${url.split("?")[0]} attempt ${attempt + 1}/ ${retries + 1} failed (${e.message}) — retrying in ${Math.round(delay)}ms`)
       await new Promise(r => setTimeout(r, delay))
     }
   }
@@ -586,7 +668,7 @@ const helper = {
   downloadMediaSafe: (msg, sock, retries) => downloadMediaSafe(msg, sock, retries),
   box(title, lines = []) {
     const body = lines.map(l => `║  ${l}`).join("\n")
-    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝖤𝕽 𝖃 ™`
+    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n ${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝖤𝕽 𝖃 ™`
   },
   msToTime(ms) { const s = Math.floor(ms/1000); return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s` },
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
@@ -651,7 +733,7 @@ async function getSafeWaVersion() {
 // only prints when the message actually changed for that phone+key.
 const _lastLog = new Map()
 function logOnce(phone, key, msg, level = "log") {
-  const id = `${phone}:${key}`
+  const id = `${phone}: ${key}`
   if (_lastLog.get(id) === msg) return
   _lastLog.set(id, msg)
   console[level](msg)
@@ -685,35 +767,53 @@ function loadMetaPhones() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTO PRESENCE — typing (16s) / recording (17s), fired on ANY sign of
+// AUTO PRESENCE — typing (30s) / recording (30s), fired on ANY sign of
 // activity in a chat: ordinary messages, commands, and reactions. Always
 // fire-and-forget (never awaited by the caller) so it never delays a
 // command's actual response.
+//
+// Two speed fixes applied here:
+//   1. Dropped presenceSubscribe() — it's for RECEIVING the other party's
+//      presence, not required to SEND your own. It was a pure extra
+//      network round-trip on every single trigger for no benefit.
+//   2. startAutoPresence() below defers the actual first network call via
+//      setImmediate — on the command path this guarantees the command's
+//      own reply gets enqueued on the socket first, so the presence
+//      simulation can never end up ahead of it in the outgoing queue.
 // ─────────────────────────────────────────────────────────────────────────────
 async function triggerAutoPresence(state, sock, from) {
   const s = state.settings
 
-  // Auto typing — 20 second WhatsApp presence window.
+  // Auto typing — 30 second WhatsApp presence window.
   if (s.get("autoTyping")) {
     try {
-      await sock.presenceSubscribe(from).catch(() => {})
       await sock.sendPresenceUpdate("composing", from)
-      await helper.sleep(20000)
+      await helper.sleep(30000)
       await sock.sendPresenceUpdate("paused", from)
     } catch {}
   }
 
-  // Auto recording — 20 second presence window. Runs after typing when
+  // Auto recording — 30 second presence window. Runs after typing when
   // both are on (back-to-back, not simultaneous — WhatsApp only shows
   // one presence indicator at a time anyway).
   if (s.get("autoRecording")) {
     try {
-      await sock.presenceSubscribe(from).catch(() => {})
       await sock.sendPresenceUpdate("recording", from)
-      await helper.sleep(20000)
+      await helper.sleep(30000)
       await sock.sendPresenceUpdate("paused", from)
     } catch {}
   }
+}
+
+// Use this at every fire-and-forget call site instead of calling
+// triggerAutoPresence directly — setImmediate pushes the first network
+// call to the next event-loop tick, after whatever synchronous dispatch
+// work (command lookup, the start of the command's own reply) is already
+// underway.
+function startAutoPresence(state, sock, from) {
+  setImmediate(() => {
+    triggerAutoPresence(state, sock, from).catch(() => {})
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -777,7 +877,7 @@ async function handleStatus(state, sock, msg) {
       try {
         await withRetry(() => sock.readMessages([msg.key]), 2, 600)
       } catch (e) {
-        console.error(`[${state.phone}] STATUS VIEW ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
+        console.error(`[${state.phone}] STATUS VIEW ✗ gave up after retries ( ${msg.key.participant || "?"}):`, e.message)
       }
     }
 
@@ -789,7 +889,7 @@ async function handleStatus(state, sock, msg) {
           react: { text: emoji, key: msg.key }
         }, { statusJidList: jidList }), 2, 800)
       } catch (e) {
-        console.error(`[${state.phone}] STATUS REACT ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
+        console.error(`[${state.phone}] STATUS REACT ✗ gave up after retries ( ${msg.key.participant || "?"}):`, e.message)
       }
     }
 
@@ -926,11 +1026,11 @@ async function antideleteReport(sock, phone, proto, deleterKey) {
   const headerText = `🗑️ *Antidelete*\n\n*Deleted by:* @${deleterNum}\n*Where:* ${chatLabel}\n*When sent:* ${when}`
   try {
     if (cached.type === "text") {
-      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n*Message:*\n${cached.text || "(empty)"}`, mentions: [deleterJid] })
+      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n*Message:*\n ${cached.text || "(empty)"}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && cached.type === "image") {
-      await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
+      await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: `${headerText} ${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && (cached.type === "video" || cached.type === "gif")) {
-      await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: `${headerText}${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
+      await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: `${headerText} ${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
     } else if (cached.mediaBuffer && cached.type === "sticker") {
       await sock.sendMessage(ownerJid, { sticker: cached.mediaBuffer })
       await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
@@ -1272,12 +1372,12 @@ async function handleAntilinkInline(sock, msg, phone) {
 
     if (action === "delete") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here!${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here! ${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         mentions: [sender]
       })
     } else if (action === "kick") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link ${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         mentions: [sender]
       })
       try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
@@ -1288,14 +1388,14 @@ async function handleAntilinkInline(sock, msg, phone) {
       if (warns >= maxWarns) {
         antilinkResetWarnings(phone, groupId, sender)
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
           mentions: [sender]
         })
         try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
         catch (e) { console.error("[ANTILINK] warn-kick failed:", e.message) }
       } else {
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here!${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here! ${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
           mentions: [sender]
         })
       }
@@ -1432,7 +1532,7 @@ async function handleAntitagInline(sock, msg, phone) {
 
     try {
       await sock.sendMessage(groupId, { delete: msg.key })
-      console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} (${mentions.length} mention(s))`)
+      console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} ( ${mentions.length} mention(s))`)
 
       await sock.sendMessage(groupId, {
         text: '> *Tags are not allowed in this group*',
@@ -1578,7 +1678,7 @@ async function handleAntistatusInline(sock, msg, phone) {
           try {
             await sock.groupParticipantsUpdate(groupId, [sender], "remove")
             await sock.sendMessage(groupId, {
-              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
               mentions: [sender]
             })
           } catch (e) {
@@ -1586,7 +1686,7 @@ async function handleAntistatusInline(sock, msg, phone) {
           }
         } else {
           await sock.sendMessage(groupId, {
-            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
             mentions: [sender]
           }).catch(() => {})
         }
@@ -1609,7 +1709,7 @@ const BAN_CACHE_TTL_MS = 15000
 const banCache = new Map()
 
 function banCacheKey(sessionPhone, targetPhone) {
-  return `${sessionPhone}:${targetPhone}`
+  return `${sessionPhone}: ${targetPhone}`
 }
 
 function banCacheInvalidate(sessionPhone, targetPhone) {
@@ -1684,8 +1784,9 @@ async function handleMessage(state, sock, msg) {
   }
 
   // Command path: fire typing/recording in parallel — the command still
-  // runs and replies instantly, this just runs alongside it, never awaited.
-  triggerAutoPresence(state, sock, from).catch(() => {})
+  // runs and replies instantly, this just runs alongside it, never awaited,
+  // and deferred a tick so it can never queue ahead of the command's reply.
+  startAutoPresence(state, sock, from)
 
   const isOwner = isOwnerEarly
   const isGroup = from.endsWith("@g.us")
@@ -1717,7 +1818,7 @@ async function handleMessage(state, sock, msg) {
   let isAdmin = false, isBotAdmin = false
   if (isGroup) { ({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner)) }
 
-  console.log(`[${state.phone}] ▶ ${rawCmd} | owner:${isOwner} admin:${isAdmin} botAdmin:${isBotAdmin}`)
+  console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
 
   const runOnce = () => command.run({
     sock, from, msg, message: msg, sender, args,
@@ -1776,7 +1877,9 @@ async function startBot(phone) {
   }
   state.startingUp = true
 
-  const { state: authState, saveCreds } = await useMultiFileAuthState(state.sessDir)
+  // Production durable auth (Redis + local mirror). Falls back to disk
+  // if Redis is offline or not configured.
+  const { state: authState, saveCreds } = await authStore.useAuthState(phone, state.sessDir)
   const version = await getSafeWaVersion()
 
   const sock = makeWASocket({
@@ -1863,7 +1966,7 @@ async function startBot(phone) {
         demote:  "⬇️  DEMOTED",
       }[action] || action.toUpperCase()
 
-      console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in "${groupName}" (${groupId}) | members now: ${memberCount}`)
+      console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in " ${groupName}" (${groupId}) | members now: ${memberCount}`)
 
       if (action === "promote" || action === "demote") {
         try {
@@ -1880,7 +1983,7 @@ async function startBot(phone) {
 
             const text =
               `╔═══════════════════════════╗\n` +
-              `║   ${boxTitle}${" ".repeat(Math.max(0, 21 - boxTitle.length))}║\n` +
+              `║   ${boxTitle} ${" ".repeat(Math.max(0, 21 - boxTitle.length))}║\n` +
               `╚═══════════════════════════╝\n\n` +
               `👤 @${memberPhone} has been ${verb} *Admin*\n` +
               `🛡️ ${action === "promote" ? "Promoted" : "Demoted"} by: ${actorJid ? "@" + actorPhone : "Unknown"}\n` +
@@ -1890,7 +1993,7 @@ async function startBot(phone) {
             const mentions = [participantJid, ...(actorJid ? [actorJid] : [])]
 
             await sock.sendMessage(groupId, { text, mentions })
-            console.log(`[WATCHDOG:${phone}] ✅ Sent ${action.toUpperCase()} announcement to "${groupName}" for ${memberPhone}`)
+            console.log(`[WATCHDOG:${phone}] ✅ Sent ${action.toUpperCase()} announcement to " ${groupName}" for ${memberPhone}`)
           }
         } catch (e) {
           console.error(`[WATCHDOG:${phone}] ${action} announcement error:`, e.message)
@@ -1916,7 +2019,7 @@ async function startBot(phone) {
         const settings  = type === "welcome" ? greetData.welcome : greetData.goodbye
 
         if (!settings?.enabled) {
-          console.log(`[WATCHDOG:${phone}] ⚠️ ${type} is DISABLED for "${groupName}" — nothing sent. Run .${type} on to enable.`)
+          console.log(`[WATCHDOG:${phone}] ⚠️ ${type} is DISABLED for " ${groupName}" — nothing sent. Run .${type} on to enable.`)
           continue
         }
 
@@ -1942,7 +2045,7 @@ async function startBot(phone) {
           await sock.sendMessage(groupId, { text, mentions: [participantJid] })
         }
 
-        console.log(`[WATCHDOG:${phone}] ✅ ${type === "welcome" ? "Sent WELCOME" : "Sent GOODBYE"} to "${groupName}" for ${memberPhone}`)
+        console.log(`[WATCHDOG:${phone}] ✅ ${type === "welcome" ? "Sent WELCOME" : "Sent GOODBYE"} to " ${groupName}" for ${memberPhone}`)
 
       } catch (e) {
         console.error(`[WATCHDOG:${phone}] send error for ${memberPhone}:`, e.message)
@@ -2032,14 +2135,14 @@ async function startBot(phone) {
       const allSettings = state.settings.getAll()
       const settingKeys = Object.keys(allSettings)
       if (settingKeys.length > 0) {
-        console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => `${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
+        console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => ` ${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
         if (allSettings.mode === "private") {
           console.log(`[${phone}] 🔒 Private-mode lockdown is ACTIVE (persisted) — only owner/sudo can use the bot`)
         }
       } else {
         console.log(`[${phone}] 💾 No saved settings — using defaults`)
       }
-      console.log(`[${phone}] 👀 autoViewStatus=${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji=${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
+      console.log(`[${phone}] 👀 autoViewStatus= ${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji= ${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
       saveMeta()
       sessionBackup.pushImmediate(phone).catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
     }
@@ -2059,7 +2162,7 @@ async function startBot(phone) {
       }
       state.retries++
       const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
-      logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt #${state.retries}`)
+      logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt # ${state.retries}`)
       setTimeout(() => startBot(phone).catch(e => console.error(`[${phone}] RESTART ERR:`, e.message)), delay)
     }
   })
@@ -2111,7 +2214,7 @@ async function startBot(phone) {
     for (const r of reactions) {
       const from = r.key?.remoteJid
       if (!from || from === "status@broadcast") continue
-      triggerAutoPresence(state, sock, from).catch(() => {})
+      startAutoPresence(state, sock, from)
     }
   })
 
@@ -2184,6 +2287,19 @@ async function init() {
   })
   if (restoredCount > 0) console.log(`[INIT] ✔ Restored ${restoredCount} session(s) from backup`)
 
+  // Durable auth: pull full AuthenticationState (creds + all Signal keys)
+  // for every phone from Redis → local disk mirror, before any session
+  // starts. The existing disk/meta/slot discovery loop below will then
+  // find valid creds.json for each of them, so startBot() reconnects
+  // without a new pairing code for anyone WhatsApp hasn't actually
+  // logged out.
+  try {
+    const n = await authStore.restoreAllSessions(SESS_ROOT)
+    if (n > 0) console.log(`[INIT] ✔ Auth-store restored ${n} session folder(s)`)
+  } catch (e) {
+    console.error("[INIT] authStore.restoreAllSessions:", e.message)
+  }
+
   try {
     const settingsUsersDir = path.join(__dirname, "data", "users")
     await settingsBackup.restoreAllSettings(settingsUsersDir)
@@ -2205,12 +2321,17 @@ async function init() {
   })
   if (dbRestoredCount > 0) console.log(`[INIT] ✔ Restored ${dbRestoredCount} user record(s) from backup`)
 
-  if (fs.existsSync(SETTINGS_ROOT)) {
-    const settingFiles = fs.readdirSync(SETTINGS_ROOT).filter(f => f.endsWith(".json"))
-    if (settingFiles.length > 0) {
-      console.log(`[SETTINGS] 💾 Found ${settingFiles.length} saved session setting(s): ${settingFiles.map(f => f.replace(".json","")).join(", ")}`)
-    }
-  }
+  // ── Collect every known phone from ALL reliable sources ──────────────────
+  // This is the auto-load path: on every restart we rebuild the full list of
+  // sessions that should come back online (Session + their changes together).
+  // Sources:
+  //   1. sessions/<phone>/creds.json          (live auth on disk)
+  //   2. sessions/_meta.json                  (last known list)
+  //   3. data/slots.json                      (slot assignments)
+  //   4. data/settings/*.json                 (per-session settings files)
+  //   5. data/users/*.json                    (userDb / settings backup)
+  // After restoreAll() above, any missing creds are already written back to disk.
+  // We NEVER wipe a session here — only a real WhatsApp loggedOut does that.
 
   const onDisk = fs.existsSync(SESS_ROOT)
     ? fs.readdirSync(SESS_ROOT).filter(f => {
@@ -2219,23 +2340,89 @@ async function init() {
       })
     : []
 
-  const fromMeta  = loadMetaPhones()
-  const allPhones = [...new Set([...onDisk, ...fromMeta])]
+  const fromMeta = loadMetaPhones()
 
-  console.log(`[INIT] ▶ Starting ${allPhones.length} session(s): ${allPhones.join(", ") || "(none)"}`)
+  const fromSlots = Object.keys(slotAssignments || {}).map(p => p.replace(/\D/g, "")).filter(Boolean)
+
+  const fromSettingsFiles = (() => {
+    const phones = []
+    if (fs.existsSync(SETTINGS_ROOT)) {
+      for (const f of fs.readdirSync(SETTINGS_ROOT).filter(x => x.endsWith(".json"))) {
+        const p = f.replace(/\.json$/, "").replace(/\D/g, "")
+        if (p) phones.push(p)
+      }
+    }
+    return phones
+  })()
+
+  const fromUsersDir = (() => {
+    const phones = []
+    const usersDir = path.join(__dirname, "data", "users")
+    if (fs.existsSync(usersDir)) {
+      for (const f of fs.readdirSync(usersDir).filter(x => x.endsWith(".json"))) {
+        const p = f.replace(/\.json$/, "").replace(/\D/g, "")
+        if (p) phones.push(p)
+      }
+    }
+    return phones
+  })()
+
+  const allPhones = [...new Set([
+    ...onDisk,
+    ...fromMeta,
+    ...fromSlots,
+    ...fromSettingsFiles,
+    ...fromUsersDir,
+  ].map(p => String(p).replace(/\D/g, "")).filter(Boolean))]
+
+  if (fs.existsSync(SETTINGS_ROOT)) {
+    const settingFiles = fs.readdirSync(SETTINGS_ROOT).filter(f => f.endsWith(".json"))
+    if (settingFiles.length > 0) {
+      console.log(`[SETTINGS] 💾 Found ${settingFiles.length} saved session setting(s): ${settingFiles.map(f => f.replace(".json","")).join(", ")}`)
+    }
+  }
+
+  console.log(`[INIT] 🔄 Auto-load sources → disk:${onDisk.length} meta: ${fromMeta.length} slots:${fromSlots.length} settings: ${fromSettingsFiles.length} users:${fromUsersDir.length}`)
+  console.log(`[INIT] ▶ Starting ${allPhones.length} session(s) (Session + changes): ${allPhones.join(", ") || "(none)"}`)
+
+  // Optional migration: push any pre-existing local-disk-only session
+  // (from before authStore existed) up to Redis proactively, rather than
+  // waiting for its next natural creds.update/keys.set. Safe to run every
+  // boot — it just overwrites Redis with whatever's already correct on
+  // disk, so it's a no-op once a session is already fully migrated.
+  if (authStore.enabled) {
+    for (const phone of onDisk) {
+      await authStore.pushLocalSessionToRedis(phone, path.join(SESS_ROOT, phone)).catch(() => {})
+    }
+  }
 
   for (const phone of allPhones) {
-    try { await startBot(phone) }
-    catch (e) { console.error(`[INIT] ✗ Failed to start ${phone}:`, e.message) }
+    // Ensure the phone still has a slot assignment so capacity accounting stays correct
+    if (!slotAssignments[phone]) {
+      const assigned = assignToSlot(phone)
+      if (assigned === null) {
+        console.warn(`[INIT] ⚠ Slot full — cannot recover session ${phone} (capacity reached). Skipping.`)
+        continue
+      }
+      console.log(`[INIT] 📌 Re-assigned ${phone} to slot ${assigned}`)
+    }
+
+    try {
+      await startBot(phone)
+      console.log(`[INIT] ✔ Session recovered & started: ${phone}`)
+    } catch (e) {
+      console.error(`[INIT] ✗ Failed to start ${phone}:`, e.message)
+    }
   }
 
   saveMeta()
-  // NOTE: sessions are no longer wiped on a blind boot-time timer. A
-  // session that just takes a while to reconnect after a restart is not
-  // the same as a real logout. Removal now happens only when WhatsApp
+  // NOTE: sessions are NEVER wiped on a blind boot-time timer.
+  // A session that just takes a while to reconnect after a restart is not
+  // the same as a real logout. Removal now happens ONLY when WhatsApp
   // itself confirms a logout (DisconnectReason.loggedOut, in the
-  // connection.update "close" handler above) — that's the one signal
-  // that actually means "this phone unlinked the bot."
+  // connection.update "close" handler) — that is the one signal that
+  // means "this phone unlinked the bot". When that happens both the
+  // session auth AND its settings/changes are cleaned up together.
 }
 
 async function addSession(phone, preferredSlot = null) {
@@ -2285,12 +2472,56 @@ async function removeSession(phone) {
     try { state.sock?.end(undefined) } catch {}
     sessions.delete(clean)
   }
+  // Wipe auth folder
   try {
     const sessDir = path.join(SESS_ROOT, clean)
     fs.rmSync(sessDir, { recursive: true, force: true })
   } catch (e) { console.error(`[REMOVE] ✗ ${clean}:`, e.message) }
+
+  // Wipe durable auth (creds + all Signal keys) from Redis too — this is
+  // the only place that ever calls deleteAuth, and removeSession itself
+  // only runs on a confirmed real logout or explicit owner removal.
+  try {
+    await authStore.deleteAuth(clean, path.join(SESS_ROOT, clean))
+  } catch (e) { console.error(`[REMOVE] authStore.deleteAuth ✗ ${clean}:`, e.message) }
+
+  // Also drop the phone from slot tracking
+  if (slotAssignments[clean]) {
+    delete slotAssignments[clean]
+    saveSlotAssignments()
+  }
+
+  // Wipe per-session settings / changes so they do not survive a real logout
+  try {
+    const settingsFile = path.join(SETTINGS_ROOT, `${clean}.json`)
+    if (fs.existsSync(settingsFile)) fs.unlinkSync(settingsFile)
+  } catch (e) { console.error(`[REMOVE] settings wipe ✗ ${clean}:`, e.message) }
+  try {
+    const usersFile = path.join(__dirname, "data", "users", `${clean}.json`)
+    if (fs.existsSync(usersFile)) fs.unlinkSync(usersFile)
+  } catch (e) { console.error(`[REMOVE] users wipe ✗ ${clean}:`, e.message) }
+  try {
+    const antilinkFile = path.join(__dirname, "data", "antilink", `${clean}.json`)
+    if (fs.existsSync(antilinkFile)) fs.unlinkSync(antilinkFile)
+  } catch {}
+  try {
+    const antitagFile = path.join(__dirname, "data", "antitag", `${clean}.json`)
+    if (fs.existsSync(antitagFile)) fs.unlinkSync(antitagFile)
+  } catch {}
+  try {
+    const antistatusFile = path.join(__dirname, "data", "antistatus", `${clean}.json`)
+    if (fs.existsSync(antistatusFile)) fs.unlinkSync(antistatusFile)
+  } catch {}
+  try {
+    const customCmdFile = path.join(__dirname, "data", "customcmds", `${clean}.json`)
+    if (fs.existsSync(customCmdFile)) fs.unlinkSync(customCmdFile)
+  } catch {}
+
   saveMeta()
+  // Push the deletion so backup no longer restores this phone
   sessionBackup.schedulePush(clean)
+  try { await settingsBackup.deleteSettings?.(clean) } catch {}
+  console.log(`[REMOVE] ✔ Fully removed session + changes for ${clean}`)
 }
 
 function listBots() {
