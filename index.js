@@ -963,7 +963,7 @@ async function storeMessage(sock, msg) {
   const sender    = msg.key.participant || jid
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const timestamp = Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000)
-  let type = "text", text = "", mediaBuffer = null, mimetype = null, caption = "", ptt = false, gifPlayback = false
+  let type = "text", text = "", mediaBuffer = null, mimetype = null, caption = "", ptt = false, gifPlayback = false, fileName = null, seconds = null, isAnimatedSticker = false
   try {
     if (inner.conversation) {
       type = "text"; text = inner.conversation
@@ -976,22 +976,37 @@ async function storeMessage(sock, msg) {
       gifPlayback = !!inner.videoMessage.gifPlayback; type = gifPlayback ? "gif" : "video"
       caption = inner.videoMessage.caption || ""; mimetype = inner.videoMessage.mimetype || "video/mp4"
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
+    } else if (inner.documentMessage) {
+      type = "document"; caption = inner.documentMessage.caption || ""
+      mimetype = inner.documentMessage.mimetype || "application/octet-stream"
+      fileName = inner.documentMessage.fileName || "file"
+      mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else if (inner.stickerMessage) {
       type = "sticker"; mimetype = inner.stickerMessage.mimetype || "image/webp"
+      isAnimatedSticker = !!inner.stickerMessage.isAnimated
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else if (inner.audioMessage) {
       ptt = !!inner.audioMessage.ptt; type = ptt ? "voice" : "audio"
       mimetype = inner.audioMessage.mimetype || "audio/ogg"
+      seconds = inner.audioMessage.seconds || null
       mediaBuffer = await antideleteDownloadSafe(msg, sock)
     } else { type = "other" }
   } catch (e) { console.error("[ANTIDELETE] storeMessage error:", e.message) }
   antideleteCache.set(msg.key.id, {
     jid, sender, senderAlt, timestamp, type, text, caption,
-    mediaBuffer, mimetype, ptt, gifPlayback, cachedAt: Date.now(),
+    mediaBuffer, mimetype, ptt, gifPlayback, fileName, seconds, isAnimatedSticker, cachedAt: Date.now(),
   })
   antideleteOrder.push(msg.key.id)
   antideleteEvictIfNeeded()
 }
+
+function fmtDuration(totalSeconds) {
+  if (totalSeconds === null || totalSeconds === undefined) return null
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  return `${m}:${String(s).padStart(2, "0")}`
+}
+
 
 function antideleteIsRevoke(proto) {
   if (!proto) return false
@@ -1004,43 +1019,175 @@ function antideleteIsRevoke(proto) {
   return false
 }
 
+// ── ANTI-DELETE OUTPUT TEMPLATES — spacing matches the approved layout ──
+const AD_TOP     = "╔════════════════════════════════╗\n║     🛡️ *ANTI-DELETE SYSTEM*     ║\n╚════════════════════════════════╝"
+const AD_BOX_END = "└── ─────────────────────────────"
+const AD_RULE_33 = "─────────────────────────────────"
+const AD_RULE_30 = "──────────────────────────────"
+
+// Field lines shared by every template. "Sender by" is the original Sender line.
+function adFields(i) {
+  return {
+    where:     `│ 📍 *Where:* ${i.where}`,
+    deletedBy: `│ 🗑️ *Deleted by:* ${i.deletedBy}`,
+    senderBy:  `│ 👤 *Sender by:* ${i.senderBy}`,
+  }
+}
+
+function adTextBox(i, text) {
+  const f = adFields(i)
+  return [
+    AD_TOP, "",
+    "┌── ⚠️ *EVENT DETECTED*",
+    f.where, "", "",
+    f.deletedBy, "", "",
+    f.senderBy, "", "",
+    "│ 📂 *Type:* Text Message", "", "",
+    `│ 🕒 *Time:* ${i.when}`, "",
+    "└── 📌 *Status:* Recovered Successfully", "",
+    "┌── 📝 *DELETED MESSAGES*",
+    "│",
+    `│ ${text}`,
+    "│",
+    AD_BOX_END, "", "",
+    AD_RULE_33,
+  ].join("\n")
+}
+
+function adMediaBox(i, typeLabel, caption) {
+  const f = adFields(i)
+  return [
+    AD_TOP, "",
+    "┌── ⚠️ *EVENT DETECTED*",
+    f.where, "",
+    f.deletedBy, "",
+    f.senderBy, "",
+    `│ 📂 *Type:* ${typeLabel}`, "",
+    `│ 🕒 *Time:* ${i.when}`, "", "",
+    "└── 📌 *Status:* Media Recovered", "", "", "", "",
+    "┌── 📝 *MEDIA CAPTION*",
+    "│",
+    `│ ${caption}`,
+    "│",
+    AD_BOX_END, "", "", "",
+    AD_RULE_30,
+  ].join("\n")
+}
+
+function adStickerBox(i, detail) {
+  const f = adFields(i)
+  return [
+    AD_TOP, "",
+    "┌── ⚠️ *EVENT DETECTED*",
+    f.where, "", "",
+    f.deletedBy, "", "",
+    f.senderBy, "", "", "",
+    "│ 📂 *Type:* Sticker 🎨", "", "",
+    `│ 🕒 *Time:* ${i.when}`, "", "",
+    "└── 📌 *Status:* Sticker Recovered", "",
+    "┌── 🧩 *MEDIA DETAILS*",
+    "│",
+    `│ ${detail}`,
+    "│",
+    AD_BOX_END, "",
+    "🔗 *Sticker below 👇🏻*", "", "",
+    AD_RULE_33,
+  ].join("\n")
+}
+
+function adAudioBox(i, typeLabel, detail) {
+  const f = adFields(i)
+  return [
+    AD_TOP, "",
+    "┌── ⚠️ *EVENT DETECTED*",
+    f.where,
+    f.deletedBy,
+    f.senderBy,
+    `│ 📂 *Type:* ${typeLabel}`,
+    `│ 🕒 *Time:* ${i.when}`,
+    "└── 📌 *Status:* Audio Recovered", "",
+    "┌── 🎵 *AUDIO DETAILS*",
+    "│",
+    `│ ${detail}`,
+    "│",
+    AD_BOX_END, "",
+    "🔗 *Audio below 👇🏻*", "", "",
+    AD_RULE_33,
+  ].join("\n")
+}
+
 async function antideleteReport(sock, phone, proto, deleterKey) {
   if (!antideleteGetEnabled(phone)) return
   const deletedId = proto.key?.id
   if (!deletedId) return
   const cached = antideleteCache.get(deletedId)
   if (!cached) return
-  const deleterJid = deleterKey.participant || deleterKey.remoteJid
-  const deleterNum = (deleterJid || "").split("@")[0]
+
   const chatJid    = deleterKey.remoteJid
-  const isGroup    = chatJid.endsWith("@g.us")
-  let chatLabel = "a private DM"
+  const isGroup    = (chatJid || "").endsWith("@g.us")
+  const deleterJid = deleterKey.participant || chatJid
+  const senderJid  = cached.sender
+  const tag = (jid) => "@" + (jid || "").split("@")[0].split(":")[0]
+
+  // Where: DM -> tag of the person you're chatting with; group -> full group name.
+  let where
   if (isGroup) {
     try {
       const meta = await sock.groupMetadata(chatJid)
-      chatLabel = `${meta.subject || chatJid} (group)`
-    } catch { chatLabel = `${chatJid} (group)` }
+      where = meta.subject || chatJid
+    } catch { where = chatJid }
+  } else {
+    where = tag(chatJid)
   }
-  const ownerJid   = `${phone}@s.whatsapp.net`
-  const when       = new Date(cached.timestamp * 1000).toLocaleString()
-  const headerText = `🗑️ *Antidelete*\n\n*Deleted by:* @${deleterNum}\n*Where:* ${chatLabel}\n*When sent:* ${when}`
+
+  // Real WhatsApp mentions so every @tag above is a live tag.
+  const mentions = [...new Set([senderJid, deleterJid, ...(isGroup ? [] : [chatJid])].filter(Boolean))]
+  const info = {
+    where,
+    deletedBy: tag(deleterJid),
+    senderBy:  tag(senderJid),
+    when:      new Date(cached.timestamp * 1000).toLocaleString(),
+  }
+  const ownerJid = `${phone}@s.whatsapp.net`
+
   try {
     if (cached.type === "text") {
-      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n*Message:*\n ${cached.text || "(empty)"}`, mentions: [deleterJid] })
-    } else if (cached.mediaBuffer && cached.type === "image") {
-      await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: `${headerText} ${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
-    } else if (cached.mediaBuffer && (cached.type === "video" || cached.type === "gif")) {
-      await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: `${headerText} ${cached.caption ? `\n\n*Caption:*\n${cached.caption}` : ""}`, mentions: [deleterJid] })
+      await sock.sendMessage(ownerJid, { text: adTextBox(info, cached.text || "(empty)"), mentions })
+
+    } else if (cached.mediaBuffer && ["image", "video", "gif", "document"].includes(cached.type)) {
+      const typeLabel =
+        cached.type === "image"    ? "Photo" :
+        cached.type === "video"    ? "Video" :
+        cached.type === "gif"      ? "Video (GIF)" :
+        `Document${cached.fileName ? ` (${cached.fileName})` : ""}`
+      const box = adMediaBox(info, typeLabel, cached.caption || "No Caption")
+      if (cached.type === "image") {
+        await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: box, mentions })
+      } else if (cached.type === "document") {
+        await sock.sendMessage(ownerJid, { document: cached.mediaBuffer, mimetype: cached.mimetype, fileName: cached.fileName || "file", caption: box, mentions })
+      } else {
+        await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: box, mentions })
+      }
+
     } else if (cached.mediaBuffer && cached.type === "sticker") {
+      const detail = cached.isAnimatedSticker ? "Animated Sticker" : "Sticker Content"
+      await sock.sendMessage(ownerJid, { text: adStickerBox(info, detail), mentions })
       await sock.sendMessage(ownerJid, { sticker: cached.mediaBuffer })
-      await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
+
     } else if (cached.mediaBuffer && (cached.type === "voice" || cached.type === "audio")) {
+      const typeLabel = cached.type === "voice" ? "Voice Note 🎙️" : "Audio 🎵"
+      const dur = fmtDuration(cached.seconds)
+      const detail = dur ? `Duration: ${dur}` : (cached.type === "voice" ? "[Voice Note]" : "[Audio]")
+      await sock.sendMessage(ownerJid, { text: adAudioBox(info, typeLabel, detail), mentions })
       await sock.sendMessage(ownerJid, { audio: cached.mediaBuffer, ptt: cached.ptt, mimetype: cached.mimetype || "audio/ogg" })
-      await sock.sendMessage(ownerJid, { text: headerText, mentions: [deleterJid] })
+
     } else {
-      await sock.sendMessage(ownerJid, { text: `${headerText}\n\n_Content type: ${cached.type} — could not recover media content._`, mentions: [deleterJid] })
+      await sock.sendMessage(ownerJid, { text: `🛡️ *ANTI-DELETE* — ${cached.type} deleted but its content could not be recovered.\n📍 *Where:* ${info.where}\n🗑️ *Deleted by:* ${info.deletedBy}\n👤 *Sender by:* ${info.senderBy}`, mentions })
     }
-  } catch (e) { console.error("[ANTIDELETE] failed to report deletion to owner:", e.message) }
+  } catch (e) {
+    console.error("[ANTIDELETE] failed to report deletion to owner:", e.message)
+  }
+
   antideleteCache.delete(deletedId)
   const idx = antideleteOrder.indexOf(deletedId)
   if (idx !== -1) antideleteOrder.splice(idx, 1)
