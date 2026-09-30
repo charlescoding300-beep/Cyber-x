@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────
-// commands/unmute.js — CYBER X UNMUTE COMMAND
+// commands/unmute.js — ZEN X UNMUTE COMMAND
 //
 // Usage:
 //   .unmute   → unmute group + cancel any running mute timer
 // ─────────────────────────────────────────────────────────
+
+const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 
 module.exports = {
   pattern:  "unmute",
@@ -15,15 +17,12 @@ module.exports = {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
-        text: "❌ *Unmute only works in groups.*",
+        text: `> ❌ *Unmute only works in groups.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
 
     // ── Independent admin re-check ─────────────────────────
-    // Same as mute.js — don't only trust the isAdmin flag passed in from
-    // index.js. Fetch fresh group metadata and verify the sender is
-    // actually listed as admin/superadmin before allowing the unmute.
     let verifiedAdmin = isOwner
     if (!verifiedAdmin) {
       try {
@@ -34,21 +33,20 @@ module.exports = {
           return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
         })
       } catch (e) {
-        // Can't verify → fail closed, do NOT allow the unmute.
         verifiedAdmin = false
       }
     }
 
     if (!verifiedAdmin) {
       return sock.sendMessage(from, {
-        text: "❌ *Only group admins can use this command.*",
+        text: `> ❌ *Only group admins can use this command.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
 
     if (!isBotAdmin) {
       return sock.sendMessage(from, {
-        text: "❌ *I need to be an admin to unmute the group.*",
+        text: `> ❌ *I need to be an admin to unmute the group.*\n>\n${CREDIT}`,
         quoted: msg
       })
     }
@@ -72,26 +70,21 @@ module.exports = {
       await sock.groupSettingUpdate(from, "not_announcement")
     } catch (e) {
       return sock.sendMessage(from, {
-        text: `❌ *Failed to unmute:* ${e.message}`,
+        text: `> ❌ *Failed to unmute:* \( {e.message}\n>\n \){CREDIT}`,
         quoted: msg
       })
     }
 
     return sock.sendMessage(from, {
       text:
-`╔════════════════════╗
-║  🔊 *GROUP UNMUTED* ║
-╚════════════════════╝
-
-┌─────〔 ✅ *UNLOCKED* 〕─────
-│ 🔊 Everyone can *send messages*
-│ ${hadTimer
-  ? `⏱️ Timer cancelled *(was ${timerLabel})*`
-  : `ℹ️ No active timer was running`}
-│
-│ 💡 Use *.mute* to lock again
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+`> 🔊 *GROUP UNMUTED*
+>
+> ✅ Everyone can send messages again
+> ${hadTimer ? `⏱️ Timer cancelled *(was ${timerLabel})*` : `ℹ️ No active timer was running`}
+>
+> 💡 Use *.mute* to lock again
+>
+${CREDIT}`,
       quoted: msg
     })
   }
