@@ -259,7 +259,12 @@
 
       <div class="input-group" id="inputGroup">
         <label class="input-label">Enter your WhatsApp number with country code</label>
-        <input type="text" id="mobileNumber" class="input-field" placeholder="+2348012345678" pattern="[+][0-9]{10,}" title="Please enter country code starting with + followed by number">
+        <input type="tel" id="mobileNumber" class="input-field"
+          placeholder="234 801 234 5678"
+          inputmode="tel"
+          autocomplete="tel"
+          aria-label="WhatsApp international phone number"
+          title="Enter any international WhatsApp number. Spaces, +, brackets and dashes are allowed.">
       </div>
 
       <button class="generate-btn" id="submit"><i class="fas fa-key"></i> Generate Pair Code</button>
@@ -304,55 +309,141 @@
   <script>
     const API_BASE = window.location.origin;
 
+    // Harry Styles — As It Was
     const YT_VIDEO_ID = 'H5v3kku4y6Q';
-    let ytPlayer, musicPlaying = false, ytReady = false, firstInteractDone = false;
+
+    let ytPlayer = null;
+    let musicPlaying = false;
+    let ytReady = false;
+    let musicUserOff = localStorage.getItem('zenx_music_off') === '1';
+    let musicUserInteracted = false;
+
+    function updateMusicButton() {
+      const btn = document.getElementById('musicToggle');
+      if (!btn) return;
+
+      if (musicPlaying) {
+        btn.classList.add('playing');
+        btn.innerHTML = '<i class="fas fa-volume-up"></i>';
+        btn.title = 'Turn music off';
+      } else {
+        btn.classList.remove('playing');
+        btn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+        btn.title = 'Turn music on';
+      }
+    }
+
+    function tryPlayMusic(withSound = false) {
+      if (!ytReady || !ytPlayer || musicUserOff) return;
+
+      try {
+        if (withSound) {
+          ytPlayer.unMute();
+          ytPlayer.setVolume(35);
+        } else {
+          ytPlayer.mute();
+        }
+
+        ytPlayer.playVideo();
+        musicPlaying = true;
+        updateMusicButton();
+      } catch (e) {
+        console.warn('[MUSIC] Playback blocked:', e.message);
+      }
+    }
 
     function onYouTubeIframeAPIReady() {
       ytPlayer = new YT.Player('yt-player', {
         videoId: YT_VIDEO_ID,
-        playerVars: { autoplay: 1, mute: 1, controls: 0, loop: 1, playlist: YT_VIDEO_ID },
+        playerVars: {
+          autoplay: 1,
+          mute: 1,
+          controls: 0,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          loop: 1,
+          playlist: YT_VIDEO_ID
+        },
         events: {
           onReady: (e) => {
             ytReady = true;
-            e.target.mute();
-            e.target.playVideo();
+            e.target.setVolume(35);
+
+            if (!musicUserOff) {
+              e.target.mute();
+              e.target.playVideo();
+              musicPlaying = true;
+              updateMusicButton();
+            }
+          },
+
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.ENDED && !musicUserOff) {
+              e.target.seekTo(0);
+              e.target.playVideo();
+            }
           }
         }
       });
     }
 
-    function startMusicWithSound() {
-      if (!ytReady || firstInteractDone) return;
-      firstInteractDone = true;
-      ytPlayer.unMute();
-      ytPlayer.playVideo();
-      musicPlaying = true;
-      const btn = document.getElementById('musicToggle');
-      btn.classList.add('playing');
-      btn.innerHTML = '<i class="fas fa-volume-up"></i>';
+    function handleMusicInteraction() {
+      musicUserInteracted = true;
+
+      if (!musicUserOff) {
+        tryPlayMusic(true);
+      }
     }
 
-    // First tap/click/key anywhere → start music with sound
-    ['click', 'touchstart', 'keydown'].forEach(evt => {
-      document.addEventListener(evt, startMusicWithSound, { once: true, passive: true });
+    // Any tap, touch, click or key press anywhere on the website.
+    ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt => {
+      document.addEventListener(evt, handleMusicInteraction, {
+        passive: true,
+        capture: true
+      });
     });
 
-    // Music button = mute / unmute
+    // Try again when the visitor returns to the website.
+    window.addEventListener('pageshow', () => {
+      if (!musicUserOff) {
+        tryPlayMusic(musicUserInteracted);
+      }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !musicUserOff) {
+        tryPlayMusic(musicUserInteracted);
+      }
+    });
+
+    // Music button = persistent ON/OFF.
     document.getElementById('musicToggle').addEventListener('click', function (e) {
       e.stopPropagation();
-      if (!ytReady) return;
-      if (musicPlaying) {
-        ytPlayer.mute();
-        this.classList.remove('playing');
-        this.innerHTML = '<i class="fas fa-volume-mute"></i>';
+
+      if (!ytReady || !ytPlayer) return;
+
+      if (musicPlaying && !musicUserOff) {
+        musicUserOff = true;
         musicPlaying = false;
+
+        localStorage.setItem('zenx_music_off', '1');
+
+        ytPlayer.mute();
+        ytPlayer.pauseVideo();
+
+        updateMusicButton();
       } else {
-        ytPlayer.unMute();
-        ytPlayer.playVideo();
-        this.classList.add('playing');
-        this.innerHTML = '<i class="fas fa-volume-up"></i>';
+        musicUserOff = false;
         musicPlaying = true;
-        firstInteractDone = true;
+
+        localStorage.removeItem('zenx_music_off');
+
+        ytPlayer.unMute();
+        ytPlayer.setVolume(35);
+        ytPlayer.playVideo();
+
+        updateMusicButton();
       }
     });
 
@@ -417,13 +508,28 @@
       qrDisplay.style.display = 'none';
       try {
         if (currentMode === 'pair') {
-          const number = document.getElementById('mobileNumber').value.trim();
-          if (!number || !/^\+[0-9]{10,}$/.test(number)) {
-            codeDisplay.innerHTML = '<span class="error-message"><i class="fas fa-exclamation-circle"></i> Enter a valid number with country code</span>';
+          // Accept international numbers in almost any normal format:
+          // 234272828828
+          // 1 (234)-474-2838
+          // +3737373773838
+          // 44 58484848488
+          // etc.
+          const rawNumber = document.getElementById('mobileNumber').value.trim();
+
+          // Keep digits only. This removes +, spaces, -, brackets, dots, etc.
+          const number = rawNumber.replace(/[^0-9]/g, '');
+
+          // WhatsApp international numbers are normally at least 10 digits.
+          if (!number || number.length < 10 || number.length > 15) {
+            codeDisplay.innerHTML =
+              '<span class="error-message"><i class="fas fa-exclamation-circle"></i> Enter a valid international WhatsApp number</span>';
             loading.style.display = 'none';
             return;
           }
-          const res = await axios.get(`${API_BASE}/pair?phone=${encodeURIComponent(number)}`);
+
+          const res = await axios.get(
+            `${API_BASE}/pair?phone=${encodeURIComponent(number)}`
+          );
           const code = res.data?.code || res.data?.pairingCode || '—';
           codeDisplay.innerHTML = `<span class="success-message"><i class="fas fa-check-circle"></i> ${code}</span>`;
           window._lastCode = code;
@@ -447,15 +553,51 @@
       }
     });
 
-    function copyCode() {
-      const code = window._lastCode || document.getElementById('codeDisplay').innerText;
-      if (!code || code.includes('will appear') || code.includes('error')) return;
-      navigator.clipboard.writeText(code.replace(/[^\w-]/g, '')).then(() => {
-        const btn = document.getElementById('copy');
-        const old = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
-        setTimeout(() => btn.innerHTML = old, 1500);
-      });
+    async function copyCode() {
+      const btn = document.getElementById('copy');
+      const code = String(
+        window._lastCode || document.getElementById('codeDisplay').innerText || ''
+      )
+        .replace(/[^A-Za-z0-9-]/g, '')
+        .trim();
+
+      if (!code || code === 'willappearhere') {
+        btn.innerHTML = '<i class="fas fa-info-circle"></i> Generate a code first';
+        setTimeout(() => {
+          btn.innerHTML = '<i class="fas fa-copy"></i> Copy Code';
+        }, 1800);
+        return;
+      }
+
+      try {
+        // Modern clipboard API
+        await navigator.clipboard.writeText(code);
+      } catch (err) {
+        // Fallback for browsers where Clipboard API is unavailable.
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+
+        try {
+          document.execCommand('copy');
+        } finally {
+          textarea.remove();
+        }
+      }
+
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+      btn.style.transform = 'scale(1.02)';
+
+      setTimeout(() => {
+        btn.innerHTML = oldHtml;
+        btn.style.transform = '';
+      }, 1500);
     }
 
     document.getElementById('aiSend').addEventListener('click', sendAi);

@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/news.js  —  CYBER X  |  📰 Latest News
+//  commands/news.js  —  ZENX  |  📰 Latest News
 //  Usage: .news <country>
 //  Reaction: 📰 | Category: general
 // ════════════════════════════════════════════════════════════════════

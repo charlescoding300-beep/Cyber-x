@@ -1,5 +1,5 @@
 /**
- * CYBER X — commands/antidelete.js
+ * ZENX — commands/antidelete.js
  * Category: owner — only owner can toggle
  *
  * ✅ Persistent per-session state (data/antidelete_<phone>.json)

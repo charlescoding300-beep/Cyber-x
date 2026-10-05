@@ -1,4 +1,4 @@
-// commands/tiktok.js — CYBER X TikTok Downloader
+// commands/tiktok.js — ZENX TikTok Downloader
 'use strict'
 
 const axios = require('axios')
@@ -161,7 +161,7 @@ module.exports = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🎦 *CYBER X TIKTOK DL*   ║
+║  🎦 *ZENX TIKTOK DL*   ║
 ╚═══════════════════════════╝
 
 *How to use:*

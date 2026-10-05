@@ -14,7 +14,7 @@ const server = http.createServer((req, res) => {
     }))
   }
   res.writeHead(200, { "Content-Type": "text/plain" })
-  res.end("⚡ CYBER X ONLINE")
+  res.end("⚡ ZENX ONLINE")
 })
 server.keepAliveTimeout = 120000
 server.headersTimeout   = 125000

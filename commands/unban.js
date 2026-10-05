@@ -162,7 +162,7 @@ ${CREDIT}`,
     try {
       await sock.sendMessage(targetDisplayJid, {
         text:
-`✅ *You have been unbanned from CYBER X!*
+`✅ *You have been unbanned from ZENX!*
 
 You can now use all bot commands again.
 Welcome back! 🎉

@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/block.js  —  CYBER X  |  Owner-only DM block
+// commands/block.js  —  ZENX  |  Owner-only DM block
 //
 // USAGE (DM only, owner only):
 //   .block   → blocks whoever the owner is currently DMing with

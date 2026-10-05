@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/anticall.js  —  CYBER X  |  Anti-call toggle
+// commands/anticall.js  —  ZENX  |  Anti-call toggle
 //
 // USAGE (owner only):
 //   .anticall on      → enable: incoming calls get rejected only (no block)

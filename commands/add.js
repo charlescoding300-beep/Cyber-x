@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/add.js  —  CYBER X  |  Add member to group
+// commands/add.js  —  ZENX  |  Add member to group
 //
 // USAGE (group only — admin or bot owner only):
 //   .add 234812345678        → add by international number

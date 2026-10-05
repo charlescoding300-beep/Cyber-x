@@ -1,4 +1,4 @@
-// commands/botname.js — CYBER X
+// commands/botname.js — ZENX
 // Usage: .botname MyBot
 
 let db
@@ -15,9 +15,9 @@ module.exports = {
                   from.replace(/\D/g, "").split("@")[0]
 
     if (!args.length) {
-      const current = db ? db.getSetting(phone, "botName") : "CYBER X"
+      const current = db ? db.getSetting(phone, "botName") : "ZENX"
       return sock.sendMessage(from, {
-        text: `📛 Bot name is currently *${current || "CYBER X"}*\nUsage: *.botname <name>*`
+        text: `📛 Bot name is currently *${current || "ZENX"}*\nUsage: *.botname <name>*`
       }, { quoted: msg })
     }
 

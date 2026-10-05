@@ -1,4 +1,4 @@
-// commands/define.js — CYBER X Dictionary Command
+// commands/define.js — ZENX Dictionary Command
 'use strict'
 
 const https = require('https')
@@ -60,7 +60,7 @@ module.exports = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  📖 *CYBER X DICTIONARY*  ║
+║  📖 *ZENX DICTIONARY*  ║
 ╚═══════════════════════════╝
 
 *How to use:*
@@ -116,7 +116,7 @@ ${CREDIT}`,
       // ── Build definition output ──
       let output =
 `╔═══════════════════════════╗
-║  📖 *CYBER X DICTIONARY*  ║
+║  📖 *ZENX DICTIONARY*  ║
 ╚═══════════════════════════╝
 
 📝 *Word:* ${wordText.toUpperCase()}

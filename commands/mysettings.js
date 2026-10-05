@@ -1,4 +1,4 @@
-// commands/mysettings.js — CYBER X
+// commands/mysettings.js — ZENX
 // Usage: .mysettings  →  shows all current settings
 
 let db
@@ -21,8 +21,8 @@ module.exports = {
     const bool = v => v ? on : off
 
     const text =
-      `⚙️ *CYBER X — Your Settings*\n\n` +
-      `📛 Bot Name:           *${s.botName     || "CYBER X"}*\n` +
+      `⚙️ *ZENX — Your Settings*\n\n` +
+      `📛 Bot Name:           *${s.botName     || "ZENX"}*\n` +
       `🔣 Prefix:             *${s.prefix      || "."}*\n` +
       `🔒 Mode:               *${s.mode        || "public"}*\n\n` +
       `*Auto Features:*\n` +

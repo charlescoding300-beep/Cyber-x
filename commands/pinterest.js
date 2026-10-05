@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/pinterest.js  —  CYBER X  |  🩸 Pinterest Image Search
+//  commands/pinterest.js  —  ZENX  |  🩸 Pinterest Image Search
 //  Usage: .pinterest <query>
 //  Reaction: 🩸 | Category: media
 // ════════════════════════════════════════════════════════════════════

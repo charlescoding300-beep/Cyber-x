@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/autotyping.js  —  CYBER X  |  Auto Typing Toggle
+// commands/autotyping.js  —  ZENX  |  Auto Typing Toggle
 //
 // USAGE:
 //   .autotyping        → show current status

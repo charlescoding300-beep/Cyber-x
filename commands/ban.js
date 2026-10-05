@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/ban.js  —  CYBER X  |  Per-Session Ban System
+// commands/ban.js  —  ZENX  |  Per-Session Ban System
 //
 // USAGE (owner only — checked via index.js's real isOwner, same as every
 // other command; NOT a manual sender-string comparison):

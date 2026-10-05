@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/convert.js  —  CYBER X  |  Sticker → Video / Image Converter
+// commands/convert.js  —  ZENX  |  Sticker → Video / Image Converter
 //
 // USAGE:
 //   Reply to any sticker → type .convert
@@ -260,7 +260,7 @@ module.exports = {
           video:       mp4Buf,
           gifPlayback: true,           // loops like a GIF in WhatsApp
           mimetype:    "video/mp4",
-          caption:     "🎬 *CYBER X* | Animated sticker → Video",
+          caption:     "🎬 *ZENX* | Animated sticker → Video",
         }, { quoted: msg })
 
       } else {
@@ -269,7 +269,7 @@ module.exports = {
 
         await sock.sendMessage(from, {
           image:   pngBuf,
-          caption: "🖼️ *CYBER X* | Sticker → Image",
+          caption: "🖼️ *ZENX* | Sticker → Image",
         }, { quoted: msg })
       }
 

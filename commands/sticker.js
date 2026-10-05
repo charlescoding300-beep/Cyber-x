@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/sticker.js  —  CYBER X  |  Image/Video → Sticker
+// commands/sticker.js  —  ZENX  |  Image/Video → Sticker
 //
 // USAGE:
 //   Reply to an image/video/gif → .s
@@ -16,7 +16,7 @@
 //     than a real WhatsApp sticker
 //   - Multi-tier fallback compression for animated stickers that come out
 //     too large (WhatsApp caps sticker size around ~1MB)
-//   - Embeds CYBER X pack name + emoji into the sticker EXIF metadata
+//   - Embeds ZENX pack name + emoji into the sticker EXIF metadata
 //   - Auto temp file cleanup, even on failure
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ const crypto = require('crypto')
 let webp
 try { webp = require('node-webpmux') } catch { webp = null }
 
-const PACK_NAME   = process.env.BOT_NAME || 'CYBER X'
+const PACK_NAME   = process.env.BOT_NAME || 'ZENX'
 const PACK_EMOJI  = '👾'
 const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
 
@@ -161,7 +161,7 @@ module.exports = {
         }
       }
 
-      // ── Embed CYBER X pack metadata ─────────────────────────────────────────
+      // ── Embed ZENX pack metadata ─────────────────────────────────────────
       let finalBuffer = await embedMetadata(webpBuffer)
 
       // ── Fallback tier 2: still too large — shorter/lower fps, still 512x512 ──

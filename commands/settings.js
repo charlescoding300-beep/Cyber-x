@@ -1,4 +1,4 @@
-// commands/settings.js  —  CYBER X
+// commands/settings.js  —  ZENX
 // ─────────────────────────────────────────────────────────────────────────────
 // All presence/bot settings commands. OWNER ONLY — checked inside every
 // single command. Each command reads/writes state.settings =

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// lib/userDb.js  —  CYBER X  |  Per-User Persistent Database
+// lib/userDb.js  —  ZENX  |  Per-User Persistent Database
 //
 // Each linked user gets their own JSON file in data/users/<phone>.json
 // This stores ALL their settings, antilink state, welcome messages,
@@ -33,14 +33,14 @@ function defaultUser(phone) {
 
     // ── Bot Settings ─────────────────────────────────────────────────────────
     settings: {
-      botName:        "CYBER X",
+      botName:        "ZENX",
       prefix:         ".",
       mode:           "public",     // "public" | "private"
       autoTyping:     false,
       autoRecording:  false,
       autoRead:       false,
       autoReply:      false,
-      autoReplyText:  "Hey! I'm CYBER X 🤖. Type .menu to see commands.",
+      autoReplyText:  "Hey! I'm ZENX 🤖. Type .menu to see commands.",
       autoViewStatus: false,
       autoReactStatus: false,
       statusReactEmoji: "🔥",

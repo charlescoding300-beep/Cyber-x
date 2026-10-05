@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────
-// commands/antistatus.js — CYBER X ANTISTATUS
+// commands/antistatus.js — ZENX ANTISTATUS
 //
 // Actions taken when a NORMAL member (not admin, not owner) tags this
 // group in their personal WhatsApp status. Admins and the bot owner

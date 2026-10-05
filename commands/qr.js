@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/qr.js  —  CYBER X  |  📷 QR Code Generator
+//  commands/qr.js  —  ZENX  |  📷 QR Code Generator
 //  Usage: .qr <text or link>
 //  Reaction: 📷 | Category: utility
 // ════════════════════════════════════════════════════════════════════

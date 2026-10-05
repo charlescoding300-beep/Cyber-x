@@ -1,6 +1,6 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — PIC COMMAND
+//  ZENX — PIC COMMAND
 //  Usage: .pic <country>
 //  Returns a random person's profile (name + photo) via randomuser.me,
 //  matched to that country's nationality data where supported.

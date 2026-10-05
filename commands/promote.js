@@ -1,6 +1,6 @@
 'use strict'
 /**
- * commands/promote.js — CYBER X | Promote Member to Admin
+ * commands/promote.js — ZENX | Promote Member to Admin
  *
  * Usage:
  *   .promote @user        ← tag someone

@@ -1,6 +1,6 @@
 'use strict'
 /**
- * commands/demote.js — CYBER X | Demote Admin to Member
+ * commands/demote.js — ZENX | Demote Admin to Member
  *
  * Usage:
  *   .demote @user         ← tag someone

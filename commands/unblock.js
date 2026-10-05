@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/unblock.js  —  CYBER X  |  Owner-only DM unblock
+// commands/unblock.js  —  ZENX  |  Owner-only DM unblock
 //
 // USAGE (DM only, owner only):
 //   .unblock   → unblocks whoever the owner is currently DMing with

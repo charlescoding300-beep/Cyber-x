@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/botpp.js  —  CYBER X  |  Set Bot Menu Profile Picture
+//  commands/botpp.js  —  ZENX  |  Set Bot Menu Profile Picture
 //  Per-session: each linked number has its own menu picture
 //  Usage: Reply to an image + .botpp
 //  Owner only | Category: owner

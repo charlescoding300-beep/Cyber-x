@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/antidelete.js  —  CYBER X  |  Antidelete toggle
+// commands/antidelete.js  —  ZENX  |  Antidelete toggle
 //
 // USAGE (owner only):
 //   .antidelete on   → enable

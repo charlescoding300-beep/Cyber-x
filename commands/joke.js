@@ -1,4 +1,4 @@
-// commands/joke.js — CYBER X Joke Command
+// commands/joke.js — ZENX Joke Command
 'use strict'
 
 const { getRandom, getByCategory, JOKES } = require('../lib/jokes')
@@ -29,7 +29,7 @@ const command = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  😅 *CYBER X JOKES*       ║
+║  😅 *ZENX JOKES*       ║
 ╚═══════════════════════════╝
 
 *Categories:*
@@ -52,7 +52,7 @@ ${CREDIT}`,
     await sock.sendMessage(from, {
       text:
 `╔═══════════════════════════╗
-║  😅 *CYBER X JOKES*       ║
+║  😅 *ZENX JOKES*       ║
 ╚═══════════════════════════╝
 
 ${joke}

@@ -1,4 +1,4 @@
-// commands/autoreactstatus.js — CYBER X
+// commands/autoreactstatus.js — ZENX
 // Usage: .autoreactstatus on / .autoreactstatus off
 
 let db

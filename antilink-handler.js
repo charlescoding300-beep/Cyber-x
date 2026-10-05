@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────
 //   Add this inside your main index.js
 //   inside your messages.upsert event handler
-//   CYBER X — Antilink Auto Handler
+//   ZENX — Antilink Auto Handler
 // ─────────────────────────────────────────
 
 const {

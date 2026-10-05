@@ -1,6 +1,6 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — HIDETAG COMMAND
+//  ZENX — HIDETAG COMMAND
 //  Usage: .hidetag <message>
 //  Silently tags every member in the group
 //  Admin only | Category: group/admin

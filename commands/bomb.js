@@ -1,13 +1,13 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — BOMB GAME COMMAND
+//  ZENX — BOMB GAME COMMAND
 //  Usage: .bomb @user  OR  reply to someone + .bomb
 //  Anyone can use | Category: fun
-//  Original idea by Kasan — rewritten for CYBER X by Charles Tech
+//  Original idea by Kasan — rewritten for ZENX by Charles Tech
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CREDIT =
-`*╭══ ✕-CYBER X ⚡*
+`*╭══ ✕-ZENX ⚡*
 *┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
 *╰═════════════════⊷*`
 
@@ -333,7 +333,7 @@ ${CREDIT}`,
             return sock.sendMessage(from, {
                 text:
 `╔══════════════════════════════╗
-║  💣 *CYBER X — BOMB GAME*   ║
+║  💣 *ZENX — BOMB GAME*   ║
 ╚══════════════════════════════╝
 
 ⚔️ *How to challenge someone:*

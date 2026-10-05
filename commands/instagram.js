@@ -1,4 +1,4 @@
-// commands/instagram.js — CYBER X Instagram Downloader
+// commands/instagram.js — ZENX Instagram Downloader
 'use strict'
 
 const axios = require('axios')

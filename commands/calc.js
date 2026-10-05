@@ -82,7 +82,7 @@ const command = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🧮 *CYBER X CALCULATOR*  ║
+║  🧮 *ZENX CALCULATOR*  ║
 ╚═══════════════════════════╝
 
 *How to use:*
@@ -122,7 +122,7 @@ ${CREDIT}`,
       await sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🧮 *CYBER X CALCULATOR*  ║
+║  🧮 *ZENX CALCULATOR*  ║
 ╚═══════════════════════════╝
 
 *Type:* ${operation}

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/roast.js  —  CYBER X  |  Roast Machine (Deadly Edition)
+// commands/roast.js  —  ZENX  |  Roast Machine (Deadly Edition)
 //
 // USAGE:
 //   .roast              → roast the sender
@@ -67,16 +67,16 @@ const OPENERS = [
 
 // ── Closing lines ─────────────────────────────────────────────────────────────
 const CLOSERS = [
-  "💀 *CYBER X has spoken. Seek help.*",
+  "💀 *ZENX has spoken. Seek help.*",
   "🔥 *Get well soon bestie. Emotionally.*",
-  "😭 *Roasted, toasted and served cold. CYBER X style.*",
+  "😭 *Roasted, toasted and served cold. ZENX style.*",
   "💀 *I don't make the rules. I just enforce them.*",
-  "🖤 *This has been a CYBER X public service announcement.*",
+  "🖤 *This has been a ZENX public service announcement.*",
   "🔥 *Take that personally. You were meant to.*",
-  "😤 *CYBER X Roast Machine — no survivors.*",
+  "😤 *ZENX Roast Machine — no survivors.*",
   "💀 *Therapy is available. I suggest you book immediately.*",
   "🥀 *Goodnight. Drink water. Reconsider your life choices.*",
-  "😈 *Powered by CYBER X. Devastation guaranteed.*",
+  "😈 *Powered by ZENX. Devastation guaranteed.*",
 ]
 
 function random(arr) { return arr[Math.floor(Math.random() * arr.length)] }
@@ -127,7 +127,7 @@ module.exports = {
     const opener = random(OPENERS).replace(/\{name\}/g, targetName)
 
     const text =
-      `🔥💀 *CYBER X ROAST MACHINE* 💀🔥\n` +
+      `🔥💀 *ZENX ROAST MACHINE* 💀🔥\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `${opener}\n\n` +
       `❝ _${roast}_ ❞\n\n` +

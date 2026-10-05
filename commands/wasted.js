@@ -1,6 +1,6 @@
 'use strict'
 // ════════════════════════════════════════════════════════════════════
-//  commands/wasted.js  —  CYBER X  |  💀 GTA Wasted Effect (local, no API)
+//  commands/wasted.js  —  ZENX  |  💀 GTA Wasted Effect (local, no API)
 //  Usage: .wasted @user  OR  reply to someone + .wasted
 //  Category: fun
 // ════════════════════════════════════════════════════════════════════

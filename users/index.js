@@ -51,7 +51,7 @@ loadDir(UTILS_DIR, "UTILS")
 // ── Settings (from lib or fallback) ──────────────────────────────────────────
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
 const settings   = lib.settings || {
-  botName: process.env.BOT_NAME || "CYBER X",
+  botName: process.env.BOT_NAME || "ZENX",
   prefix:  BOT_PREFIX,
   owner:   process.env.OWNER_NUMBER || "",
   mode:    "public",
@@ -79,7 +79,7 @@ const userServer = http.createServer((req, res) => {
     }))
   }
   res.writeHead(200, { "Content-Type": "text/plain" })
-  res.end("⚡ CYBER X USERS ONLINE")
+  res.end("⚡ ZENX USERS ONLINE")
 })
 userServer.keepAliveTimeout = 120000
 userServer.headersTimeout   = 125000

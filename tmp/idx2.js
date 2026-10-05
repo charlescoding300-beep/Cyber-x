@@ -17,7 +17,7 @@ loadDir(LIB_DIR,   "LIB")
 loadDir(UTILS_DIR, "UTILS")
 
 const settings = lib.settings || {
-  botName: process.env.BOT_NAME || "CYBER X",
+  botName: process.env.BOT_NAME || "ZENX",
   prefix:  BOT_PREFIX,
   owner:   process.env.OWNER_NUMBER || "",
   mode:    "public",

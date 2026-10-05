@@ -1,6 +1,6 @@
 'use strict'
 /**
- * commands/detective.js — CYBER X | 🕵️ Detective
+ * commands/detective.js — ZENX | 🕵️ Detective
  *
  * Usage:
  *   .detective @user
@@ -162,7 +162,7 @@ ${CREDIT}`,
     const warnEmoji  = warns === 0 ? '✅' : warns >= 3 ? '🔴' : '⚠️'
 
     const caption =
-`🕵️‍♂️ *CYBER X DETECTIVE*
+`🕵️‍♂️ *ZENX DETECTIVE*
 ╔══════════════════════════╗
 ║  🗂️ *C L A S S I F I E D*  ║
 ║   *S E C R E T  F I L E*   ║
@@ -210,7 +210,7 @@ ${fakeSecret(target)}
 ${fakeVerdict(target)}
 
 ╔══════════════════════════╗
-║  🔒 CYBER X Intel Dept.  ║
+║  🔒 ZENX Intel Dept.  ║
 ║  *TOP SECRET — EYES ONLY* ║
 ╚══════════════════════════╝
 ${CREDIT}`

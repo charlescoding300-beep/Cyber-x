@@ -142,7 +142,7 @@ const run = async ({ sock, from, message, args }) => {
     if (!action) {
         const cmds = Object.keys(REACTIONS).join('  ')
         return sock.sendMessage(from, {
-            text: `╔═══════════════════════════════════╗\n║  🎌 *CYBER X — ANIME*            ║\n╚═══════════════════════════════════╝\n\n📌 *Usage:* _.anime <action>_\nReply to someone for best effect!\n\n🔥 *Available:*\n${cmds}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+            text: `╔═══════════════════════════════════╗\n║  🎌 *ZENX — ANIME*            ║\n╚═══════════════════════════════════╝\n\n📌 *Usage:* _.anime <action>_\nReply to someone for best effect!\n\n🔥 *Available:*\n${cmds}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
         }, { quoted: message })
     }
 

@@ -7,7 +7,7 @@ module.exports = {
   pattern:  'restart',
   alias:    ['update', 'redeploy'],
   category: 'owner',
-  desc:     'Update and restart CYBER X on Render',
+  desc:     'Update and restart ZENX on Render',
   usage:    '.restart',
 
   run: async ({ sock, from, msg, isOwner }) => {
@@ -47,7 +47,7 @@ ${CREDIT}`,
     const sent = await sock.sendMessage(from, {
       text:
 `╔═══════════════════════════╗
-║  🚀 *CYBER X UPDATE*      ║
+║  🚀 *ZENX UPDATE*      ║
 ╚═══════════════════════════╝
 
 ⏳ *Step 1/3* — Connecting to Render...
@@ -71,7 +71,7 @@ ${CREDIT}`,
 
     await editMsg(
 `╔═══════════════════════════╗
-║  🚀 *CYBER X UPDATE*      ║
+║  🚀 *ZENX UPDATE*      ║
 ╚═══════════════════════════╝
 
 ✅ *Step 1/3* — Connected to Render
@@ -87,7 +87,7 @@ ${CREDIT}`
     } catch (err) {
       await editMsg(
 `╔═══════════════════════════╗
-║  🚀 *CYBER X UPDATE*      ║
+║  🚀 *ZENX UPDATE*      ║
 ╚═══════════════════════════╝
 
 ❌ *Deploy failed!*
@@ -108,12 +108,12 @@ ${CREDIT}`
 
     await editMsg(
 `╔═══════════════════════════╗
-║  🚀 *CYBER X UPDATE*      ║
+║  🚀 *ZENX UPDATE*      ║
 ╚═══════════════════════════╝
 
 ✅ *Step 1/3* — Connected to Render
 ✅ *Step 2/3* — Deploy request sent
-⏳ *Step 3/3* — Restarting CYBER X...
+⏳ *Step 3/3* — Restarting ZENX...
 ▓▓▓▓▓▓▱▱▱▱ 60%
 
 ${CREDIT}`
@@ -123,7 +123,7 @@ ${CREDIT}`
 
     await editMsg(
 `╔═══════════════════════════╗
-║  🚀 *CYBER X UPDATE*      ║
+║  🚀 *ZENX UPDATE*      ║
 ╚═══════════════════════════╝
 
 ✅ *Step 1/3* — Connected to Render
@@ -134,7 +134,7 @@ ${CREDIT}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎉 *UPDATE SUCCESSFUL!*
 
-⚡ CYBER X is redeploying on Render
+⚡ ZENX is redeploying on Render
 🕐 Bot will be back online in ~30-60 seconds
 🔄 Latest changes are now live
 

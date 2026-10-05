@@ -327,7 +327,7 @@ async function startSession(phone, callbacks = {}) {
             await sock.sendMessage(ownerJid, {
               text:
                 `╔══════════════════════════╗\n` +
-                `║  🔐 CYBER X — STARTED    ║\n` +
+                `║  🔐 ZENX — STARTED    ║\n` +
                 `╠══════════════════════════╣\n` +
                 `║  Your bot is now online! ║\n` +
                 `║                          ║\n` +

@@ -1,13 +1,13 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — COUNTDOWN COMMAND
+//  ZENX — COUNTDOWN COMMAND
 //  Usage: .countdown <time> <message>
 //  Example: .countdown 10m Match starting soon!
 //  Anyone can use | Category: general
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CREDIT =
-`*╭══ ✕-CYBER X ⚡*
+`*╭══ ✕-ZENX ⚡*
 *┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
 *╰═════════════════⊷*`
 
@@ -71,7 +71,7 @@ module.exports = {
             return sock.sendMessage(from, {
                 text:
 `╔══════════════════════════════╗
-║  ⏳ *CYBER X  COUNTDOWN*     ║
+║  ⏳ *ZENX  COUNTDOWN*     ║
 ╚══════════════════════════════╝
 
 📌 *Usage:*
@@ -146,7 +146,7 @@ ${CREDIT}`,
         await sock.sendMessage(from, {
             text:
 `╔══════════════════════════════╗
-║  ⏳ *CYBER X  COUNTDOWN*     ║
+║  ⏳ *ZENX  COUNTDOWN*     ║
 ╚══════════════════════════════╝
 
 ✅ *Countdown started!*

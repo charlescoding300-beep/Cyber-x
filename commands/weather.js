@@ -94,7 +94,7 @@ const command = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🌤️ *CYBER X WEATHER*     ║
+║  🌤️ *ZENX WEATHER*     ║
 ╚═══════════════════════════╝
 
 *How to use:*
@@ -209,7 +209,7 @@ ${CREDIT}`,
       // ── Build full output ──
       const output =
 `╔═══════════════════════════╗
-║  ${emoji} *CYBER X WEATHER*     ║
+║  ${emoji} *ZENX WEATHER*     ║
 ╚═══════════════════════════╝
 
 📍 *${name}, ${country}*

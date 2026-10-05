@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/autorecording.js  —  CYBER X  |  Auto Recording Toggle
+// commands/autorecording.js  —  ZENX  |  Auto Recording Toggle
 //
 // USAGE:
 //   .autorecording        → show current status

@@ -9,7 +9,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: BOT_NAME
-        value: CYBER X
+        value: ZENX
       - key: PREFIX
         value: "."
       - key: OWNER_NUMBER

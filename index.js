@@ -435,7 +435,7 @@ function logCommandTable() {
     groups[cat].push(n.startsWith(".") ? n : `.${n}`)
   }
   console.log("\n╔══════════════════════════════════════════════╗")
-  console.log("║         ⚡ CYBER X — COMMAND REGISTRY        ║")
+  console.log("║         ⚡ ZENX — COMMAND REGISTRY        ║")
   console.log("╠══════════════════════════════════════════════╣")
   const cats = Object.keys(groups).sort()
   for (const cat of cats) {

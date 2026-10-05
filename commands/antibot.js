@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/antibot.js  —  CYBER X  |  Anti-Bot
+// commands/antibot.js  —  ZENX  |  Anti-Bot
 //
 // USAGE (owner must be a group admin to set this):
 //   .antibot on          → enable in this group, mode defaults to "kick"
@@ -10,7 +10,7 @@
 //   .antibot warn          → detect + warn, auto-kick at 3 warnings
 //   .antibot off            → disable in this group
 //   .antibot status         → show current mode + exempt list
-//   .antibot exempt <jid>   → add a JID to the "known CYBER X bot" exempt list
+//   .antibot exempt <jid>   → add a JID to the "known ZENX bot" exempt list
 //   .antibot unexempt <jid> → remove a JID from the exempt list
 //
 // DETECTION SCOPE — per your requirement:
@@ -18,7 +18,7 @@
 //   sender is a regular member, group admin, super admin, OR the group
 //   owner. Admin status no longer grants automatic protection.
 //   The ONLY exemption is a maintained per-group JID list (exemptJids) —
-//   these represent YOUR OWN CYBER X-issued admin bots deployed in that
+//   these represent YOUR OWN ZENX-issued admin bots deployed in that
 //   group, which must never be touched even though they're also bots.
 //
 // STORAGE — per-group state lives inside lib.userDb's "antibot" section,
@@ -74,7 +74,7 @@ function isBaileysMessageId(messageId) {
 /**
  * Pure local check, zero network calls — kept fast for the hot path.
  * Returns true if this message looks like it came from a foreign
- * (non-CYBER X) automated bot account, based on Baileys' own message-ID
+ * (non-ZENX) automated bot account, based on Baileys' own message-ID
  * fingerprinting patterns.
  */
 function detectBotFromMessage(m, sock) {
@@ -133,7 +133,7 @@ async function kickUser(sock, groupJid, userJid, reasonText) {
 module.exports = {
   pattern:  'antibot',
   alias:    [],
-  desc:     'Detect and act on foreign WhatsApp bots in this group (admins/owner not exempt, only known CYBER X bots)',
+  desc:     'Detect and act on foreign WhatsApp bots in this group (admins/owner not exempt, only known ZENX bots)',
   usage:    '.antibot kick|delete|warn|off|status|exempt <jid>|unexempt <jid>',
   category: 'group',
 
@@ -187,7 +187,7 @@ module.exports = {
           exemptJids = [...exemptJids, targetJid]
         }
         setGroupState(lib, phone, groupJid, { exemptJids })
-        return sock.sendMessage(from, { text: `✅ Added @${targetJid.split('@')[0]} to the CYBER X exempt bot list.\n\n${BRAND}`, mentions: [targetJid] }, { quoted: msg })
+        return sock.sendMessage(from, { text: `✅ Added @${targetJid.split('@')[0]} to the ZENX exempt bot list.\n\n${BRAND}`, mentions: [targetJid] }, { quoted: msg })
       } else {
         exemptJids = exemptJids.filter(j => normalizeJid(j) !== normalizeJid(targetJid))
         setGroupState(lib, phone, groupJid, { exemptJids })
@@ -205,7 +205,7 @@ module.exports = {
         `• *.antibot warn* — warn, auto-kick at 3 warnings\n` +
         `• *.antibot off* — disable\n` +
         `• *.antibot status* — check mode + exempt list\n` +
-        `• *.antibot exempt <jid>* — protect a known CYBER X bot\n` +
+        `• *.antibot exempt <jid>* — protect a known ZENX bot\n` +
         `• *.antibot unexempt <jid>* — remove protection\n\n` +
         `*Current Mode:* ${labels[state.mode] || state.mode}\n\n${BRAND}`
     }, { quoted: msg })
@@ -231,7 +231,7 @@ module.exports = {
       const state = getGroupState(lib, phone, groupJid)
       if (!state.mode || state.mode === 'off') return
 
-      // The ONLY exemption: a maintained list of known CYBER X bot JIDs.
+      // The ONLY exemption: a maintained list of known ZENX bot JIDs.
       // Admin status, super admin status, and owner status grant NO
       // protection here — that's the explicit requirement.
       if (isExempt(state, senderJid)) return

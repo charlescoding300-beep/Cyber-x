@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/antibadword.js  —  CYBER X  |  Anti-Badword System
+// commands/antibadword.js  —  ZENX  |  Anti-Badword System
 //
 // USAGE (all in one step):
 //   .antibadword on          → enable (keeps current action)

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/owner.js  —  CYBER X
+// commands/owner.js  —  ZENX
 //
 // USAGE:
 //   .owner   → sends a tappable vCard contact card for THIS bot's own linked
@@ -30,7 +30,7 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    const displayName = sock.user?.name || sock.user?.notify || "CYBER X"
+    const displayName = sock.user?.name || sock.user?.notify || "ZENX"
 
     const vcard =
       `BEGIN:VCARD\n` +

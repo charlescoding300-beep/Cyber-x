@@ -1,4 +1,4 @@
-// commands/broadcast.js — CYBER X Broadcast Command
+// commands/broadcast.js — ZENX Broadcast Command
 'use strict'
 
 const CREDIT = `> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™ *All rights reserved*\n_Charles Tech broadcast_`
@@ -24,7 +24,7 @@ module.exports = {
     if (!text || !text.trim()) {
       return sock.sendMessage(from, {
         text:
-`📻 *CYBER X BROADCAST*
+`📻 *ZENX BROADCAST*
 
 ❌ *No message attached!*
 
@@ -85,7 +85,7 @@ ${CREDIT}`,
 
     // ── Build broadcast message ──
     const buildMessage = (recipientNum) =>
-`@${senderNum} sent a message to everyone connected to *CYBER X BOT* 📢
+`@${senderNum} sent a message to everyone connected to *ZENX BOT* 📢
 
 ┌─────────────────────────
 │
@@ -138,7 +138,7 @@ ${CREDIT}`
 📊 *Success rate:*    100% 🔥
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎉 *Every single session on CYBER X*
+🎉 *Every single session on ZENX*
 *has received your broadcast!* 
 
 💬 *Message sent:*

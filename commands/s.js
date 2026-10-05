@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/s.js  —  CYBER X  |  Sticker Maker
+// commands/s.js  —  ZENX  |  Sticker Maker
 //
 // Pure ffmpeg implementation — works identically on Render and Termux.
 // (Previously tried wa-sticker-formatter, but its installed API didn't match
@@ -20,7 +20,7 @@ const os                       = require("os")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STICKER METADATA
-// Pack name   : CYBER X + 50 invisible chars (creates gap above WhatsApp options)
+// Pack name   : ZENX + 50 invisible chars (creates gap above WhatsApp options)
 // Author line : invisible (blank — nothing shows on second line)
 // Emoji       : 👾
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ const INVISIBLE_50 = [
   "\u206A","\u206B","\u206C","\u206D","\u206E",
 ].join("")
 
-const PACK_NAME   = "CYBER X" + INVISIBLE_50
+const PACK_NAME   = "ZENX" + INVISIBLE_50
 const PACK_AUTHOR = "\u200B\u200C\u200D\uFEFF\u2060\u2061\u2062\u2063"
 const PACK_EMOJI  = "👾"
 

@@ -1,4 +1,4 @@
-// commands/ship.js — CYBER X Ship Command
+// commands/ship.js — ZENX Ship Command
 'use strict'
 
 const CREDIT = '> 🎨 _Designed by_ *Charles Tech*\n> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
@@ -56,7 +56,7 @@ module.exports = {
       return sock.sendMessage(from, {
         text:
 `╔══════════════════════════╗
-║  💘 *CYBER X SHIP METER* ║
+║  💘 *ZENX SHIP METER* ║
 ╚══════════════════════════╝
 
 ⚠️ *Oops! You didn't tag anyone.*
@@ -106,7 +106,7 @@ ${CREDIT}`,
 
     const output =
 `╔══════════════════════════╗
-║  💘 *CYBER X SHIP METER* ║
+║  💘 *ZENX SHIP METER* ║
 ╚══════════════════════════╝
 
 👤 *+${name1}*

@@ -1,6 +1,6 @@
 'use strict'
 /**
- * commands/info.js — CYBER X | Official Info
+ * commands/info.js — ZENX | Official Info
  *
  * Usage: .info
  * ✅ Instant reaction
@@ -13,7 +13,7 @@ const IMG_URL = 'https://i.ibb.co/spf35QYC/file-00000000a30c71f48bb49e183e1d43cb
 
 module.exports = {
   pattern:  'info',
-  desc:     'Official CYBER X information',
+  desc:     'Official ZENX information',
   usage:    '.info',
   category: 'general',
 
@@ -34,9 +34,9 @@ module.exports = {
 ╚══════════════════════════╝
 ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦
 
-Welcome to *CYBER X* — an advanced WhatsApp automation and utility bot designed to deliver powerful features across security, entertainment, moderation, and productivity for users and communities worldwide.
+Welcome to *ZENX* — an advanced WhatsApp automation and utility bot designed to deliver powerful features across security, entertainment, moderation, and productivity for users and communities worldwide.
 
-CYBER X was built with a vision of providing a *fast, reliable, and modern* WhatsApp experience. The platform is continuously developed and maintained to ensure stability, innovation, and user satisfaction.
+ZENX was built with a vision of providing a *fast, reliable, and modern* WhatsApp experience. The platform is continuously developed and maintained to ensure stability, innovation, and user satisfaction.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 *FOUNDER & LEAD DEVELOPER*
@@ -44,7 +44,7 @@ CYBER X was built with a vision of providing a *fast, reliable, and modern* What
 
 *Charles Chucks*
 
-Creator and driving force behind CYBER X. Through dedication, creativity, and continuous development, Charles has transformed CYBER X into a feature-rich platform trusted by communities across WhatsApp.
+Creator and driving force behind ZENX. Through dedication, creativity, and continuous development, Charles has transformed ZENX into a feature-rich platform trusted by communities across WhatsApp.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌟 *MISSION*
@@ -73,7 +73,7 @@ To provide users with a *smart, secure, and efficient* WhatsApp assistant capabl
 ║    *AUTHENTICITY* ✦      ║
 ║                          ║
 ║  This confirms that      ║
-║  *CYBER X* is an         ║
+║  *ZENX* is an         ║
 ║  officially created and  ║
 ║  actively maintained     ║
 ║  WhatsApp Bot Platform.  ║
@@ -92,9 +92,9 @@ To provide users with a *smart, secure, and efficient* WhatsApp assistant capabl
 📢 *OFFICIAL NOTICE*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-CYBER X is *actively maintained* and updated. Users are encouraged to report bugs, suggest features, and contribute ideas to help improve the platform.
+ZENX is *actively maintained* and updated. Users are encouraged to report bugs, suggest features, and contribute ideas to help improve the platform.
 
-Thank you for being part of the *CYBER X* community.
+Thank you for being part of the *ZENX* community.
 
 ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦ ✦
      𝘾𝙔𝘽𝙀𝙍 𝙓

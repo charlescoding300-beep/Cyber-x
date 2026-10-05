@@ -1,4 +1,4 @@
-// commands/alwaysonline.js — CYBER X
+// commands/alwaysonline.js — ZENX
 // Usage: .alwaysonline on / .alwaysonline off
 
 let db

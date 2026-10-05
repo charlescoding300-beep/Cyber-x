@@ -1,6 +1,6 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — IMAGINE COMMAND
+//  ZENX — IMAGINE COMMAND
 //  Usage: .imagine <description>
 //  1. Groq writes vivid scene description
 //  2. Builds detailed AI image prompt
@@ -12,7 +12,7 @@ const https = require('https')
 const http  = require('http')
 
 const CREDIT =
-`*╭══ ✕-CYBER X ⚡*
+`*╭══ ✕-ZENX ⚡*
 *┃👨‍💻 ᴅᴇᴠᴇʟᴏᴘᴇʀ :* *Charles Tech*
 *╰═════════════════⊷*`
 
@@ -112,7 +112,7 @@ const run = async ({ sock, from, message, text, args }) => {
         return sock.sendMessage(from, {
             text:
 `╔═══════════════════════════╗
-║  🎨 *CYBER X — IMAGINE*   ║
+║  🎨 *ZENX — IMAGINE*   ║
 ╚═══════════════════════════╝
 
 ✨ *Bring any idea to life!*
@@ -144,7 +144,7 @@ ${CREDIT}`,
     const thinkMsg = await sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🎨 *CYBER X — IMAGINE*   ║
+║  🎨 *ZENX — IMAGINE*   ║
 ╚═══════════════════════════╝
 
 ✨ *Imagining:* _"${input}"_
@@ -178,7 +178,7 @@ Please wait! 🔥`,
 
         const caption =
 `╔═══════════════════════════╗
-║  🎨 *CYBER X — IMAGINE*   ║
+║  🎨 *ZENX — IMAGINE*   ║
 ╚═══════════════════════════╝
 
 ✨ *"${input}"*

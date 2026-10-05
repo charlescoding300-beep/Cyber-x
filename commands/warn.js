@@ -87,7 +87,7 @@ async function getGroupInfo(sock, groupJid) {
 // ── Usage card ───────────────────────────────────────────────────
 function usageCard() {
   return `\
-⚠️ *WARN SYSTEM — CYBER X*
+⚠️ *WARN SYSTEM — ZENX*
 ${DLINE}
 
 _The warn system lets admins issue_
@@ -363,7 +363,7 @@ ${count >= g.maxwarn
       // Group warn notice
       await sock.sendMessage(from, {
         text:
-`⚠️ *WARN ISSUED — CYBER X*
+`⚠️ *WARN ISSUED — ZENX*
 ${DLINE}
 
 👤 *Member*    : ${fmt(target)}

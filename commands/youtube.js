@@ -1,4 +1,4 @@
-// commands/youtube.js — CYBER X YouTube Downloader
+// commands/youtube.js — ZENX YouTube Downloader
 'use strict'
 
 const axios = require('axios')
@@ -119,7 +119,7 @@ module.exports = {
       return sock.sendMessage(from, {
         text:
 `╔═══════════════════════════╗
-║  🎦 *CYBER X YOUTUBE DL*  ║
+║  🎦 *ZENX YOUTUBE DL*  ║
 ╚═══════════════════════════╝
 
 *How to use:*

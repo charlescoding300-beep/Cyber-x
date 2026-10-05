@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// commands/wyr.js  —  CYBER X  |  Would You Rather
+// commands/wyr.js  —  ZENX  |  Would You Rather
 //
 // USAGE (anyone, anywhere — DM or group):
 //   .wyr   → random "Would you rather A or B" dilemma

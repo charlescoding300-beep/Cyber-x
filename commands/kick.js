@@ -1,6 +1,6 @@
 'use strict'
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CYBER X — KICK COMMAND
+//  ZENX — KICK COMMAND
 //  Usage: .kick (reply to someone's message)
 //  Admin only | Category: group/admin
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
