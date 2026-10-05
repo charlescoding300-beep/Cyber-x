@@ -1,6 +1,5 @@
 require("dotenv").config()
 const fs   = require("fs")
-const autoVV = require('./commands/autovv')
 const path = require("path")
 const Pino = require("pino")
 const {
@@ -2348,19 +2347,6 @@ async function startBot(phone) {
         if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
         if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
       }
-      // AUTO-VV: process authorized chats before handleMessage(),
-      // because media-only View Once messages may have no text body.
-      if (typeof autoVV?.handleAutoVV === "function") {
-        autoVV.handleAutoVV({
-          state,
-          sock,
-          msg: m,
-          from: m.key.remoteJid,
-        }).catch(e =>
-          console.error(`[${phone}] AUTO-VV ERR:`, e.message)
-        )
-      }
-
       handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
     }
   })

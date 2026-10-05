@@ -1,141 +1,137 @@
-'use strict'
-// 𓃦 𝗭Ξ𝗡 𝗫 — .toimg
-//
-// Reply to a sticker, video, or GIF with .toimg to extract a high-quality
-// static image from it.
-//
-// Stickers (static or animated .webp) → first frame, converted to JPG.
-// Videos / GIFs (WhatsApp GIFs are actually looping MP4s) → a frame
-// grabbed a fraction of a second in, converted to JPG.
+const { downloadMediaMessage } = require("@whiskeysockets/baileys")
+const { spawnSync } = require("child_process")
+const fs = require("fs")
+const path = require("path")
+const os = require("os")
+const sharp = require("sharp")
 
-const fs   = require('fs')
-const os   = require('os')
-const path = require('path')
-const { execFile } = require('child_process')
-const { promisify } = require('util')
-const { downloadMediaMessage } = require('@whiskeysockets/baileys')
+const TMP = path.join(os.tmpdir(), "cyberx_toimg")
+if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true })
 
-const execFileAsync = promisify(execFile)
-
-const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
-
-function getQuotedMessage(msg) {
-  const ctx = msg.message?.extendedTextMessage?.contextInfo
-    || msg.message?.imageMessage?.contextInfo
-    || msg.message?.videoMessage?.contextInfo
-    || msg.message?.stickerMessage?.contextInfo
-
-  if (!ctx?.quotedMessage) return null
-
-  return {
-    key: {
-      remoteJid: msg.key.remoteJid,
-      id: ctx.stanzaId,
-      participant: ctx.participant,
-    },
-    message: ctx.quotedMessage,
-  }
+function ffmpegError(r) {
+  const out = (r.stderr?.toString() || r.error?.message || "").trim()
+  if (!out) return "unknown ffmpeg error"
+  console.error("[TOIMG] ffmpeg failed:\n" + out)
+  return out.slice(-400)
 }
 
-function detectMediaType(quotedMsg) {
-  const m = quotedMsg.message
-  if (m.stickerMessage) return 'sticker'
-  if (m.videoMessage)   return 'video'   // covers both real videos AND WhatsApp "GIFs"
-  if (m.imageMessage)   return 'image'
-  return null
-}
+async function mediaToImage(inputBuf) {
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const inp = path.join(TMP, `inp_${id}`)
+  const out = path.join(TMP, `out_${id}.png`)
 
-async function toJpegViaFfmpeg(inputBuffer, inputExt, isVideo) {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zenx-toimg-'))
-  const inputPath  = path.join(workDir, `in.${inputExt}`)
-  const outputPath = path.join(workDir, 'out.jpg')
+  fs.writeFileSync(inp, inputBuf)
 
   try {
-    fs.writeFileSync(inputPath, inputBuffer)
+    const r = spawnSync("ffmpeg", [
+      "-y",
+      "-i", inp,
+      "-frames:v", "1",
+      "-vf", "scale=512:512:force_original_aspect_ratio=decrease",
+      out,
+    ], { timeout: 30000 })
 
-    const args = isVideo
-      ? ['-y', '-ss', '0.3', '-i', inputPath, '-frames:v', '1', '-q:v', '2', outputPath]
-      : ['-y', '-i', inputPath, '-frames:v', '1', '-q:v', '2', outputPath]
+    if (r.status !== 0 || !fs.existsSync(out)) {
+      throw new Error(ffmpegError(r))
+    }
 
-    await execFileAsync('ffmpeg', args, { timeout: 30000 })
-
-    if (!fs.existsSync(outputPath)) throw new Error('ffmpeg produced no output')
-    return fs.readFileSync(outputPath)
+    return fs.readFileSync(out)
   } finally {
-    fs.rmSync(workDir, { recursive: true, force: true })
+    try { fs.unlinkSync(inp) } catch {}
+    try { fs.unlinkSync(out) } catch {}
   }
+}
+
+async function stickerToImage(inputBuf) {
+  return sharp(inputBuf, { animated: true })
+    .png()
+    .toBuffer()
 }
 
 module.exports = {
-  pattern:  'toimg',
-  alias:    ['toimage', 'stickertoimg'],
-  desc:     'Convert a replied sticker, video, or GIF into a static image',
-  usage:    'Reply to a sticker/video/GIF with .toimg',
-  category: 'converter',
+  pattern: "toimg",
+  desc: "Convert a WhatsApp video or sticker to a static image",
+  usage: "Reply to a video or sticker → .toimg",
+  category: "utility",
 
-  run: async ({ sock, from, msg }) => {
-    const quotedMsg = getQuotedMessage(msg)
+  async run({ sock, from, msg }) {
+    const ctx = msg.message?.extendedTextMessage?.contextInfo
+    const quoted = ctx?.quotedMessage
 
-    if (!quotedMsg) {
+    if (!quoted) {
       return sock.sendMessage(from, {
-        text:
-`> ❌ *NO MEDIA FOUND*
->
-> Reply to a *sticker*, *video*, or *GIF* with *.toimg*.
->
-${CREDIT}`,
-        quoted: msg,
-      })
+        text: "↩️ Reply to a *video or sticker* and type *.toimg*",
+      }, { quoted: msg })
     }
 
-    const mediaType = detectMediaType(quotedMsg)
+    const isSticker = !!quoted.stickerMessage
+    const isVideo = !!quoted.videoMessage
 
-    if (!mediaType || mediaType === 'image') {
+    if (!isSticker && !isVideo) {
       return sock.sendMessage(from, {
-        text:
-`> ❌ *UNSUPPORTED MEDIA*
->
-> *.toimg* works on stickers, videos, and GIFs — not on plain images.
->
-${CREDIT}`,
-        quoted: msg,
-      })
+        text: "❌ Only *videos or stickers* can be converted.\nReply to a video or sticker → *.toimg*",
+      }, { quoted: msg })
     }
-
-    await sock.sendMessage(from, { react: { text: '🖼️', key: msg.key } }).catch(() => {})
 
     try {
-      const mediaBuffer = await downloadMediaMessage(
-        quotedMsg,
-        'buffer',
-        {},
-        { logger: console, reuploadRequest: sock.updateMediaMessage }
-      )
+      await sock.sendMessage(from, {
+        react: { text: "🖼️", key: msg.key }
+      })
+    } catch {}
 
-      const isVideo = mediaType === 'video'
-      const inputExt = mediaType === 'sticker' ? 'webp' : 'mp4'
+    const fakeMsg = {
+      key: {
+        remoteJid: from,
+        fromMe: false,
+        id: ctx.stanzaId,
+        participant: ctx.participant,
+      },
+      message: quoted,
+    }
 
-      const jpegBuffer = await toJpegViaFfmpeg(mediaBuffer, inputExt, isVideo)
+    let mediaBuf
+
+    try {
+      mediaBuf = await downloadMediaMessage(fakeMsg, "buffer", {}, {
+        logger: {
+          level: "silent",
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          child: () => ({
+            info: () => {},
+            warn: () => {},
+            error: () => {}
+          }),
+        },
+        reuploadRequest: sock.updateMediaMessage,
+      })
+    } catch (e) {
+      return sock.sendMessage(from, {
+        text: `❌ Failed to download media: ${e.message}`,
+      }, { quoted: msg })
+    }
+
+    if (!mediaBuf?.length) {
+      return sock.sendMessage(from, {
+        text: "❌ Could not read the media. Try again.",
+      }, { quoted: msg })
+    }
+
+    try {
+      const imageBuf = isSticker
+        ? await stickerToImage(mediaBuf)
+        : await mediaToImage(mediaBuf)
 
       await sock.sendMessage(from, {
-        image: jpegBuffer,
-        caption: `> ✅ *Converted to image*\n>\n${CREDIT}`,
+        image: imageBuf,
+        caption: "🖼️ *ZENX* | Media → Image",
       }, { quoted: msg })
 
-      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
-
-    } catch (error) {
-      console.error('[TOIMG ERROR]', error?.message || error)
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
-      await sock.sendMessage(from, {
-        text:
-`> ❌ *CONVERSION FAILED*
->
-> ${error?.message || 'Could not convert that media to an image.'}
->
-${CREDIT}`,
-        quoted: msg,
-      }).catch(() => {})
+    } catch (e) {
+      return sock.sendMessage(from, {
+        text: `❌ Conversion failed:\n${e.message}`,
+      }, { quoted: msg })
     }
-  },
+  }
 }
