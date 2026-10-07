@@ -20,6 +20,7 @@ const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
 const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
+const ultraExec = require("./core/ultraexec")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
@@ -2140,7 +2141,9 @@ async function handleMessage(state, sock, msg) {
   // Command path: fire typing/recording in parallel — the command still
   // runs and replies instantly, this just runs alongside it, never awaited,
   // and deferred a tick so it can never queue ahead of the command's reply.
-  startAutoPresence(state, sock, from)
+  ultraExec.firePresence(state, from, () => {
+    startAutoPresence(state, sock, from)
+  })
 
   const isOwner = isOwnerEarly
   const isGroup = from.endsWith("@g.us")
@@ -2191,7 +2194,14 @@ async function handleMessage(state, sock, msg) {
   const startedAt = Date.now()
 
   try {
-    await runOnce()
+    await ultraExec.guardCommand(
+      state,
+      sock,
+      from,
+      msg,
+      rawCmd,
+      runOnce
+    )
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
     console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
@@ -2202,7 +2212,14 @@ async function handleMessage(state, sock, msg) {
         ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
       }
       const retryStartedAt = Date.now()
-      await runOnce()
+      await ultraExec.guardCommand(
+        state,
+        sock,
+        from,
+        msg,
+        rawCmd,
+        runOnce
+      )
       console.log(`[${state.phone}] ✔ ${rawCmd} succeeded on retry in ${Date.now() - retryStartedAt}ms`)
     } catch (e2) {
       console.error(`[${state.phone}] RUN ERR ${rawCmd} (attempt 2, final): ${e2.message}`)
@@ -2257,6 +2274,9 @@ async function startBot(phone) {
   })
 
   state.sock = sock
+
+  // ULTRA EXECUTOR — attach metrics/watchdog hooks to this live socket.
+  ultraExec.attachSession(state, sock)
 
   autoTag.autoTagAttach(state, sock)
 
@@ -2634,6 +2654,14 @@ async function startBot(phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function init() {
   await loadCommands()
+
+  // ULTRA WATCHDOG — monitor/revive live sessions without replacing
+  // the existing LIVE-RECOVERY/session-protection system.
+  ultraExec.startWatchdog({
+    sessions,
+    startBot,
+  })
+
   watchCommands()
   watchSupportDirs()
 
