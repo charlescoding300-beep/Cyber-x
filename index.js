@@ -1,6 +1,7 @@
 require("dotenv").config()
 const fs   = require("fs")
 const autoVV = require('./commands/autovv')
+const autoTag = require('./commands/autotag')
 const path = require("path")
 const Pino = require("pino")
 const {
@@ -19,6 +20,35 @@ const settingsLib   = require("./lib/settings")
 const sessionBackup = require("./lib/sessionBackup")
 const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
+// ─────────────────────────────────────────────────────────────────────────────
+
+let shuttingDown = false
+
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+
+  console.log(`[LIVE-RECOVERY] 🛑 ${signal} received — protecting sessions before exit`)
+
+  try {
+    await protectLiveSessions(signal)
+  } catch (e) {
+    console.error("[LIVE-RECOVERY] ✗ Shutdown protection failed:", e.message)
+  }
+
+  console.log("[LIVE-RECOVERY] ✔ Session protection checkpoint complete")
+}
+
+process.once("SIGTERM", () => {
+  gracefulShutdown("SIGTERM").finally(() => process.exit(0))
+})
+
+process.once("SIGINT", () => {
+  gracefulShutdown("SIGINT").finally(() => process.exit(0))
+})
 
 process.on("uncaughtException",  e => console.error("[CRASH]",   e?.message || e))
 process.on("unhandledRejection", e => console.error("[PROMISE]", e?.message || e))
@@ -684,6 +714,181 @@ api.fetchBuffer = fetchBufferSafe
 // SESSION STATE
 // ─────────────────────────────────────────────────────────────────────────────
 const sessions = new Map()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE SESSION RECOVERY PROTECTION
+// ─────────────────────────────────────────────────────────────────────────────
+// This is an additive safety layer on top of the existing VPS SQLite auth.
+//
+// Rules:
+//   OPEN / connected       -> mark LIVE
+//   reconnecting / close  -> keep LIVE marker
+//   server restart        -> preserve LIVE sessions
+//   explicit loggedOut    -> remove LIVE marker
+//
+// A temporary disconnect, slow reconnect, timeout, or server restart must
+// NEVER erase a session. Only WhatsApp's explicit DisconnectReason.loggedOut
+// is allowed to permanently remove it.
+
+const LIVE_SESSIONS_FILE = path.join(__dirname, "data", "live-sessions.json")
+
+function readLiveSessions() {
+  try {
+    if (!fs.existsSync(LIVE_SESSIONS_FILE)) return {}
+    const data = JSON.parse(fs.readFileSync(LIVE_SESSIONS_FILE, "utf8"))
+    return data && typeof data === "object" ? data : {}
+  } catch (e) {
+    console.error("[LIVE-RECOVERY] ✗ Failed to read live-session manifest:", e.message)
+    return {}
+  }
+}
+
+function writeLiveSessions(data) {
+  try {
+    fs.mkdirSync(path.dirname(LIVE_SESSIONS_FILE), { recursive: true })
+    const tmp = `${LIVE_SESSIONS_FILE}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
+    fs.renameSync(tmp, LIVE_SESSIONS_FILE)
+  } catch (e) {
+    console.error("[LIVE-RECOVERY] ✗ Failed to write live-session manifest:", e.message)
+  }
+}
+
+function markSessionLive(phone, extra = {}) {
+  const clean = String(phone || "").replace(/\D/g, "")
+  if (!clean) return
+
+  const live = readLiveSessions()
+
+  live[clean] = {
+    phone: clean,
+    live: true,
+    lastConfirmedOpenAt: Date.now(),
+    lastConfirmedOpenWAT: nowWAT(),
+    ...extra,
+  }
+
+  writeLiveSessions(live)
+  console.log(`[LIVE-RECOVERY] 🟢 ${clean} marked LIVE`)
+}
+
+function keepSessionProtected(phone, reason = "temporary disconnect") {
+  const clean = String(phone || "").replace(/\D/g, "")
+  if (!clean) return
+
+  const live = readLiveSessions()
+
+  // IMPORTANT:
+  // Do not create a LIVE record for a session that has never successfully
+  // opened. Existing protection is retained only for sessions already
+  // confirmed by WhatsApp.
+  if (!live[clean]) return
+
+  live[clean].live = true
+  live[clean].lastProtectedAt = Date.now()
+  live[clean].lastProtectedReason = reason
+
+  writeLiveSessions(live)
+  console.log(`[LIVE-RECOVERY] 🛡 ${clean} protected — ${reason}`)
+}
+
+function removeSessionFromLiveProtection(phone) {
+  const clean = String(phone || "").replace(/\D/g, "")
+  if (!clean) return
+
+  const live = readLiveSessions()
+
+  if (live[clean]) {
+    delete live[clean]
+    writeLiveSessions(live)
+    console.log(`[LIVE-RECOVERY] 🔴 ${clean} removed — WhatsApp confirmed loggedOut`)
+  }
+}
+
+function getProtectedLivePhones() {
+  return Object.keys(readLiveSessions())
+    .map(p => String(p).replace(/\D/g, ""))
+    .filter(Boolean)
+}
+
+async function protectLiveSessions(reason = "server restart") {
+  const live = readLiveSessions()
+  const protectedPhones = []
+
+  // IMPORTANT FIRST-BOOT SAFETY:
+  // Some sessions may already be OPEN before this protection layer was
+  // installed. Capture those live sockets now so the first restart cannot
+  // accidentally leave them unprotected.
+  for (const [phone, state] of sessions.entries()) {
+    if (!state?.connected || !state?.sock) continue
+
+    const existing = live[phone] || {}
+
+    live[phone] = {
+      ...existing,
+      phone,
+      live: true,
+      lastConfirmedOpenAt: existing.lastConfirmedOpenAt || Date.now(),
+      lastConfirmedOpenWAT: existing.lastConfirmedOpenWAT || nowWAT(),
+      waId: state.sock.user?.id || existing.waId || null,
+      connected: true,
+      lastShutdownProtectedAt: Date.now(),
+      lastShutdownReason: reason,
+      lastShutdownWasConnected: true,
+    }
+
+    console.log(`[LIVE-RECOVERY] 🟢 ${phone} currently OPEN — captured before shutdown`)
+  }
+
+  for (const [phone, record] of Object.entries(live)) {
+    const state = sessions.get(phone)
+
+    // Only sessions that have previously been confirmed OPEN are eligible
+    // for restart protection. Never erase a missing/slow session here.
+    if (!record?.live) continue
+
+    protectedPhones.push(phone)
+
+    if (state?.connected && state?.sock) {
+      record.lastShutdownProtectedAt = Date.now()
+      record.lastShutdownReason = reason
+      record.lastShutdownWasConnected = true
+
+      // Force the current credentials through the existing SQLite auth path.
+      try {
+        const auth = await authStore.useAuthState(phone, state.sessDir)
+        await auth.saveCreds()
+        console.log(`[LIVE-RECOVERY] 💾 ${phone} durable auth checkpoint saved`)
+      } catch (e) {
+        console.error(`[LIVE-RECOVERY] ⚠ ${phone} auth checkpoint failed:`, e.message)
+      }
+    } else {
+      // DO NOT remove it. A slow/reconnecting session remains protected.
+      record.lastShutdownProtectedAt = Date.now()
+      record.lastShutdownReason = `${reason} — session not currently open; preserved`
+      record.lastShutdownWasConnected = false
+
+      console.log(`[LIVE-RECOVERY] 🛡 ${phone} preserved while not currently open`)
+    }
+  }
+
+  writeLiveSessions(live)
+
+  console.log(
+    `[LIVE-RECOVERY] 🛡 Protected ${protectedPhones.length} LIVE session(s): ` +
+    `${protectedPhones.join(", ") || "(none)"}`
+  )
+
+  return protectedPhones
+}
+
+function getLiveRecoveryManifest() {
+  return readLiveSessions()
+}
+
+function saveLiveRecoveryManifest() {
+  writeLiveSessions(readLiveSessions())
+}
 
 function makeSessionSettings(phone) {
   return settingsLib.forUser(phone)
@@ -2053,6 +2258,8 @@ async function startBot(phone) {
 
   state.sock = sock
 
+  autoTag.autoTagAttach(state, sock)
+
   if (state.presenceTimer) clearInterval(state.presenceTimer)
   state.presenceTimer = setInterval(() => {
     if (state.connected && state.settings.get("alwaysOnline")) {
@@ -2293,7 +2500,21 @@ async function startBot(phone) {
       }
       console.log(`[${phone}] 👀 autoViewStatus= ${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji= ${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
       saveMeta()
-      sessionBackup.pushImmediate(phone).catch(e => console.error(`[${phone}] BACKUP PUSH ERR:`, e.message))
+
+      // ─────────────────────────────────────────────────────────────────────
+      // LIVE RECOVERY: WhatsApp has explicitly confirmed this socket is OPEN.
+      // This is the only point where a session becomes restart-protected.
+      // ─────────────────────────────────────────────────────────────────────
+      markSessionLive(phone, {
+        waId: sock.user?.id || null,
+        connected: true,
+      })
+
+      // Existing backup remains active.
+      // SQLite authStore is the durable source of truth.
+      sessionBackup.pushImmediate(phone).catch(e =>
+        console.error(`[${phone}] BACKUP PUSH ERR:`, e.message)
+      )
     }
 
     if (connection === "close") {
@@ -2301,7 +2522,12 @@ async function startBot(phone) {
       state.startingUp = false
       const statusCode = lastDisconnect?.error?.output?.statusCode
       const loggedOut  = statusCode === DisconnectReason.loggedOut
+
       if (loggedOut) {
+        // ONLY an explicit WhatsApp loggedOut is allowed to destroy the
+        // restart-protection record.
+        removeSessionFromLiveProtection(phone)
+
         console.log(`[${phone}] ✗ Logged out — removing session`)
         await removeSession(phone)
         await sessionBackup.deleteSession(phone).catch(() => {})
@@ -2309,6 +2535,18 @@ async function startBot(phone) {
         if (slotAssignments[phone]) { delete slotAssignments[phone]; saveSlotAssignments() }
         return
       }
+
+      // Temporary disconnect / reconnect / timeout / slow WhatsApp reload:
+      // NEVER delete the session and NEVER clear its live protection record.
+      keepSessionProtected(phone, `connection closed (code ${statusCode ?? "unknown"})`)
+
+      // During an intentional PM2/server shutdown, preserve the session but
+      // do NOT create a new reconnect timer. The next process will restore it.
+      if (shuttingDown) {
+        console.log(`[${phone}] 🛡 Shutdown in progress — session preserved, reconnect skipped`)
+        return
+      }
+
       state.retries++
       const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
       logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt # ${state.retries}`)
@@ -2529,13 +2767,32 @@ async function init() {
     return phones
   })()
 
-  const allPhones = [...new Set([
+  let allPhones = [...new Set([
     ...onDisk,
     ...fromMeta,
     ...fromSlots,
     ...fromSettingsFiles,
     ...fromUsersDir,
   ].map(p => String(p).replace(/\D/g, "")).filter(Boolean))]
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIVE RECOVERY BOOT ORDER
+  // ─────────────────────────────────────────────────────────────────────────
+  // Previously confirmed LIVE sessions get first recovery priority.
+  // Existing discovery remains intact for newly paired/known sessions.
+  // Nothing is deleted because a session is slow or temporarily disconnected.
+
+  const protectedLivePhones = getProtectedLivePhones()
+
+  allPhones = [
+    ...protectedLivePhones.filter(phone => allPhones.includes(phone)),
+    ...allPhones.filter(phone => !protectedLivePhones.includes(phone)),
+  ]
+
+  console.log(
+    `[LIVE-RECOVERY] 🛡 Protected LIVE sessions at boot: ` +
+    `${protectedLivePhones.length ? protectedLivePhones.join(", ") : "(none)"}`
+  )
 
   if (fs.existsSync(SETTINGS_ROOT)) {
     const settingFiles = fs.readdirSync(SETTINGS_ROOT).filter(f => f.endsWith(".json"))
@@ -2701,6 +2958,7 @@ function listBots() {
 // ─────────────────────────────────────────────────────────────────────────────
 // GLOBAL EXPOSURE
 // ─────────────────────────────────────────────────────────────────────────────
+global.__sessionStates = sessions
 global.__listBots = listBots
 
 module.exports = {

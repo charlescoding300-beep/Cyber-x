@@ -416,6 +416,76 @@ const server = http.createServer(async (req, res) => {
     })))
   }
 
+  // ── TEMP GROUP STATUS DIAGNOSTIC ─────────────────────────────────────────
+  if (url === "/__diag/groups" && method === "GET") {
+    const bots = listBots()
+    const result = []
+    for (const b of bots) {
+      const state = global.__sessionStates?.get?.(b.phone)
+      const groups = state?.sock && b.connected
+        ? await state.sock.groupFetchAllParticipating()
+        : {}
+      result.push({
+        phone: b.phone,
+        connected: b.connected,
+        groups: Object.values(groups).map(g => ({
+          jid: g.id,
+          subject: g.subject || null
+        }))
+      })
+    }
+    return json(res, { status: true, bots: result })
+  }
+
+  // ── TEMP GROUP STATUS SEND TEST ─────────────────────────────────────────
+  if (url === "/__diag/group-status-test" && method === "GET") {
+    const state = global.__sessionStates?.get?.("2348120382097")
+    if (!state?.sock || !state.connected) {
+      return json(res, { status: false, error: "WhatsApp socket not connected" }, 503)
+    }
+
+    const crypto = require("crypto")
+    const { generateWAMessageFromContent } = require("@whiskeysockets/baileys")
+
+    const groupJid = "120363413059912208@g.us"
+    const secret = crypto.randomBytes(32)
+
+    const msg = generateWAMessageFromContent(
+      groupJid,
+      {
+        groupStatusMessageV2: {
+          message: {
+            extendedTextMessage: {
+              text: "ZEN X GROUP STATUS TEST",
+              contextInfo: { isGroupStatus: true }
+            },
+            messageContextInfo: {
+              messageSecret: secret
+            }
+          }
+        }
+      },
+      {
+        userJid: state.sock.user?.id
+      }
+    )
+
+    await state.sock.relayMessage(
+      groupJid,
+      msg.message,
+      {
+        messageId: msg.key.id
+      }
+    )
+
+    return json(res, {
+      status: true,
+      sent: true,
+      groupJid,
+      messageId: msg.key.id
+    })
+  }
+
   // ── /sessions — OWNER ONLY ────────────────────────────────────────────────
   if (url === "/sessions" && method === "GET") {
     if (!isAdminRequest(req)) return json(res, { error: "unauthorized" }, 401)

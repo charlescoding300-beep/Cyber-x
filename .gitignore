@@ -36,3 +36,16 @@ patches/
 *.bak
 *.tmp
 *.deb
+
+# ZenX local database/runtime data — NEVER commit
+database/zenx.db
+database/zenx.db-wal
+database/zenx.db-shm
+database/zenx.db-journal
+database/groupMemory.json
+database/autotyping.json
+
+# Development backup/snapshot files — do not commit
+*.before-*
+*.bak-*
+*.backup
