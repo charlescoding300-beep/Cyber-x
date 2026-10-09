@@ -134,6 +134,7 @@ const IGNORE_TYPES = new Set([
   "protocolMessage", "reactionMessage", "encReactionMessage", "pollUpdateMessage",
   "editedMessage", "keepInChatMessage", "senderKeyDistributionMessage",
   "messageContextInfo", "call", "bcallMessage", "requestPhoneNumberMessage",
+  "stickerMessage",
 ])
 
 function unwrap(message) {

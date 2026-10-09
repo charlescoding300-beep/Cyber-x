@@ -5,6 +5,8 @@
 //   Reply to a text / image / video / voice-note with:
 //     .gcstatus <group name | GID | invite link>     (from anywhere)
 //     .gcstatus                                      (inside the target group)
+//     .gcstatus all                                  (post it to EVERY group the bot is in)
+//     .gcstatus all stop                             (cancel a running bulk post)
 //     .gcstatus ... --flat                           (fallback engine, see below)
 //     .gcstatus check                                (library patch diagnostics)
 //
@@ -24,6 +26,9 @@
 //        media status the same way the (working) text path does, and also
 //        fixes the old forced `ptt: true` on every media type.
 //
+//   --nopreview : text statuses with a link normally get a link-preview card
+//            (image + title + description). Add this to skip the card.
+//
 //   --flat : fallback engine that skips the wrapper entirely and sends normal
 //            media with the group-status contextInfo flags. Use it only if the
 //            wrapped engine still doesn't show up after patching.
@@ -36,11 +41,16 @@ const path = require("path")
 const { spawn } = require("child_process")
 const Pino = require("pino")
 
+const axios = require("axios")
+const baileys = require("@systemzero/baileys")
 const {
   downloadMediaMessage,
   generateWAMessageFromContent,
   generateWAMessageContent,
-} = require("@systemzero/baileys")
+} = baileys
+
+let sharp = null
+try { sharp = require("sharp") } catch {}
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 
@@ -213,10 +223,187 @@ function statusKind(content) {
   return content.type
 }
 
-// ── TEXT status (unchanged — this path already worked) ───────────────────────
+// ── LINK PREVIEW (text statuses that contain a link) ─────────────────────────
+// Builds the same card WhatsApp shows in a normal chat: big image + title +
+// description + domain, with the link pill underneath. Everything comes from
+// the link's own page (og:title / og:description / og:image).
+// Never blocks the status: if anything fails, the text is sent without a card.
 
-async function buildTextStatus(groupJid, text, userJid) {
+const URL_RE = /((?:https?:\/\/|www\.)[^\s<>"']+|\b(?:t\.me|wa\.me|chat\.whatsapp\.com|youtu\.be|bit\.ly|instagram\.com|tiktok\.com|facebook\.com|x\.com|twitter\.com)\/[^\s<>"']+)/i
+
+function extractFirstUrl(text) {
+  const m = String(text || "").match(URL_RE)
+  if (!m) return null
+  return m[1].replace(/[)\].,;:!?]+$/, "") // drop trailing punctuation
+}
+
+function toFetchUrl(u) {
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`
+}
+
+function withTimeout(promise, ms, label = "operation") {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .trim()
+}
+
+function readMeta(html, names) {
+  for (const name of names) {
+    const a = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["']`, "i")
+    const b = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, "i")
+    const m = html.match(a) || html.match(b)
+    if (m?.[1]) return decodeEntities(m[1])
+  }
+  return null
+}
+
+async function scrapePage(url) {
+  const res = await axios.get(toFetchUrl(url), {
+    timeout: 8000,
+    maxRedirects: 5,
+    maxContentLength: 3 * 1024 * 1024,
+    responseType: "text",
+    headers: {
+      "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+      Accept: "text/html,*/*",
+    },
+    validateStatus: s => s >= 200 && s < 400,
+  })
+
+  const html = String(res.data || "")
+  const title =
+    readMeta(html, ["og:title", "twitter:title"]) ||
+    decodeEntities(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1])
+  if (!title) return null
+
+  const finalUrl = res.request?.res?.responseUrl || toFetchUrl(url)
+  let image = readMeta(html, ["og:image", "og:image:url", "twitter:image"])
+  if (image) { try { image = new URL(image, finalUrl).href } catch { image = null } }
+
+  return {
+    title,
+    description: readMeta(html, ["og:description", "twitter:description", "description"]) || "",
+    image,
+    canonicalUrl: readMeta(html, ["og:url"]) || finalUrl,
+  }
+}
+
+async function makeSmallThumb(buf) {
+  if (sharp) {
+    try { return await sharp(buf).resize({ width: 192, withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer() } catch {}
+  }
+  return buf.length <= 40000 ? buf : null // without sharp, only use the image if it's already tiny
+}
+
+async function uploadBigThumb(sock, buf) {
+  if (typeof baileys.prepareWAMessageMedia !== "function") return null
+  const { imageMessage } = await baileys.prepareWAMessageMedia(
+    { image: buf },
+    { upload: sock.waUploadToServer, mediaTypeOverride: "thumbnail-link" }
+  )
+  return imageMessage || null
+}
+
+// returns { matchedText, canonicalUrl, title, description, jpegThumbnail, hq } or null
+async function fetchLinkPreview(sock, url) {
+  // A) Baileys' own scraper + uploader (needs `npm i link-preview-js`)
+  if (typeof baileys.getUrlInfo === "function") {
+    try {
+      const info = await baileys.getUrlInfo(url, {
+        thumbnailWidth: 192,
+        fetchOpts: { timeout: 8000 },
+        uploadImage: sock.waUploadToServer,
+      })
+      if (info?.title) {
+        console.log("[GCSTATUS] Link preview via Baileys getUrlInfo", { title: info.title, hasBigThumb: !!info.highQualityThumbnail })
+        return {
+          matchedText: info["matched-text"] || url,
+          canonicalUrl: info["canonical-url"] || toFetchUrl(url),
+          title: info.title,
+          description: info.description || "",
+          jpegThumbnail: info.jpegThumbnail,
+          hq: info.highQualityThumbnail || null,
+        }
+      }
+    } catch (e) {
+      console.warn(`[GCSTATUS] getUrlInfo unavailable (${e.message}) — using built-in scraper`)
+    }
+  }
+
+  // B) built-in scraper
+  const page = await scrapePage(url)
+  if (!page) return null
+
+  let jpegThumbnail, hq = null
+  if (page.image) {
+    try {
+      const img = Buffer.from((await axios.get(page.image, {
+        responseType: "arraybuffer", timeout: 8000, maxContentLength: 8 * 1024 * 1024,
+        headers: { "User-Agent": "Mozilla/5.0" },
+      })).data)
+      if (img.length > 500) {
+        jpegThumbnail = await makeSmallThumb(img)
+        hq = await uploadBigThumb(sock, img).catch(e => { console.warn("[GCSTATUS] big thumbnail upload skipped:", e.message); return null })
+      }
+    } catch (e) {
+      console.warn("[GCSTATUS] preview image skipped:", e.message)
+    }
+  }
+
+  console.log("[GCSTATUS] Link preview via built-in scraper", { title: page.title, hasThumb: !!jpegThumbnail, hasBigThumb: !!hq })
+  return {
+    matchedText: url,
+    canonicalUrl: page.canonicalUrl,
+    title: page.title,
+    description: page.description,
+    jpegThumbnail,
+    hq,
+  }
+}
+
+function applyPreview(ext, preview) {
+  ext.matchedText = preview.matchedText
+  ext.canonicalUrl = preview.canonicalUrl
+  ext.title = preview.title
+  ext.description = preview.description
+  ext.previewType = 0
+  if (preview.jpegThumbnail) ext.jpegThumbnail = preview.jpegThumbnail
+
+  const hq = preview.hq
+  if (hq?.directPath && hq?.mediaKey) {
+    ext.thumbnailDirectPath = hq.directPath
+    ext.mediaKey = hq.mediaKey
+    ext.mediaKeyTimestamp = hq.mediaKeyTimestamp
+    ext.thumbnailSha256 = hq.fileSha256
+    ext.thumbnailEncSha256 = hq.fileEncSha256
+    ext.thumbnailHeight = hq.height
+    ext.thumbnailWidth = hq.width
+  }
+}
+
+// ── TEXT status ──────────────────────────────────────────────────────────────
+
+async function buildTextStatus(groupJid, text, userJid, preview) {
   const secret = crypto.randomBytes(32)
+
+  const ext = {
+    text,
+    contextInfo: buildStatusContext(STATUS_SOURCE.text),
+  }
+  if (preview) applyPreview(ext, preview)
 
   return generateWAMessageFromContent(
     groupJid,
@@ -225,10 +412,7 @@ async function buildTextStatus(groupJid, text, userJid) {
 
       groupStatusMessageV2: {
         message: {
-          extendedTextMessage: {
-            text,
-            contextInfo: buildStatusContext(STATUS_SOURCE.text),
-          },
+          extendedTextMessage: ext,
           messageContextInfo: { messageSecret: secret },
         },
       },
@@ -460,6 +644,238 @@ function inspectLib() {
   return report
 }
 
+// ── POST TO EVERY GROUP  (.gcstatus all) ─────────────────────────────────────
+// Reply to any content in your DM and send:  .gcstatus all
+// The media is downloaded + uploaded ONCE and re-used for every group, groups are
+// posted one-by-one with a short pause (so WhatsApp doesn't see a burst), and it
+// runs in the background — the command answers instantly and reports at the end.
+//   .gcstatus all stop   cancels a running job
+//   GCSTATUS_ALL_DELAY_MS=2500  (.env) changes the pause between groups
+//   GCSTATUS_ALL_JITTER_MS=800  (.env) extra random 0–800ms added to each pause
+
+const bulkJobs = new Map() // session phone -> { cancel, total, done }
+const MAX_CONSECUTIVE_FAILS = 5
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+function allDelayMs() {
+  const n = parseInt(process.env.GCSTATUS_ALL_DELAY_MS, 10)
+  return Number.isFinite(n) && n >= 0 ? n : 2500
+}
+
+function allJitterMs() {
+  const n = parseInt(process.env.GCSTATUS_ALL_JITTER_MS, 10)
+  return Number.isFinite(n) && n >= 0 ? n : 800
+}
+
+function sessionKey(sock) {
+  return String(sock.user?.id || "").replace(/@.+$/, "").replace(/:\d+$/, "").replace(/\D/g, "") || "session"
+}
+
+// same upload as sendWrappedMedia(), but WITHOUT sending — so it can be reused per group
+async function prepareWrappedMedia(sock, content) {
+  const kind = statusKind(content)
+  const input = await buildMediaInput(content)
+  const mediaKey = `${content.type}Message`
+
+  console.log("[GCSTATUS ALL] Uploading media once", { type: content.type, kind, bytes: content.buffer.length })
+
+  const prepared = await generateWAMessageContent(
+    { ...input, groupStatus: true },
+    { upload: sock.waUploadToServer, logger: Pino({ level: "silent" }) }
+  )
+  if (!prepared) throw new Error("Media pipeline returned nothing")
+
+  const wrapperKey =
+    prepared.groupStatusMessageV2 ? "groupStatusMessageV2" :
+    prepared.groupStatusMessage   ? "groupStatusMessage"   : null
+
+  let inner
+  if (wrapperKey) inner = prepared[wrapperKey]?.message
+  else if (prepared[mediaKey]) inner = prepared
+  else if (prepared.message?.[mediaKey]) inner = prepared.message
+
+  const mediaMessage = inner?.[mediaKey]
+  if (!mediaMessage) {
+    throw new Error(`Upload produced no ${mediaKey} (got: ${Object.keys(prepared).join(", ") || "nothing"})`)
+  }
+
+  mediaMessage.contextInfo = {
+    ...(mediaMessage.contextInfo || {}),
+    ...buildStatusContext(STATUS_SOURCE[kind]),
+  }
+
+  return { inner, mediaKey, type: content.type }
+}
+
+// one group: fresh message secret + fresh message id, shared (already uploaded) media
+async function publishPrepared(sock, groupJid, prep) {
+  const secret = crypto.randomBytes(32)
+  const inner = {
+    ...prep.inner,
+    [prep.mediaKey]: { ...prep.inner[prep.mediaKey] },
+    messageContextInfo: { ...(prep.inner.messageContextInfo || {}), messageSecret: secret },
+  }
+
+  const status = await generateWAMessageFromContent(
+    groupJid,
+    {
+      messageContextInfo: { messageSecret: secret },
+      groupStatusMessageV2: { message: inner },
+    },
+    { userJid: sock.user?.id }
+  )
+
+  await relayStatus(sock, { id: groupJid }, status, prep.type)
+  return status
+}
+
+async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
+  const key = sessionKey(sock)
+  const running = bulkJobs.get(key)
+
+  // ── .gcstatus all stop ─────────────────────────────────────────────────────
+  if (sub === "stop") {
+    if (!running) return helper.reply(sock, msg, "> ℹ️ *No bulk Group Status is running.*")
+    running.cancel = true
+    return helper.reply(sock, msg, `> 🛑 *Stopping after the current group…*\n> Done so far: *${running.done}/${running.total}*`)
+  }
+
+  if (running) {
+    return helper.reply(
+      sock,
+      msg,
+      `> ⏳ *A bulk Group Status is already running* (${running.done}/${running.total}).\n> Send *.gcstatus all stop* to cancel it.`
+    )
+  }
+
+  const quoted = getQuotedInfo(msg)
+  if (!quoted) {
+    return helper.reply(sock, msg, "> ❌ *Reply to the content you want to post, then send .gcstatus all*")
+  }
+
+  const content = getContent(quoted.quotedMessage)
+  if (!content) return helper.reply(sock, msg, "> ❌ *Unsupported quoted message.*")
+  if (content.type !== "text" && !SUPPORTED_MEDIA.has(content.type)) {
+    return helper.reply(
+      sock,
+      msg,
+      `> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
+    )
+  }
+
+  // ── every group this account is in ─────────────────────────────────────────
+  let groups
+  try {
+    const all = await sock.groupFetchAllParticipating()
+    groups = Object.values(all || {})
+      .filter(g => g?.id?.endsWith("@g.us"))
+      .sort((a, b) => String(a.subject || "").localeCompare(String(b.subject || ""), undefined, { sensitivity: "base" }))
+  } catch (e) {
+    return helper.reply(sock, msg, `> ❌ *Couldn't fetch the group list.*\n> ${e.message}`)
+  }
+  if (!groups.length) return helper.reply(sock, msg, "> ❌ *This account isn't in any groups.*")
+
+  // ── prepare ONCE (download / upload / link preview) ────────────────────────
+  let publish
+  try {
+    if (content.type === "text") {
+      const textValue = content.node?.text || content.node?.caption || ""
+      if (!textValue.trim()) throw new Error("The quoted text message is empty.")
+
+      let preview = null
+      const link = noPreview ? null : extractFirstUrl(textValue)
+      if (link) {
+        try { preview = await withTimeout(fetchLinkPreview(sock, link), 20000, "link preview") }
+        catch (e) { console.warn(`[GCSTATUS ALL] Link preview skipped: ${e.message}`) }
+      }
+
+      publish = async (g) => {
+        const st = await buildTextStatus(g.id, textValue, sock.user?.id, preview)
+        await relayStatus(sock, g, st, "text")
+      }
+    } else {
+      content.buffer = await downloadMedia(sock, content.node, content.type, quoted, from)
+
+      if (flat) {
+        publish = (g) => sendFlatMedia(sock, g.id, content)
+      } else {
+        const prep = await prepareWrappedMedia(sock, content)
+        publish = (g) => publishPrepared(sock, g.id, prep)
+      }
+    }
+  } catch (e) {
+    console.error("[GCSTATUS ALL] prepare failed", e)
+    return helper.reply(sock, msg, `> ❌ *Couldn't prepare the content.*\n> ${e.message}`)
+  }
+
+  const job = { cancel: false, total: groups.length, done: 0 }
+  bulkJobs.set(key, job)
+
+  const delay = allDelayMs()
+  const etaMin = Math.max(1, Math.round((groups.length * (delay + allJitterMs() / 2 + 700)) / 60000))
+
+  await helper.reply(
+    sock,
+    msg,
+    `> 📤 *Posting to ALL groups…*\n>\n> Groups: *${groups.length}*\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Estimated time: ~${etaMin} min\n>\n> Send *.gcstatus all stop* to cancel.\n>\n${CREDIT}`
+  ).catch(() => {})
+
+  // ── run in the background so the command itself returns right away ─────────
+  ;(async () => {
+    const ok = []
+    const failed = []
+    let streak = 0
+    let aborted = false
+
+    try {
+      for (const g of groups) {
+        if (job.cancel) break
+
+        try {
+          await publish(g)
+          ok.push(g)
+          streak = 0
+        } catch (e) {
+          failed.push({ g, reason: e.message })
+          streak++
+          console.error(`[GCSTATUS ALL] ✗ ${g.subject || g.id}: ${e.message}`)
+        }
+        job.done++
+
+        if (streak >= MAX_CONSECUTIVE_FAILS) { aborted = true; break }
+
+        if (job.done % 20 === 0 && job.done < groups.length && !job.cancel) {
+          helper.reply(sock, msg, `> ⏳ *Progress:* ${job.done}/${job.total}  (✅ ${ok.length}  ❌ ${failed.length})`).catch(() => {})
+        }
+
+        if (job.done < groups.length && !job.cancel) {
+          await sleep(delay + Math.floor(Math.random() * (allJitterMs() + 1))) // small random jitter
+        }
+      }
+    } finally {
+      bulkJobs.delete(key)
+    }
+
+    const head = job.cancel
+      ? "🛑 *Bulk Group Status cancelled.*"
+      : aborted
+        ? `⚠️ *Stopped — ${MAX_CONSECUTIVE_FAILS} failures in a row (connection problem?).*`
+        : "✅ *Bulk Group Status finished.*"
+
+    const failLines = failed.slice(0, 8).map(f => `> • ${f.g.subject || f.g.id} — ${String(f.reason).slice(0, 60)}`)
+    const more = failed.length > 8 ? `\n> …and ${failed.length - 8} more` : ""
+
+    const summary =
+      `> ${head}\n>\n> Type: *${content.type}*\n> Posted: *${ok.length}* / ${job.total}\n> Failed: *${failed.length}*` +
+      (failLines.length ? `\n>\n${failLines.join("\n")}${more}` : "") +
+      `\n>\n${CREDIT}`
+
+    console.log(`[GCSTATUS ALL] done — posted ${ok.length}/${job.total}, failed ${failed.length}`)
+    await helper.reply(sock, msg, summary).catch(() => {})
+  })().catch(e => console.error("[GCSTATUS ALL] crashed:", e))
+}
+
 // ── the command ──────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -468,7 +884,7 @@ module.exports = {
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",
 
-  usage: ".gcstatus <group name|GID|invite link> or .gcstatus inside a group  (add --flat for the fallback engine, .gcstatus check for diagnostics)",
+  usage: ".gcstatus <group name|GID|invite link> | .gcstatus all (every group) | .gcstatus all stop | or .gcstatus inside a group  (flags: --nopreview skips the link card, --flat = fallback engine; .gcstatus check = diagnostics)",
 
   category: "owner",
 
@@ -494,8 +910,15 @@ module.exports = {
       )
     }
 
-    const flat = /(^|\s)--flat(\s|$)/i.test(destination)
-    if (flat) destination = destination.replace(/(^|\s)--flat(\s|$)/gi, " ").trim()
+    const flat = /(^|\s)--flat(?=\s|$)/i.test(destination)
+    const noPreview = /(^|\s)--nopreview(?=\s|$)/i.test(destination)
+    destination = destination.replace(/(^|\s)--(?:flat|nopreview)(?=\s|$)/gi, " ").trim()
+
+    // .gcstatus all  /  .gcstatus all stop  → every group the bot is in
+    const words = destination.split(/\s+/).filter(Boolean)
+    if (words[0] && words[0].toLowerCase() === "all") {
+      return runAllGroups({ sock, from, msg, helper, sub: (words[1] || "").toLowerCase(), flat, noPreview })
+    }
 
     const quoted = getQuotedInfo(msg)
 
@@ -547,6 +970,8 @@ module.exports = {
       engine: content.type === "text" ? "text" : flat ? "flat" : "wrapped",
     })
 
+    let preview = null
+
     try {
       let status
 
@@ -556,7 +981,17 @@ module.exports = {
 
         if (!textValue.trim()) throw new Error("The quoted text message is empty.")
 
-        status = await buildTextStatus(group.id, textValue, sock.user?.id)
+        // link in the text? build the preview card (image + title + description)
+        const link = noPreview ? null : extractFirstUrl(textValue)
+        if (link) {
+          try {
+            preview = await withTimeout(fetchLinkPreview(sock, link), 20000, "link preview")
+          } catch (e) {
+            console.warn(`[GCSTATUS] Link preview skipped: ${e.message}`)
+          }
+        }
+
+        status = await buildTextStatus(group.id, textValue, sock.user?.id, preview)
         await relayStatus(sock, group, status, "text")
       }
 
@@ -584,6 +1019,7 @@ module.exports = {
       }
 
       // warn if the library still has the mediatype bug (wrapped media only)
+      const previewNote = preview ? `\n> Link preview: *attached*` : ""
       let warn = ""
       if (content.type !== "text" && !flat) {
         const unfixed = inspectLib().filter(r => !r.fixed)
@@ -595,7 +1031,7 @@ module.exports = {
       return helper.reply(
         sock,
         msg,
-        `> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Message ID: ${status?.key?.id || "unknown"}${warn}\n>\n${CREDIT}`
+        `> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}${previewNote}\n> Message ID: ${status?.key?.id || "unknown"}${warn}\n>\n${CREDIT}`
       )
     } catch (e) {
       console.error("[GCSTATUS FAILED]", e)

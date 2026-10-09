@@ -1,142 +1,252 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// commands/roast.js  —  ZENX  |  Roast Machine (Deadly Edition)
-//
-// USAGE:
-//   .roast              → roast the sender
-//   Reply to someone → .roast  → auto-tags that person
-//   .roast @mention     → roast a tagged person
-//   .roast John         → roast by name
-// ─────────────────────────────────────────────────────────────────────────────
+const fs = require("fs")
+const path = require("path")
 
 const ROASTS = [
-  "Your birth certificate is an apology letter from the condom factory.",
-  "You're the reason your parents regret not practicing safe sex.",
-  "I've seen better faces on a wanted poster.",
-  "You're not ugly — you're just aesthetically challenging to everyone around you.",
-  "Your IQ is so low, Google Maps can't even find it.",
-  "You're like a Monday — nobody wants you, everybody dreads you, and you ruin everything.",
-  "If stupidity was a currency, you'd be the richest corpse in the graveyard.",
-  "You're the human equivalent of a participation trophy nobody asked for.",
-  "I'd roast you harder but my mom said I'm not allowed to burn actual garbage.",
-  "You have the personality of a wet sock left in the sun for three days.",
-  "Even your shadow leaves you when you walk into the light.",
-  "You're like a software virus — you slow everything down and nobody asked you to show up.",
-  "Your parents looked at you and told God they understood Thanos.",
-  "You're living proof that evolution has a glitch.",
-  "The only thing worse than your face is your personality, and somehow both keep getting worse.",
-  "You're so useless that if you disappeared tomorrow, people would only notice the WiFi got faster.",
-  "Your life is like a broken pencil — absolutely pointless.",
-  "You have the emotional depth of a puddle on a hot day.",
-  "If brains were taxed, you'd get a refund every year.",
-  "You're not the dumbest person in the world but you better pray they don't die.",
-  "You're the reason instructions exist on shampoo bottles.",
-  "I'd tell you to go to hell, but I don't want Satan to suffer like that.",
-  "You're the type of person that would microwave fish in the office and think it's fine.",
-  "You bring so much joy to people — specifically when you leave the room.",
-  "Your mind is like concrete — thoroughly mixed and permanently set.",
-  "You're so irrelevant even your WiFi drops you.",
-  "If I had a dollar for every brain cell you have, I'd be broke.",
-  "Looking at you makes me grateful mirrors have feelings and walls don't talk.",
-  "You're like a cloud — the whole day gets better when you disappear.",
-  "You remind me of a penny — two-faced, worthless, and always trying to fit in.",
-  "Your existence is the universe's way of testing people's patience.",
-  "You're the type to Google your own name and get zero results.",
-  "If your life was a movie, it would be rated D for Disappointing.",
-  "You're not a mistake — you're a cautionary tale.",
-  "You make onions cry.",
-  "You're so forgettable, your own alarm clock hits snooze on you.",
-  "Even your dog unfollows you in real life.",
-  "You're like a flat tyre — completely useless and nobody wants to deal with you.",
-  "Your parents took one look at you and named you after their disappointment.",
-  "You're proof that God has a sense of humour and sometimes it's dark.",
+  "Bro entered the chat with 2% battery and 0% brain.",
+  "You talk with so much confidence for someone who's always wrong.",
+  "Your Wi-Fi has more connection than your personality.",
+  "Bro's biggest achievement is surviving his own decisions.",
+  "You don't need a comeback. You need a software update.",
+  "Even autocorrect gave up trying to understand you.",
+  "Your brain is running on trial mode.",
+  "Bro has premium confidence with free-trial intelligence.",
+  "You bring absolutely nothing to the conversation except notifications.",
+  "Your typing speed is faster than your thinking.",
+  "If nonsense was currency, you'd be a billionaire.",
+  "Bro really woke up and chose confusion.",
+  "You're not the main character. You're background buffering.",
+  "Your jokes need a restart.",
+  "I've seen loading screens with more personality.",
+  "Your logic left the group chat without saying goodbye.",
+  "Bro's brain has 47 tabs open and none of them are responding.",
+  "You're proof that confidence doesn't require evidence.",
+  "Even Google would ask what you're searching for.",
+  "Your comeback has been stuck on 'connecting…' since 2020.",
+  "Bro has unlimited audacity and zero storage.",
+  "You argue like your keyboard is your lawyer.",
+  "Your personality is basically a system error.",
+  "You have the energy of a phone at 1% pretending it can last all day.",
+  "Bro is built different. Unfortunately, the difference is a bug.",
+  "Your brain needs better network coverage.",
+  "You're not cooked. You're still waiting for the oven to preheat.",
+  "Your ideas need parental supervision.",
+  "Bro speaks fluent nonsense.",
+  "You have more excuses than actual achievements.",
+  "Your confidence is doing all the heavy lifting.",
+  "Even your shadow tries to distance itself from you.",
+  "You're the reason group chats need an admin.",
+  "Your personality has been discontinued.",
+  "Bro's IQ is currently under maintenance.",
+  "You bring chaos to places that already have enough.",
+  "Your logic is sponsored by bad decisions.",
+  "You are the human version of 'try again later'.",
+  "Bro has main-character confidence with NPC dialogue.",
+  "Your brain needs a firmware update.",
+  "You're not difficult to understand. You're just difficult to justify.",
+  "Your argument came with no supporting documents.",
+  "Bro has been buffering since birth.",
+  "You're proof that copy and paste doesn't always work.",
+  "Your brain and common sense are in a long-distance relationship.",
+  "Even your excuses need excuses.",
+  "You don't lose arguments. You simply abandon them.",
+  "Your comeback arrived after everyone went home.",
+  "Bro is running Zen X on demo intelligence.",
+  "Your confidence has better uptime than your reasoning.",
+  "You have the processing power of a calculator with low batteries.",
+  "Your thoughts need a moderator.",
+  "Bro's personality is still loading.",
+  "You could make a simple question complicated professionally.",
+  "Your common sense has left the server.",
+  "You're not roasting anyone. You're just providing examples.",
+  "Bro came online but his brain stayed offline.",
+  "Your decisions deserve their own warning label.",
+  "You have the rare talent of making silence sound intelligent.",
+  "Your brain has an excellent spam filter because it blocks common sense.",
+  "You're basically an unanswered notification.",
+  "Bro is the reason 'Are you sure?' exists.",
+  "Your logic needs a VPN to reach reality.",
+  "You talk like every thought is breaking news.",
+  "Your brain is on airplane mode.",
+  "You have more confidence than available evidence.",
+  "Bro's personality has too many unnecessary features.",
+  "You're not a problem solver. You're a problem generator.",
+  "Your brain has unlimited data but no signal.",
+  "You make bad decisions look like a subscription service.",
+  "Even your own reflection needs a mute button.",
+  "Bro is running an outdated version of common sense.",
+  "Your arguments come with zero warranty.",
+  "You are the notification nobody asked for.",
+  "Your brain needs a reboot before another sentence.",
+  "Bro's thought process took a wrong turn and never came back.",
+  "You're giving 'terms and conditions nobody read'.",
+  "Your presence has more bugs than features.",
+  "Bro, even your excuses are tired of you.",
+  "Your brain has been disconnected from the server.",
+  "You're not mysterious. Nobody understands what you're doing.",
+  "Your personality needs an admin panel.",
+  "Bro's logic is currently unavailable.",
+  "You have successfully turned confidence into a bug.",
+  "Your brain is running background processes nobody requested.",
+  "Even silence would be a better contribution.",
+  "Bro, your comeback needs an emergency update.",
+  "You are proof that unlimited data doesn't mean unlimited intelligence.",
+  "Your decisions have a higher error rate than a broken keyboard.",
+  "Your brain has a permanent '404 Not Found'.",
+  "Bro, you're not lagging. That's just your normal speed.",
+  "Your personality came with the wrong installation package.",
+  "You make confusion look like a lifestyle.",
+  "Your common sense subscription expired.",
+  "Bro's brain has entered safe mode.",
+  "You're the reason developers add confirmation dialogs.",
+  "Your thoughts need a queue manager.",
+  "Bro is professionally unserious.",
+  "You have the confidence of someone who never checks their own messages.",
+  "Your brain is connected, but nobody is home."
 ]
 
-// ── Opening lines that tag the person ────────────────────────────────────────
 const OPENERS = [
-  "Oi {name} 👀 since you wanna exist today—",
-  "Alright {name}, hold still. This won't hurt. Actually it will—",
-  "{name} bestie I say this with ZERO love—",
-  "Listen {name}, someone had to tell you—",
-  "Bro {name} I'm doing this for your own good—",
-  "Okay {name} the group voted and I was chosen—",
-  "ATTENTION {name}: your daily dose of reality—",
-  "{name} God himself sent me to deliver this message—",
-  "Yo {name} we need to talk. The whole group agreed—",
-  "{name} take a seat. Actually stand, you won't be here long—",
+  "🔥 ZEN X has entered roast mode.",
+  "⚡ ZEN X roast engine activated.",
+  "💀 Target acquired. Let the roasting begin.",
+  "🔥 The roast department is officially open.",
+  "⚡ ZEN X is processing disrespect...",
+  "💀 Warning: emotional damage incoming.",
+  "🔥 Roast protocol initialized.",
+  "⚡ Calculating maximum embarrassment...",
+  "💀 Somebody forgot to install common sense.",
+  "🔥 ZEN X has something to say."
 ]
 
-// ── Closing lines ─────────────────────────────────────────────────────────────
 const CLOSERS = [
-  "💀 *ZENX has spoken. Seek help.*",
-  "🔥 *Get well soon bestie. Emotionally.*",
-  "😭 *Roasted, toasted and served cold. ZENX style.*",
-  "💀 *I don't make the rules. I just enforce them.*",
-  "🖤 *This has been a ZENX public service announcement.*",
-  "🔥 *Take that personally. You were meant to.*",
-  "😤 *ZENX Roast Machine — no survivors.*",
-  "💀 *Therapy is available. I suggest you book immediately.*",
-  "🥀 *Goodnight. Drink water. Reconsider your life choices.*",
-  "😈 *Powered by ZENX. Devastation guaranteed.*",
+  "💀 That's enough damage for one message.",
+  "🔥 No refunds on that roast.",
+  "⚡ ZEN X verdict: absolutely cooked.",
+  "💀 Please reboot your confidence.",
+  "🔥 Case closed. The roast has landed.",
+  "⚡ System report: target successfully roasted.",
+  "💀 Common sense.exe has stopped responding.",
+  "🔥 Somebody check on bro.",
+  "⚡ Damage calculation complete.",
+  "💀 The chat has witnessed enough."
 ]
 
-function random(arr) { return arr[Math.floor(Math.random() * arr.length)] }
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)]
+}
+
+function cleanJid(jid) {
+  if (!jid) return ""
+  return String(jid).split(":")[0]
+}
+
+function getPhoneFromJid(jid) {
+  return cleanJid(jid).split("@")[0]
+}
+
+function getQuotedParticipant(message) {
+  return (
+    message?.message?.extendedTextMessage?.contextInfo?.participant ||
+    message?.message?.imageMessage?.contextInfo?.participant ||
+    message?.message?.videoMessage?.contextInfo?.participant ||
+    message?.message?.documentMessage?.contextInfo?.participant ||
+    message?.message?.stickerMessage?.contextInfo?.participant ||
+    null
+  )
+}
+
+function getMentionedParticipant(message) {
+  const context =
+    message?.message?.extendedTextMessage?.contextInfo ||
+    message?.message?.imageMessage?.contextInfo ||
+    message?.message?.videoMessage?.contextInfo ||
+    message?.message?.documentMessage?.contextInfo ||
+    message?.message?.stickerMessage?.contextInfo
+
+  return context?.mentionedJid?.[0] || null
+}
+
+function getTarget(message, args = []) {
+  const quoted = getQuotedParticipant(message)
+  if (quoted) return quoted
+
+  const mentioned = getMentionedParticipant(message)
+  if (mentioned) return mentioned
+
+  if (args.length) {
+    const joined = args.join(" ").trim()
+
+    const number = joined.replace(/[^\d]/g, "")
+    if (number.length >= 7) {
+      return `${number}@s.whatsapp.net`
+    }
+  }
+
+  return message?.key?.participant || message?.participant || message?.key?.remoteJid
+}
+
+function getTargetName(message, targetJid, args = []) {
+  const pushName =
+    message?.pushName ||
+    message?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.pushName ||
+    ""
+
+  if (args.length && !getMentionedParticipant(message) && !getQuotedParticipant(message)) {
+    const supplied = args.join(" ").trim()
+    if (supplied && !/^\d+$/.test(supplied)) return supplied
+  }
+
+  if (pushName) return pushName
+
+  return getPhoneFromJid(targetJid) || "this person"
+}
+
+async function roastCommand(sock, message, args = {}) {
+  const argv = Array.isArray(args)
+    ? args
+    : Array.isArray(args?.args)
+      ? args.args
+      : []
+
+  const targetJid = getTarget(message, argv)
+  const targetName = getTargetName(message, targetJid, argv)
+
+  const roast = pickRandom(ROASTS)
+    .replace(/\{name\}/gi, targetName)
+    .replace(/\{mention\}/gi, `@${getPhoneFromJid(targetJid)}`)
+
+  const opener = pickRandom(OPENERS)
+  const closer = pickRandom(CLOSERS)
+
+  const text = [
+    opener,
+    "",
+    `🎯 *Target:* @${getPhoneFromJid(targetJid)}`,
+    "",
+    `🔥 *ZEN X ROAST:*`,
+    roast,
+    "",
+    closer
+  ].join("\n")
+
+  const options = {
+    mentions: targetJid ? [targetJid] : []
+  }
+
+  if (message?.key) {
+    options.quoted = message
+  }
+
+  await sock.sendMessage(
+    message.key.remoteJid,
+    { text, ...options }
+  )
+}
 
 module.exports = {
-  pattern:  "roast",
-  alias:    ["burn", "clap", "deadass"],
-  desc:     "Roast someone with deadly precision 🔥",
-  usage:    ".roast | reply to someone → .roast | .roast @mention",
-  category: 'fun',
-
-  async run({ sock, from, msg, args, sender }) {
-
-    const roast   = random(ROASTS)
-    const closer  = random(CLOSERS)
-
-    let targetJid  = null
-    let targetName = null
-    let mentions   = []
-
-    // ── Priority 1: Reply to a message → roast whoever sent it ───────────────
-    const ctx = msg.message?.extendedTextMessage?.contextInfo
-    if (ctx?.participant) {
-      targetJid  = ctx.participant
-      targetName = "@" + ctx.participant.split("@")[0]
-      mentions   = [ctx.participant]
-    }
-
-    // ── Priority 2: @mention in the command ──────────────────────────────────
-    else if (ctx?.mentionedJid?.length > 0) {
-      targetJid  = ctx.mentionedJid[0]
-      targetName = "@" + ctx.mentionedJid[0].split("@")[0]
-      mentions   = [ctx.mentionedJid[0]]
-    }
-
-    // ── Priority 3: Name typed as arg ─────────────────────────────────────────
-    else if (args.length > 0) {
-      targetName = args.join(" ")
-    }
-
-    // ── Priority 4: Roast the sender themselves ───────────────────────────────
-    else {
-      targetJid  = sender
-      targetName = "@" + sender.split("@")[0]
-      mentions   = [sender]
-    }
-
-    const opener = random(OPENERS).replace(/\{name\}/g, targetName)
-
-    const text =
-      `🔥💀 *ZENX ROAST MACHINE* 💀🔥\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `${opener}\n\n` +
-      `❝ _${roast}_ ❞\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `${closer}`
-
-    await sock.sendMessage(from, {
-      text,
-      mentions,
-    }, { quoted: msg })
-  },
+  name: "roast",
+  aliases: ["burn", "clap", "deadass"],
+  description: "Roast a user with the new ZEN X roast engine.",
+  category: "fun",
+  execute: roastCommand,
+  run: roastCommand
 }

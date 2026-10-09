@@ -63,81 +63,233 @@ function saveGreet(phone, groupId, type, updates) {
     return data.groups[groupId][type]
 }
 
-// ── Rich gray-bold welcome box (optional upgrade — see index.js note) ──
-function grayBold(raw) {
-    return raw.split('\n').map(l => (l.length ? `> *${l}*` : '>')).join('\n')
+// ── Random shadow/void welcome messages ─────────────────────────────
+const WELCOME_MESSAGES = [
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐭𝐨 𝐭𝐡𝐞 𝐬𝐡𝐚𝐝𝐨𝐰𝐬 🌑
+ʏᴏᴜʀ ᴘʀᴇꜱᴇɴᴄᴇ ɪꜱ ɴᴏᴛᴇᴅ
+ꜱᴘᴇᴀᴋ...
+✦ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ✦
+ᴛʜᴇ ᴅᴀʀᴋɴᴇꜱꜱ ɢʀᴇᴇᴛꜱ ʏᴏᴜ
+ʜᴏᴡ ᴍᴀʏ ɪ ᴀꜱꜱɪꜱᴛ?`,
+
+`🖤 ʏᴏᴜ ʜᴀᴠᴇ ᴇɴᴛᴇʀᴇᴅ 🖤
+ꜱᴛᴀᴛᴇ ʏᴏᴜʀ ᴘᴜʀᴘᴏꜱᴇ
+✦ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ✦
+ᴛʜᴇ ᴠᴏɪᴅ ɪꜱ ᴡᴀᴛᴄʜɪɴɢ
+ʏᴏᴜʀ ᴘʀᴇꜱᴇɴᴄᴇ ɪꜱ ᴋɴᴏᴡɴ`,
+
+`☾ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ☾
+ᴛʜᴇ ᴠᴏɪᴅ ᴏᴘᴇɴꜱ ꜰᴏʀ ʏᴏᴜ
+⛧ ʏᴏᴜ ᴀʀᴇ ꜱᴇᴇɴ ⛧
+ᴡʜᴀᴛ ᴅᴏ ʏᴏᴜ ꜱᴇᴇᴋ?
+🌑 ᴇɴᴛᴇʀ... 🌑`,
+
+`✦ ɢʀᴇᴇᴛɪɴɢꜱ, ᴛʀᴀᴠᴇʟᴇʀ ✦
+𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention}
+ꜱᴛᴇᴘ ɪɴᴛᴏ ᴛʜᴇ ᴅᴀʀᴋ
+🖤 ᴛʜᴇ ᴀʙʏꜱꜱ ᴀᴄᴋɴᴏᴡʟᴇᴅɢᴇꜱ ʏᴏᴜ 🖤`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴀᴡᴀɪᴛ ʏᴏᴜʀ ᴡᴏʀᴅꜱ
+ꜱᴘᴇᴀᴋ ꜰʀᴇᴇʟʏ
+☾ ᴛʜᴇ ɴɪɢʜᴛ ʜᴀꜱ ɴᴏᴛɪᴄᴇᴅ ʏᴏᴜ ☾`,
+
+`⛧ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ⛧
+ʏᴏᴜ ᴀʀᴇ ᴇxᴘᴇᴄᴛᴇᴅ
+🌑 ᴀ ɴᴇᴡ ꜱʜᴀᴅᴏᴡ ᴊᴏɪɴꜱ 🌑
+ᴛʜᴇ ᴄɪʀᴄʟᴇ ᴡᴇʟᴄᴏᴍᴇꜱ ʏᴏᴜ`,
+
+`🖤 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🖤
+ᴛʜᴇ ᴠᴏɪᴅ ᴡʜɪꜱᴘᴇʀꜱ ʏᴏᴜʀ ɴᴀᴍᴇ
+ᴇɴᴛᴇʀ ᴡɪᴛʜᴏᴜᴛ ꜰᴇᴀʀ
+☾ ᴛʜᴇ ɴɪɢʜᴛ ʀᴇᴄᴏɢɴɪᴢᴇꜱ ʏᴏᴜ ☾`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ʏᴏᴜ ʜᴀᴠᴇ ᴄʀᴏꜱꜱᴇᴅ ᴛʜᴇ ᴛʜʀᴇꜱʜᴏʟᴅ
+🖤 ᴅᴀʀᴋɴᴇꜱꜱ ᴇᴍʙʀᴀᴄᴇꜱ ʏᴏᴜ 🖤
+ꜱᴘᴇᴀᴋ`,
+
+`✦ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ✦
+ᴛʜᴇ ᴅᴀʀᴋɴᴇꜱꜱ ɴᴏᴛɪᴄᴇꜱ ʏᴏᴜ
+🖤 ᴄᴏᴍᴇ ᴄʟᴏꜱᴇʀ 🖤
+ʏᴏᴜ ᴀʀᴇ ᴡᴇʟᴄᴏᴍᴇ ʜᴇʀᴇ`,
+
+`☾ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ☾
+ʙʟᴏᴏᴅ ᴍᴏᴏɴ ɢʀᴇᴇᴛꜱ ʏᴏᴜ
+⛧ ᴇɴᴛᴇʀ ᴛʜᴇ ᴄɪʀᴄʟᴇ ⛧
+ʏᴏᴜ ᴀʀᴇ ᴇxᴘᴇᴄᴛᴇᴅ`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴋɴᴏᴡ ʏᴏᴜʀ ɴᴀᴍᴇ
+✦ ᴛʜᴇ ᴠᴏɪᴅ ᴡᴀᴛᴄʜᴇꜱ ✦
+ꜱᴛᴇᴘ ɪɴᴛᴏ ᴛʜᴇ ᴅᴀʀᴋ`,
+
+`🖤 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🖤
+ʏᴏᴜʀ ᴀᴜʀᴀ ʜᴀꜱ ᴀʀʀɪᴠᴇᴅ
+☾ ᴛʜᴇ ɴɪɢʜᴛ ᴀᴄᴋɴᴏᴡʟᴇᴅɢᴇꜱ ʏᴏᴜ ☾
+ᴡʜᴀᴛ ʙʀɪɴɢꜱ ʏᴏᴜ ʜᴇʀᴇ?`,
+
+`⛧ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ⛧
+🌑 ꜱɪʟᴇɴᴄᴇ ʙʀᴏᴋᴇɴ 🌑
+ᴛʜᴇ ᴄɪʀᴄʟᴇ ʜᴀꜱ ɴᴏᴛɪᴄᴇᴅ
+ᴡᴇʟᴄᴏᴍᴇ`,
+
+`✦ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ✦
+ᴛʜᴇ ᴠᴏɪᴅ ᴄᴀʟʟᴇᴅ
+🖤 ʏᴏᴜ ʜᴇᴀʀᴅ ᴛʜᴇ ᴄᴀʟʟ 🖤
+ᴇɴᴛᴇʀ ᴀɴᴅ ꜱᴘᴇᴀᴋ`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ᴛʜᴇ ᴅᴀʀᴋ ᴋɴᴏᴡꜱ ʏᴏᴜ ᴀʀᴇ ʜᴇʀᴇ
+☾ ᴛʜᴇ ᴍᴏᴏɴ ᴡɪᴛɴᴇꜱꜱᴇꜱ ʏᴏᴜ ☾
+ꜱᴘᴇᴀᴋ ʏᴏᴜʀ ᴘᴜʀᴘᴏꜱᴇ`,
+
+`🖤 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🖤
+ᴛʜᴇ ᴀʙʏꜱꜱ ᴡᴇʟᴄᴏᴍᴇꜱ ʏᴏᴜ
+⛧ ᴛʜᴇ ᴄɪʀᴄʟᴇ ᴏᴘᴇɴꜱ ⛧
+ᴡʜᴀᴛ ᴅᴏ ʏᴏᴜ ꜱᴇᴇᴋ?`,
+
+`☾ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ☾
+ᴛʜᴇ ɴɪɢʜᴛ ʀᴇᴄᴇɪᴠᴇꜱ ʏᴏᴜ
+🌑 ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴍᴏᴠᴇ 🌑
+ꜱᴘᴇᴀᴋ ꜰʀᴇᴇʟʏ`,
+
+`⛧ 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} ⛧
+ᴛʜᴇ ᴛʜʀᴇꜱʜᴏʟᴅ ɪꜱ ᴄʀᴏꜱꜱᴇᴅ
+🖤 ᴛʜᴇ ᴠᴏɪᴅ ᴍᴀᴋᴇꜱ ʀᴏᴏᴍ 🖤
+ᴇɴᴛᴇʀ ᴛʜᴇ ᴄɪʀᴄʟᴇ`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴀᴡᴀɪᴛ ʏᴏᴜ
+✦ ʏᴏᴜʀ ᴘʀᴇꜱᴇɴᴄᴇ ɪꜱ ɴᴏᴛᴇᴅ ✦
+ᴡʜᴀᴛ ᴅᴏ ʏᴏᴜ ᴅᴇꜱɪʀᴇ?`,
+
+`🖤 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🖤
+ᴛʜᴇ ᴠᴏɪᴅ ʜᴀꜱ ᴏᴘᴇɴᴇᴅ
+☾ ᴛʜᴇ ɴɪɢʜᴛ ɢʀᴇᴇᴛꜱ ʏᴏᴜ ☾
+ꜱᴛᴀʏ ᴀɴᴅ ꜱᴘᴇᴀᴋ`,
+
+`🌑 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 {mention} 🌑
+ᴛʜᴇ ᴀʙʏꜱꜱ ʜᴀꜱ ꜱᴇᴇɴ ʏᴏᴜ
+⛧ ᴛʜᴇ ᴄɪʀᴄʟᴇ ᴀᴄᴄᴇᴘᴛꜱ ʏᴏᴜ ⛧
+ᴇɴᴛᴇʀ...`
+]
+
+function pickRandom(list) {
+    return list[Math.floor(Math.random() * list.length)]
 }
-function pad(label, width) {
-    return label + ' '.repeat(Math.max(1, width - label.length))
-}
-async function getBio(sock, jid) {
-    try {
-        const res = await sock.fetchStatus(jid)
-        if (res?.status) return res.status
-    } catch {}
-    return 'No bio set'
-}
-function getDateParts() {
-    const now = new Date()
-    const tz  = { timeZone: 'Africa/Lagos' }
-    return {
-        date: now.toLocaleDateString('en-GB', tz),
-        time: now.toLocaleTimeString('en-US', { ...tz, hour: '2-digit', minute: '2-digit', hour12: true }),
-        day:  now.toLocaleDateString('en-US', { ...tz, weekday: 'long' }),
-    }
-}
-function getRole(meta, jid) {
-    const p = meta?.participants?.find(pt => pt.id === jid)
-    if (p?.admin === 'superadmin') return 'Super Admin'
-    if (p?.admin === 'admin') return 'Admin'
-    return 'Member'
+
+async function buildRichWelcomeText(sock, { participantJid, pushName }) {
+    const name = pushName || participantJid.split('@')[0]
+    const mention = `@${name}`
+    return pickRandom(WELCOME_MESSAGES).replace(/\{mention\}/g, mention)
 }
 
-/**
- * Builds the full detailed gray-bold welcome text. index.js's WATCHDOG
- * can call this instead of its plain {tag}/{group}/{members} template —
- * see the small patch note below for the one line that needs to change.
- */
-async function buildRichWelcomeText(sock, { groupId, participantJid, pushName, groupName, memberCount, meta }) {
-    const memberPhone = participantJid.split('@')[0]
-    const [bio, role] = await Promise.all([
-        getBio(sock, participantJid),
-        Promise.resolve(getRole(meta, participantJid)),
-    ])
-    const { date, time, day } = getDateParts()
-    const name = pushName || memberPhone
-    const W = 10
+function buildRandomGoodbyeText(pushName, participantJid) {
+    const name = pushName || participantJid.split('@')[0]
+    const mention = `@${name}`
 
-    const raw =
-`╭━━━〔 𓃦 ZΞN X 〕━━━╮
-┃  👋 WELCOME NEW MEMBER
-╰━━━━━━━━━━━━━━━━━━╯
+    const messages = [
+`🌑 ғᴀʀᴇᴡᴇʟʟ 🌑
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴄʟᴏꜱᴇ ʙᴇʜɪɴᴅ ʏᴏᴜ
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴍᴀʏ ᴛʜᴇ ᴅᴀʀᴋɴᴇꜱꜱ ᴋᴇᴇᴘ ʏᴏᴜ`,
 
-👤 ${pad('Name', W)}: @${name}
-🏷️ ${pad('Tag', W)}: @${memberPhone}
-📝 ${pad('Bio', W)}: ${bio}
-📱 ${pad('Number', W)}: +${memberPhone}
+`🖤 ᴅᴇᴘᴀʀᴛ ɪɴ ꜱɪʟᴇɴᴄᴇ 🖤
+ᴛʜᴇ ᴠᴏɪᴅ ᴀᴡᴀɪᴛꜱ
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ɴɪɢʜᴛ ᴡɪʟʟ ʀᴇᴍᴇᴍʙᴇʀ`,
 
-📅 ${pad('Joined', W)}: ${date}
-⏰ ${pad('Time', W)}: ${time}
-📆 ${pad('Day', W)}: ${day}
+`☾ ꜰᴀʀᴇᴡᴇʟʟ, ᴛʀᴀᴠᴇʟᴇʀ ☾
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴄɪʀᴄʟᴇ ᴄʟᴏꜱᴇꜱ
+ʏᴏᴜʀ ᴊᴏᴜʀɴᴇʏ ᴄᴏɴᴛɪɴᴜᴇꜱ`,
 
-👥 ${pad('Group', W)}: ${groupName}
-🔢 ${pad('Members', W)}: ${memberCount}
-🛡️ ${pad('Role', W)}: ${role}
+`⛧ ʟᴇᴀᴠᴇ ɴᴏᴡ ⛧
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴡᴀᴛᴄʜ
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴜɴᴛɪʟ ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴄᴀʟʟ ᴀɢᴀɪɴ`,
 
-━━━━━━━━━━━━━━━━━━━━
-✨ Welcome to the group!
+`🌑 ᴜɴᴛɪʟ ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴄᴀʟʟ ᴀɢᴀɪɴ 🌑
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴅɪꜱᴀᴘᴘᴇᴀʀ ɪɴᴛᴏ ᴛʜᴇ ᴅᴀʀᴋ`,
 
-© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
+`🖤 ɢᴏ ᴡɪᴛʜ ᴛʜᴇ ɴɪɢʜᴛ 🖤
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴍᴏᴏɴ ʀᴇʟᴇᴀꜱᴇꜱ ʏᴏᴜ
+ꜰᴀʀᴇᴡᴇʟʟ`,
 
-    return grayBold(raw)
+`☾ ᴛʜᴇ ᴍᴏᴏɴ ʀᴇʟᴇᴀꜱᴇꜱ ʏᴏᴜ ☾
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ʏᴏᴜʀ ᴘʀᴇꜱᴇɴᴄᴇ ꜰᴀᴅᴇꜱ
+ᴜɴᴛɪʟ ɴᴇxᴛ ᴛɪᴍᴇ...`,
+
+`⛧ ʏᴏᴜʀ ᴘᴀᴛʜ ʟᴇᴀᴠᴇꜱ ᴛʜᴇ ᴄɪʀᴄʟᴇ ⛧
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴠᴏɪᴅ ᴡɪʟʟ ʀᴇᴍᴇᴍʙᴇʀ`,
+
+`🌑 ꜱʟᴇᴇᴘ ᴡᴇʟʟ ɪɴ ᴛʜᴇ ᴠᴏɪᴅ 🌑
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴛᴀᴋᴇ ʏᴏᴜ
+ꜰᴀʀᴇᴡᴇʟʟ`,
+
+`✦ ᴛʜᴇ ᴅᴀʀᴋɴᴇꜱꜱ ᴛᴀᴋᴇꜱ ʏᴏᴜ ✦
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴡᴀʟᴋ ᴀᴡᴀʏ ɪɴᴛᴏ ɴᴏᴛʜɪɴɢ`,
+
+`🖤 ᴡᴀʟᴋ ᴀᴡᴀʏ ɪɴᴛᴏ ɴᴏᴛʜɪɴɢ 🖤
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴍᴀʏ ᴛʜᴇ ɴɪɢʜᴛ ɢᴜɪᴅᴇ ʏᴏᴜ`,
+
+`☾ ᴛʜᴇ ɴɪɢʜᴛ ɢᴜɪᴅᴇꜱ ʏᴏᴜʀ ᴘᴀᴛʜ ☾
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴄɪʀᴄʟᴇ ᴄʟᴏꜱᴇꜱ`,
+
+`⛧ ᴛʜᴇ ʀɪᴛᴜᴀʟ ᴇɴᴅꜱ ⛧
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴡɪʟʟ ᴡᴀɪᴛ`,
+
+`🌑 ᴜɴᴛɪʟ ᴡᴇ ᴍᴇᴇᴛ ɪɴ ᴅᴀʀᴋɴᴇꜱꜱ 🌑
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+✦ ꜰᴀᴅᴇ ᴀᴡᴀʏ ✦`,
+
+`🖤 ʏᴏᴜʀ ᴇᴄʜᴏ ʀᴇᴍᴀɪɴꜱ 🖤
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴠᴏɪᴅ ᴡɪʟʟ ʀᴇᴍᴇᴍʙᴇʀ`,
+
+`☾ ᴛʜᴇ ʙʟᴏᴏᴅ ᴍᴏᴏɴ ꜱᴇᴛꜱ ☾
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ꜰᴀʀᴇᴡᴇʟʟ`,
+
+`⛧ ᴅᴇᴘᴀʀᴛ, ᴀɴᴅ ʙᴇ ꜰᴏʀɢᴏᴛᴛᴇɴ ⛧
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ɴɪɢʜᴛ ᴄʟᴏꜱᴇꜱ ʙᴇʜɪɴᴅ ʏᴏᴜ`,
+
+`🌑 ᴛʜᴇ ꜱʜᴀᴅᴏᴡꜱ ᴄʟᴏꜱᴇ ʙᴇʜɪɴᴅ ʏᴏᴜ 🌑
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴜɴᴛɪʟ ɴᴇxᴛ ᴛɪᴍᴇ`,
+
+`🖤 ᴛʜᴇ ᴠᴏɪᴅ ʀᴇʟᴇᴀꜱᴇꜱ ʏᴏᴜ 🖤
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴡᴀʟᴋ ɪɴᴛᴏ ᴛʜᴇ ɴɪɢʜᴛ`,
+
+`☾ ᴛʜᴇ ᴍᴏᴏɴ ʀᴇᴍᴇᴍʙᴇʀꜱ ʏᴏᴜ ☾
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴛʜᴇ ᴅᴀʀᴋ ᴡɪʟʟ ᴡᴀɪᴛ`,
+
+`⛧ ᴛʜᴇ ᴄɪʀᴄʟᴇ ʀᴇᴍᴇᴍʙᴇʀꜱ ʏᴏᴜ ⛧
+✦ ɢᴏᴏᴅʙʏᴇ {mention} ✦
+ᴜɴᴛɪʟ ʏᴏᴜʀ ʀᴇᴛᴜʀɴ`
+    ]
+
+    return pickRandom(messages).replace(/\{mention\}/g, mention)
 }
 
 module.exports = {
     loadGreet,
     saveGreet,
     buildRichWelcomeText,
+    buildRandomGoodbyeText,
 
     pattern:  'welcome',
     alias:    [],

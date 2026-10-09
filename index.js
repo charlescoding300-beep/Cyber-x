@@ -2405,12 +2405,7 @@ async function startBot(phone) {
             groupId, participantJid, pushName, groupName, memberCount, meta,
           })
         } else {
-          const defaultMsg = "Goodbye @{tag}! 👋\nWe'll miss you in *{group}*.\nWe now have *{members}* members."
-          const template = settings.message || defaultMsg
-          text = template
-            .replace(/{tag}/g,     memberPhone)
-            .replace(/{group}/g,   groupName)
-            .replace(/{members}/g, String(memberCount))
+          text = goodbyeCmd.buildRandomGoodbyeText(pushName, participantJid)
         }
 
         const ppUrl = await getProfilePictureSafe(sock, participantJid, { retries: 2, delayMs: 800 })

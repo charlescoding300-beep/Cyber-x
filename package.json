@@ -25,6 +25,7 @@
     "fluent-ffmpeg": "*",
     "fs-extra": "*",
     "jimp": "*",
+    "link-preview-js": "^3.2.0",
     "mongoose": "^9.7.0",
     "node-cache": "*",
     "node-fetch": "^3.3.2",

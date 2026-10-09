@@ -5,9 +5,10 @@
 //  single data file covers both welcome and goodbye correctly.
 // ════════════════════════════════════════════════════════════════════
 
-const { loadGreet, saveGreet } = require('./welcome.js')
+const { loadGreet, saveGreet, buildRandomGoodbyeText } = require('./welcome.js')
 
 module.exports = {
+  buildRandomGoodbyeText,
     loadGreet, // re-exported so index.js's `goodbyeCmd.loadGreet(...)` call works too
 
     pattern:  'goodbye',
