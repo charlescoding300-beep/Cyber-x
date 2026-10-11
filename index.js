@@ -21,6 +21,10 @@ const sessionBackup = require("./lib/sessionBackup")
 const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
+const sessionExecutor = require('./core/sessionexec')
+
+// Stats API used by the owner-only .execstats command.
+global.__executorStats = () => sessionExecutor.statsAll(sessions)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
@@ -2191,19 +2195,32 @@ async function handleMessage(state, sock, msg) {
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
 
+  const runGuarded = (skipCooldown = false) =>
+    sessionExecutor.forState(state).submit({
+      name: rawCmd,
+      chat: from,
+      sender: normalizeNum(sender || from),
+      isOwner: !!(isOwner || fromMe),
+      skipCooldown,
+      fn: () => ultraExec.guardCommand(
+        state, sock, from, msg, rawCmd, runOnce
+      ),
+      onDrop: reason => {
+        console.warn(`[${state.phone}] command ${rawCmd} dropped: ${reason}`)
+      }
+    })
+
   const startedAt = Date.now()
 
   try {
-    await ultraExec.guardCommand(
-      state,
-      sock,
-      from,
-      msg,
-      rawCmd,
-      runOnce
-    )
+    await runGuarded(false)
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
+    if (e.message?.includes("underlying work may continue")) {
+      console.error(`[${state.phone}] ${rawCmd} timed out; not retrying because it may still be running`)
+      try { await sock.sendMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
+      return
+    }
     console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
     try {
       if (isGroup) {
@@ -2212,14 +2229,7 @@ async function handleMessage(state, sock, msg) {
         ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
       }
       const retryStartedAt = Date.now()
-      await ultraExec.guardCommand(
-        state,
-        sock,
-        from,
-        msg,
-        rawCmd,
-        runOnce
-      )
+      await runGuarded(true)
       console.log(`[${state.phone}] ✔ ${rawCmd} succeeded on retry in ${Date.now() - retryStartedAt}ms`)
     } catch (e2) {
       console.error(`[${state.phone}] RUN ERR ${rawCmd} (attempt 2, final): ${e2.message}`)
@@ -2425,36 +2435,148 @@ async function startBot(phone) {
   })
 
   const antiCallNotified = new Set()
+  const antiCallSeen = new Map()          // call id -> reject attempts so far
+  const ANTICALL_MAX_ATTEMPTS = 6         // per call id (covers "still ringing" re-rejects)
+
+  const antiCallSleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const antiCallClean = (jid) => String(jid || "").replace(/:\d+(?=@)/, "")
+
+  // Other JID forms for the same caller (phone-number form for @lid users)
+  const antiCallVariants = async (call, callerJid) => {
+    const list = [callerJid, antiCallClean(callerJid), call.chatId, call.peerJid, call.from]
+    try {
+      const clean = antiCallClean(callerJid)
+      if (clean.endsWith("@lid")) {
+        const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(clean)
+        if (pn) list.push(String(pn).includes("@") ? antiCallClean(pn) : `${pn}@s.whatsapp.net`)
+      }
+    } catch {}
+    return [...new Set(list.filter(Boolean))]
+  }
+
+  // Strong reject: instant first try, then variants + retries + second method
+  const antiCallReject = async (call, callerJid) => {
+    const attempt = async (jid) => {
+      if (typeof sock.rejectCall === "function") {
+        try {
+          await sock.rejectCall(call.id, jid)
+          return
+        } catch (e1) {
+          if (typeof sock.sendCallOfferAck !== "function") throw e1
+        }
+      }
+      if (typeof sock.sendCallOfferAck === "function") {
+        await sock.sendCallOfferAck(call.id, jid, "reject")
+        return
+      }
+      throw new Error("no reject method available")
+    }
+
+    let lastErr = ""
+
+    // Fast path: nothing awaited before the first reject
+    try {
+      await attempt(callerJid)
+      return true
+    } catch (e) {
+      lastErr = e.message
+    }
+
+    // Slow path: other JID forms, up to 3 rounds
+    const variants = await antiCallVariants(call, callerJid)
+    for (let round = 1; round <= 3; round++) {
+      for (const jid of variants) {
+        try {
+          await attempt(jid)
+          return true
+        } catch (e) {
+          lastErr = e.message
+        }
+      }
+      await antiCallSleep(300 * round)
+    }
+
+    console.error(`[ANTICALL:${phone}] reject failed after retries:`, lastErr)
+    return false
+  }
+
+  // Anti-call notice — sent to the CALLER's DM (only when the call was really rejected)
+  const antiCallNotify = async (callerJid, ok) => {
+    try {
+      if (!ok) return   // never claim "rejected" if the reject actually failed
+
+      // Banned users never get replies from the bot
+      const sessionPhone = normalizeNum(sock.user?.id || "")
+      if (await isBannedFast(sessionPhone, normalizeNum(callerJid), callerJid)) return
+
+      const chatJid = antiCallClean(callerJid)
+      let shownJid  = chatJid
+
+      // @lid callers: show their real phone-number tag when Baileys knows it
+      if (shownJid.endsWith("@lid")) {
+        try {
+          const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(shownJid)
+          if (pn) shownJid = String(pn).includes("@") ? antiCallClean(pn) : pn + "@s.whatsapp.net"
+        } catch {}
+      }
+
+      const tag = "@" + shownJid.split("@")[0]
+      const text =
+        "╭━━━〔 📵 ANTI-CALL ALERT 〕━━━╮\n" +
+        "┃\n" +
+        "┃ ⚠️ Incoming Call Detected\n" +
+        "┃\n" +
+        "┃ 👤 Caller: " + tag + "\n" +
+        "┃ 📞 Action: Call rejected automatically\n" +
+        "┃ 🛡️ Protection: Anti-Call is enabled\n" +
+        "┃\n" +
+        "┃ Sorry, calls are not accepted on this bot.\n" +
+        "┃ Please send a text message instead.\n" +
+        "┃\n" +
+        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n" +
+        "> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦"
+
+      // Try the caller's own chat first, then the phone-number chat as a fallback
+      const targets = [...new Set([chatJid, shownJid])]
+      let sent = false
+      for (const t of targets) {
+        try {
+          await sock.sendMessage(t, { text, mentions: [shownJid] })
+          sent = true
+          break
+        } catch (e) {
+          console.error("[ANTICALL:" + phone + "] notice to " + t + " failed:", e.message)
+        }
+      }
+      if (!sent) console.error("[ANTICALL:" + phone + "] caller notice could not be delivered")
+    } catch (e) {
+      console.error("[ANTICALL:" + phone + "] notify failed:", e.message)
+    }
+  }
 
   sock.ev.on("call", async (calls) => {
     try {
       if (!state.settings.get("anticall")) return
+
       for (const call of calls) {
+        // Only live ringing calls — ignore timeout / terminate / accept / reject
+        if (call.status && call.status !== "offer" && call.status !== "ringing") continue
+
         const callerJid = call.from || call.peerJid || call.chatId
-        if (!callerJid) continue
+        if (!callerJid || !call.id) continue
 
-        const sessionPhone = normalizeNum(sock.user?.id || "")
-        const callerPhone  = normalizeNum(callerJid)
-        const callerBanned = await isBannedFast(sessionPhone, callerPhone, callerJid)
+        const tries = antiCallSeen.get(call.id) || 0
+        if (tries >= ANTICALL_MAX_ATTEMPTS) continue
+        antiCallSeen.set(call.id, tries + 1)
+        if (tries === 0) setTimeout(() => antiCallSeen.delete(call.id), 120000)
 
-        try {
-          if (typeof sock.rejectCall === "function" && call.id) {
-            await sock.rejectCall(call.id, callerJid)
-          } else if (typeof sock.sendCallOfferAck === "function" && call.id) {
-            await sock.sendCallOfferAck(call.id, callerJid, "reject")
-          }
-        } catch (e) {
-          console.error(`[ANTICALL:${phone}] reject failed:`, e.message)
-        }
+        const ok = await antiCallReject(call, callerJid)
 
-        if (!callerBanned && !antiCallNotified.has(callerJid)) {
+        // Notify once per call, and once per caller per minute
+        if (tries === 0 && !antiCallNotified.has(callerJid)) {
           antiCallNotified.add(callerJid)
           setTimeout(() => antiCallNotified.delete(callerJid), 60000)
-          try {
-            await sock.sendMessage(callerJid, {
-              text: "📵 Anticall is enabled. Your call was rejected.",
-            })
-          } catch {}
+          antiCallNotify(callerJid, ok)   // fire-and-forget: never delays the next reject
         }
       }
     } catch (e) {
