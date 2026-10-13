@@ -47,7 +47,7 @@ module.exports = {
   alias:    ['wouldyourather'],
   desc:     'Random Would You Rather question',
   usage:    '.wyr',
-  category: 'fun',
+  category: 'games',
 
   async run({ sock, from, msg }) {
     await sock.sendMessage(from, { react: { text: '🤔', key: msg.key } }).catch(() => {})

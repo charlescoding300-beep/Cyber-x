@@ -1,3 +1,8 @@
+// ULTRA-SPEED: the libuv thread pool defaults to 4 threads; fs / crypto / DNS
+// work from many sessions queues up behind them. Must be set before first use.
+if (!process.env.UV_THREADPOOL_SIZE) {
+  process.env.UV_THREADPOOL_SIZE = String(Math.min(32, Math.max(8, require("os").cpus().length * 2)))
+}
 require("dotenv").config()
 const fs   = require("fs")
 const autoVV = require('./commands/autovv')
@@ -21,10 +26,7 @@ const sessionBackup = require("./lib/sessionBackup")
 const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
-const sessionExecutor = require('./core/sessionexec')
-
-// Stats API used by the owner-only .execstats command.
-global.__executorStats = () => sessionExecutor.statsAll(sessions)
+const sessionExecutor = require("./core/sessionexec")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
@@ -76,7 +78,6 @@ const SETTINGS_ROOT = path.join(__dirname, "data", "settings")
 if (!fs.existsSync(SETTINGS_ROOT)) fs.mkdirSync(SETTINGS_ROOT, { recursive: true })
 
 const OWNER_NUMBERS = (process.env.OWNER_NUMBER || "")
-
   .split(",").map(n => n.replace(/\D/g, "").trim()).filter(Boolean)
 
 const SUDO_NUMBERS = (process.env.SUDO_NUMBERS || "")
@@ -177,6 +178,20 @@ function getSlotsSummary() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DISABLED MODULES — files the loaders skip completely (names without .js).
+// Default: "meta"  → meta.js is never loaded from lib/ utils/ api/ config/ or
+// commands/, so it can no longer sit in front of command execution.
+//   .env:  DISABLED_MODULES=meta,other   → skip more
+//   .env:  DISABLED_MODULES=             → (empty) load everything again
+// The file itself is never deleted, so this is fully reversible.
+// ─────────────────────────────────────────────────────────────────────────────
+const DISABLED_MODULES = new Set(
+  (process.env.DISABLED_MODULES !== undefined ? process.env.DISABLED_MODULES : "meta")
+    .split(",").map(s => s.trim().toLowerCase().replace(/\.js$/, "")).filter(Boolean)
+)
+const isDisabledModule = (file) => DISABLED_MODULES.has(String(file).toLowerCase().replace(/\.js$/, ""))
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AUTO LOADER — lib / utils / api / config
 // Fully active + detectable. Every .js file is required, cached by name,
 // and any exported object is also flattened onto the bucket so commands can
@@ -205,6 +220,10 @@ function loadDir(dir, bucket, label, trackKey) {
   const files = fs.readdirSync(dir).filter(f => f.endsWith(".js")).sort()
 
   for (const file of files) {
+    if (isDisabledModule(file)) {
+      console.log(`[${label}] ⛔ ${file} skipped (disabled — see DISABLED_MODULES)`)
+      continue
+    }
     try {
       const full = path.join(dir, file)
       // Clear cache so hot-reload always picks up the latest version
@@ -255,7 +274,7 @@ function loadAllSupportDirs() {
   const configCount = loadDir(CONFIG_DIR, config, "CONFIG", "config")
 
   console.log(
-    `[AUTO-LOAD] ✔ Active → LIB:${libCount}  UTILS: ${utilsCount}  API:${apiCount}  CONFIG: ${configCount}`
+    `[AUTO-LOAD] ✔ Active → LIB:${libCount}  UTILS:${utilsCount}  API:${apiCount}  CONFIG:${configCount}`
   )
   console.log(
     `[AUTO-LOAD] Detectable modules → lib:[${loadedModules.lib.join(", ") || "none"}] ` +
@@ -294,7 +313,7 @@ function watchSupportDirs() {
         clearTimeout(debounce)
         debounce = setTimeout(() => {
           loadAllSupportDirs()
-          console.log(`[${label}] ↺ hot-reloaded ( ${f} changed)`)
+          console.log(`[${label}] ↺ hot-reloaded (${f} changed)`)
         }, 150)
       })
       console.log(`[WATCH] 👀 Watching ${label} folder for changes`)
@@ -305,27 +324,10 @@ function watchSupportDirs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEMP FILE CLEANUP
+// TEMP FILE CLEANUP — safe, age-based cleanup of disposable files only
 // ─────────────────────────────────────────────────────────────────────────────
-function cleanupTempDir(maxAgeMs = 30 * 60 * 1000) {
-  if (!fs.existsSync(TEMP_DIR)) return
-  const now = Date.now()
-  let cleaned = 0
-  for (const file of fs.readdirSync(TEMP_DIR)) {
-    const full = path.join(TEMP_DIR, file)
-    try {
-      const stat = fs.statSync(full)
-      if (now - stat.mtimeMs > maxAgeMs) {
-        if (stat.isDirectory()) fs.rmSync(full, { recursive: true, force: true })
-        else fs.unlinkSync(full)
-        cleaned++
-      }
-    } catch {}
-  }
-  if (cleaned > 0) console.log(`[CLEANUP] 🧹 Removed ${cleaned} stale temp item(s)`)
-}
-cleanupTempDir()
-setInterval(cleanupTempDir, 15 * 60 * 1000)
+const { startTempCleanup } = require("./lib/tempCleanup")
+startTempCleanup(TEMP_DIR) // startup + hourly; files older than 3 hours only
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTO RAM DETECTION — replaces the old hardcoded MAX_RAM_MB=450.
@@ -369,11 +371,11 @@ const PER_SESSION_BUDGET_MB  = Math.max(1, Math.floor(MAX_RAM_MB / MAX_POSSIBLE_
 
 console.log(
   `[RAM] Detected host RAM: ${TOTAL_RAM_MB}MB | Reserved for OS/overhead: ${MEM_RESERVE_MB}MB | ` +
-  `Restart threshold: ${MAX_RAM_MB}MB ${process.env.MAX_RAM_MB ? " (manual override via .env)" : " (auto-calculated)"}`
+  `Restart threshold: ${MAX_RAM_MB}MB ${process.env.MAX_RAM_MB ? "(manual override via .env)" : "(auto-calculated)"}`
 )
 console.log(
   `[RAM] Divided across max possible sessions (${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity = ${MAX_POSSIBLE_SESSIONS}): ` +
-  `\~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
+  `~${PER_SESSION_BUDGET_MB}MB/session budget (diagnostic only — actual RAM use per session varies with group count/media/etc)`
 )
 
 // ── Memory guard ──────────────────────────────────────────────────────────────
@@ -403,6 +405,42 @@ setInterval(async () => {
 }, 30_000)
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EVENT-LOOP LAG MONITOR — Node.js runs all sessions on ONE thread (one CPU core).
+// If this number is high, commands are slow because that single thread is
+// saturated — not because of any one command. Visible via .execstats and logged
+// as a warning (at most once a minute) when p99 lag goes above LOOP_WARN_MS.
+// ─────────────────────────────────────────────────────────────────────────────
+const LOOP_WARN_MS = parseInt(process.env.LOOP_WARN_MS || "120", 10)
+let _loopHist = null
+let _loopLast = null
+let _loopLastWarn = 0
+try {
+  const { monitorEventLoopDelay } = require("perf_hooks")
+  _loopHist = monitorEventLoopDelay({ resolution: 20 })
+  _loopHist.enable()
+} catch {}
+
+const _loopTimer = setInterval(() => {
+  if (!_loopHist) return
+  // the histogram includes the 20ms sampling interval itself — subtract it so 0 = no lag
+  const toMs = n => Math.max(0, Math.round((n / 1e6 - 20) * 10) / 10)
+  _loopLast = {
+    p50: toMs(_loopHist.percentile(50)),
+    p99: toMs(_loopHist.percentile(99)),
+    max: toMs(_loopHist.max),
+    at:  Date.now(),
+  }
+  _loopHist.reset()
+  if (_loopLast.p99 > LOOP_WARN_MS && Date.now() - _loopLastWarn > 60_000) {
+    _loopLastWarn = Date.now()
+    console.warn(`[LOOP] ⚠ event-loop lag p99=${_loopLast.p99}ms max=${_loopLast.max}ms — the single Node.js thread is saturated; heavy sessions should be spread over more processes`)
+  }
+}, 10_000)
+if (_loopTimer.unref) _loopTimer.unref()
+
+global.__loopStats = () => _loopLast
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMMAND REGISTRY — supports BOTH formats:
 //   OLD: { pattern: 'name', alias: [...], run }
 //   NEW: { name: 'name', aliases: [...], run }
@@ -417,6 +455,10 @@ const toKey = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 const CMD_RESERVED_KEYS = new Set(["run", "pattern", "name", "alias", "aliases", "desc", "usage", "category"])
 
 function loadFile(file) {
+  if (isDisabledModule(file)) {
+    console.log(`[CMD] ⛔ ${file} skipped (disabled — see DISABLED_MODULES)`)
+    return false
+  }
   const full = path.join(CMD_DIR, file)
   try {
     delete require.cache[require.resolve(full)]
@@ -518,10 +560,10 @@ function watchCommands() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JID NORMALIZER
+// JID NORMALIZER — "2349011111111:5@s.whatsapp.net" / "123@lid" → digits only
 // ─────────────────────────────────────────────────────────────────────────────
 function normalizeNum(raw = "") {
-  return raw.replace(/@.+\( /, "").replace(/:\d+ \)/, "").replace(/\D/g, "").trim()
+  return String(raw || "").replace(/@.+$/, "").replace(/:\d+$/, "").replace(/\D/g, "").trim()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -570,10 +612,17 @@ function checkIsOwner(state, sender, senderAlt, fromMe) {
 async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner) {
   if (isOwner) return { isAdmin: true, isBotAdmin: true }
   const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+
+  // ULTRA SPEED: same checks as before, but the group metadata no longer blocks
+  // the command. A cached group answers instantly (refreshed in the background
+  // when stale); only a COLD cache waits for the network, once.
   let meta = state.groupCache[from]
-  if (!meta || (Date.now() - (meta._cachedAt || 0)) > 5 * 60 * 1000) {
-    try { meta = await sock.groupMetadata(from); state.groupCache[from] = { ...meta, _cachedAt: Date.now() } } catch {}
+  if (!meta || !Array.isArray(meta.participants)) {
+    try { meta = await refreshGroupMeta(state, sock, from) } catch {}
+  } else if (Date.now() - (meta._cachedAt || 0) > 5 * 60 * 1000) {
+    refreshGroupMeta(state, sock, from).catch(() => {})
   }
+
   let isBotAdmin = false
   try { isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock) } catch {}
   if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n)))
@@ -655,7 +704,7 @@ async function fetchWithRetry(url, opts = {}) {
       if (attempt === retries) break
       const jitter = Math.random() * 200
       const delay  = Math.min(backoffMs * Math.pow(2, attempt), maxBackoff) + jitter
-      console.warn(`[NET] ⚠ ${url.split("?")[0]} attempt ${attempt + 1}/ ${retries + 1} failed (${e.message}) — retrying in ${Math.round(delay)}ms`)
+      console.warn(`[NET] ⚠ ${url.split("?")[0]} attempt ${attempt + 1}/${retries + 1} failed (${e.message}) — retrying in ${Math.round(delay)}ms`)
       await new Promise(r => setTimeout(r, delay))
     }
   }
@@ -719,6 +768,49 @@ api.fetchBuffer = fetchBufferSafe
 // SESSION STATE
 // ─────────────────────────────────────────────────────────────────────────────
 const sessions = new Map()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ULTRA SPEED — group metadata served from each session's own cache.
+// Stale-while-revalidate: a cached group answers instantly and is refreshed
+// in the background; only a COLD cache waits for the network. Admin changes
+// still arrive through "group-participants.update", which refreshes the cache.
+// ─────────────────────────────────────────────────────────────────────────────
+const _gmInflight = new Map()
+// The socket is created with defaultQueryTimeoutMs: undefined (no query timeout), so a
+// stuck groupMetadata request would freeze whatever command is waiting on it forever.
+// This caps the wait; the command then carries on without fresh metadata.
+const GROUP_META_TIMEOUT_MS = parseInt(process.env.GROUP_META_TIMEOUT_MS || "8000", 10)
+
+function refreshGroupMeta(state, sock, jid) {
+  const key = state.phone + ":" + jid
+  if (_gmInflight.has(key)) return _gmInflight.get(key)
+
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("groupMetadata timed out")), GROUP_META_TIMEOUT_MS)
+  })
+
+  const p = Promise.race([Promise.resolve(sock.groupMetadata(jid)), timeout])
+    .then(meta => {
+      state.groupCache[jid] = { ...meta, _cachedAt: Date.now() }
+      return state.groupCache[jid]
+    })
+    .finally(() => { clearTimeout(timer); _gmInflight.delete(key) })
+
+  _gmInflight.set(key, p)
+  return p
+}
+
+async function getGroupMetaCached(sock, phone, jid) {
+  const state = sessions.get(phone)
+  const hit = state && state.groupCache ? state.groupCache[jid] : null
+  if (hit && Array.isArray(hit.participants) && hit.participants.length) {
+    if (Date.now() - (hit._cachedAt || 0) > 60000) refreshGroupMeta(state, sock, jid).catch(() => {})
+    return hit
+  }
+  if (state) return refreshGroupMeta(state, sock, jid)
+  return sock.groupMetadata(jid)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE SESSION RECOVERY PROTECTION
@@ -899,6 +991,27 @@ function makeSessionSettings(phone) {
   return settingsLib.forUser(phone)
 }
 
+// Small TTL cache with Baileys' CacheStore shape (get / set / del / flushAll).
+// Used for msgRetryCounterCache, which Baileys docs say should live OUTSIDE the
+// socket — so retry counters survive reconnects instead of restarting retry loops.
+function makeTtlCache(ttlMs = 60 * 60 * 1000, maxEntries = 5000) {
+  const m = new Map()
+  return {
+    get(key) {
+      const hit = m.get(key)
+      if (!hit) return undefined
+      if (Date.now() > hit.exp) { m.delete(key); return undefined }
+      return hit.v
+    },
+    set(key, value) {
+      if (m.size >= maxEntries) m.delete(m.keys().next().value)   // drop the oldest entry
+      m.set(key, { v: value, exp: Date.now() + ttlMs })
+    },
+    del(key) { m.delete(key) },
+    flushAll() { m.clear() },
+  }
+}
+
 function makeSessionState(phone) {
   const sessDir = path.join(SESS_ROOT, phone)
   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })
@@ -906,6 +1019,7 @@ function makeSessionState(phone) {
     phone, sessDir,
     settings:      makeSessionSettings(phone),
     groupCache:    {},
+    msgRetryCounterCache: makeTtlCache(),
     retries:       0,
     sock:                 null,
     connected:            false,
@@ -945,7 +1059,7 @@ async function getSafeWaVersion() {
 // only prints when the message actually changed for that phone+key.
 const _lastLog = new Map()
 function logOnce(phone, key, msg, level = "log") {
-  const id = `${phone}: ${key}`
+  const id = `${phone}:${key}`
   if (_lastLog.get(id) === msg) return
   _lastLog.set(id, msg)
   console[level](msg)
@@ -1034,7 +1148,9 @@ function startAutoPresence(state, sock, from) {
 async function handleOrdinaryMessage(state, sock, msg, from) {
   const s = state.settings
 
-  await triggerAutoPresence(state, sock, from)
+  // ULTRA SPEED: fire-and-forget — the auto-reply no longer waits ~30s for the
+  // typing / recording indicator to finish.
+  startAutoPresence(state, sock, from)
 
   // Auto reply.
   if (s.get("autoReply")) {
@@ -1089,7 +1205,7 @@ async function handleStatus(state, sock, msg) {
       try {
         await withRetry(() => sock.readMessages([msg.key]), 2, 600)
       } catch (e) {
-        console.error(`[${state.phone}] STATUS VIEW ✗ gave up after retries ( ${msg.key.participant || "?"}):`, e.message)
+        console.error(`[${state.phone}] STATUS VIEW ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
       }
     }
 
@@ -1101,7 +1217,7 @@ async function handleStatus(state, sock, msg) {
           react: { text: emoji, key: msg.key }
         }, { statusJidList: jidList }), 2, 800)
       } catch (e) {
-        console.error(`[${state.phone}] STATUS REACT ✗ gave up after retries ( ${msg.key.participant || "?"}):`, e.message)
+        console.error(`[${state.phone}] STATUS REACT ✗ gave up after retries (${msg.key.participant || "?"}):`, e.message)
       }
     }
 
@@ -1422,6 +1538,25 @@ async function handleMessageRevocation(sock, phone, payload, source) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ULTRA SPEED — 2s in-memory cache for the per-session JSON stores
+// (antilink / antitag / antistatus / custom commands). These used to read and
+// parse a file from disk on EVERY message. Saves update the cache immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+const FILE_CACHE_TTL_MS = 2000
+const antilinkCache   = new Map()
+const antitagCache    = new Map()
+const antistatusCache = new Map()
+const customCmdCache  = new Map()
+
+function cacheGet(cache, phone) {
+  const hit = cache.get(phone)
+  return hit && Date.now() - hit.t < FILE_CACHE_TTL_MS ? hit.v : null
+}
+function cacheSet(cache, phone, v) {
+  cache.set(phone, { v, t: Date.now() })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ANTILINK
 // ─────────────────────────────────────────────────────────────────────────────
 const ANTILINK_DIR = path.join(__dirname, "data", "antilink")
@@ -1434,13 +1569,18 @@ function antilinkFilePath(phone) {
   return path.join(ANTILINK_DIR, `${antilinkSafePhone(phone)}.json`)
 }
 function antilinkLoad(phone) {
+  const cached = cacheGet(antilinkCache, phone)
+  if (cached) return cached
   const file = antilinkFilePath(phone)
+  let data = null
   try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (e) {
     console.error(`[ANTILINK] load error for ${phone}:`, e.message)
   }
-  return { groups: {}, warnings: {} }
+  if (!data) data = { groups: {}, warnings: {} }
+  cacheSet(antilinkCache, phone, data)
+  return data
 }
 function antilinkSave(phone, data) {
   try {
@@ -1448,6 +1588,7 @@ function antilinkSave(phone, data) {
   } catch (e) {
     console.error(`[ANTILINK] save error for ${phone}:`, e.message)
   }
+  cacheSet(antilinkCache, phone, data)
 }
 
 const ANTILINK_HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD]/g
@@ -1705,7 +1846,7 @@ async function handleAntilinkInline(sock, msg, phone) {
     if (!foundText && !foundOcr) return
 
     let groupMeta
-    try { groupMeta = await sock.groupMetadata(groupId) } catch (e) {
+    try { groupMeta = await getGroupMetaCached(sock, phone, groupId) } catch (e) {
       console.error("[ANTILINK] metadata fetch failed:", e.message)
       return
     }
@@ -1731,12 +1872,12 @@ async function handleAntilinkInline(sock, msg, phone) {
 
     if (action === "delete") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here! ${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here!${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         mentions: [sender]
       })
     } else if (action === "kick") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link ${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
         mentions: [sender]
       })
       try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
@@ -1747,14 +1888,14 @@ async function handleAntilinkInline(sock, msg, phone) {
       if (warns >= maxWarns) {
         antilinkResetWarnings(phone, groupId, sender)
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
           mentions: [sender]
         })
         try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
         catch (e) { console.error("[ANTILINK] warn-kick failed:", e.message) }
       } else {
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here! ${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here!${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
           mentions: [sender]
         })
       }
@@ -1777,13 +1918,18 @@ function customCmdFilePath(phone) {
   return path.join(CUSTOMCMD_DIR, `${customCmdSafePhone(phone)}.json`)
 }
 function customCmdLoad(phone) {
+  const cached = cacheGet(customCmdCache, phone)
+  if (cached) return cached
   const file = customCmdFilePath(phone)
+  let data = null
   try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (e) {
     console.error(`[CUSTOMCMD] load error for ${phone}:`, e.message)
   }
-  return {}
+  if (!data) data = {}
+  cacheSet(customCmdCache, phone, data)
+  return data
 }
 function customCmdSave(phone, data) {
   try {
@@ -1791,6 +1937,7 @@ function customCmdSave(phone, data) {
   } catch (e) {
     console.error(`[CUSTOMCMD] save error for ${phone}:`, e.message)
   }
+  cacheSet(customCmdCache, phone, data)
 }
 function customCmdAdd(phone, trigger, response) {
   const data = customCmdLoad(phone)
@@ -1826,13 +1973,18 @@ function antitagFilePath(phone) {
   return path.join(ANTITAG_DIR, `${antitagSafePhone(phone)}.json`)
 }
 function antitagLoad(phone) {
+  const cached = cacheGet(antitagCache, phone)
+  if (cached) return cached
   const file = antitagFilePath(phone)
+  let data = null
   try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (e) {
     console.error(`[ANTITAG] load error for ${phone}:`, e.message)
   }
-  return { groups: {} }
+  if (!data) data = { groups: {} }
+  cacheSet(antitagCache, phone, data)
+  return data
 }
 function antitagSave(phone, data) {
   try {
@@ -1840,6 +1992,7 @@ function antitagSave(phone, data) {
   } catch (e) {
     console.error(`[ANTITAG] save error for ${phone}:`, e.message)
   }
+  cacheSet(antitagCache, phone, data)
 }
 function antitagIsEnabled(phone, groupId) {
   return !!antitagLoad(phone).groups[groupId]?.enabled
@@ -1881,7 +2034,7 @@ async function handleAntitagInline(sock, msg, phone) {
     if (OWNER_NUMBERS.includes(senderNorm)) return
 
     try {
-      const groupMeta = await sock.groupMetadata(groupId)
+      const groupMeta = await getGroupMetaCached(sock, phone, groupId)
       const isSenderAdmin = groupMeta.participants?.some(p =>
         normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
       if (isSenderAdmin) return
@@ -1891,7 +2044,7 @@ async function handleAntitagInline(sock, msg, phone) {
 
     try {
       await sock.sendMessage(groupId, { delete: msg.key })
-      console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} ( ${mentions.length} mention(s))`)
+      console.log(`[ANTITAG:${phone}] 🗑️ Deleted tag/mention message from ${senderNorm} in ${groupId} (${mentions.length} mention(s))`)
 
       await sock.sendMessage(groupId, {
         text: '> *Tags are not allowed in this group*',
@@ -1918,13 +2071,18 @@ function antistatusFilePath(phone) {
   return path.join(ANTISTATUS_DIR, `${antistatusSafePhone(phone)}.json`)
 }
 function antistatusLoad(phone) {
+  const cached = cacheGet(antistatusCache, phone)
+  if (cached) return cached
   const file = antistatusFilePath(phone)
+  let data = null
   try {
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"))
+    if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (e) {
     console.error(`[ANTISTATUS] load error for ${phone}:`, e.message)
   }
-  return { groups: {}, warnings: {} }
+  if (!data) data = { groups: {}, warnings: {} }
+  cacheSet(antistatusCache, phone, data)
+  return data
 }
 function antistatusSave(phone, data) {
   try {
@@ -1932,6 +2090,7 @@ function antistatusSave(phone, data) {
   } catch (e) {
     console.error(`[ANTISTATUS] save error for ${phone}:`, e.message)
   }
+  cacheSet(antistatusCache, phone, data)
 }
 function antistatusIsEnabled(phone, groupId) {
   return !!antistatusLoad(phone).groups[groupId]?.enabled
@@ -1988,7 +2147,7 @@ async function handleAntistatusInline(sock, msg, phone) {
       if (senderNorm === sessionPhone) continue
 
       let groupMeta
-      try { groupMeta = await sock.groupMetadata(groupId) } catch (e) {
+      try { groupMeta = await getGroupMetaCached(sock, phone, groupId) } catch (e) {
         console.error("[ANTISTATUS] metadata fetch failed:", e.message)
         continue
       }
@@ -2037,7 +2196,7 @@ async function handleAntistatusInline(sock, msg, phone) {
           try {
             await sock.groupParticipantsUpdate(groupId, [sender], "remove")
             await sock.sendMessage(groupId, {
-              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
               mentions: [sender]
             })
           } catch (e) {
@@ -2045,7 +2204,7 @@ async function handleAntistatusInline(sock, msg, phone) {
           }
         } else {
           await sock.sendMessage(groupId, {
-            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/ ${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
             mentions: [sender]
           }).catch(() => {})
         }
@@ -2068,7 +2227,7 @@ const BAN_CACHE_TTL_MS = 15000
 const banCache = new Map()
 
 function banCacheKey(sessionPhone, targetPhone) {
-  return `${sessionPhone}: ${targetPhone}`
+  return `${sessionPhone}:${targetPhone}`
 }
 
 function banCacheInvalidate(sessionPhone, targetPhone) {
@@ -2106,6 +2265,15 @@ function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
   return true
 }
 
+// Commands that consume the group admin flags prepared by checkGroupAdmin.
+// Keep this list conservative: only these and commands declaring permission
+// metadata need a synchronous metadata lookup before execution.
+const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
+  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker",
+  "del", "demote", "hidetag", "mute", "promote", "tagall", "unban",
+  "unmute", "vmute", "vunmute", "warn",
+])
+
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
@@ -2117,6 +2285,17 @@ async function handleMessage(state, sock, msg) {
   const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
+  const prefix = state.settings.get("prefix") || BOT_PREFIX
+  const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
+  if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
+    // Keep private-mode behavior, but avoid synchronous log I/O and ban lookups
+    // for ordinary chat messages that are already being ignored.
+    if (body.startsWith(prefix)) {
+      console.log(`[${state.phone}] 🔒 Private-mode lockdown: ignoring ${normalizeNum(sender || from)} in ${from}`)
+    }
+    return
+  }
+
   if (!fromMe) {
     const sessionPhone = normalizeNum(sock.user?.id || "")
     const senderPhone  = normalizeNum(sender || from)
@@ -2126,17 +2305,10 @@ async function handleMessage(state, sock, msg) {
     }
   }
 
-  const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
-  if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
-    console.log(`[${state.phone}] 🔒 Private-mode lockdown: ignoring ${normalizeNum(sender || from)} in ${from}`)
-    return
-  }
-
   if (!fromMe && state.settings.get("autoRead")) {
     sock.readMessages([msg.key]).catch(() => {})
   }
 
-  const prefix = state.settings.get("prefix") || BOT_PREFIX
   if (!body.startsWith(prefix)) {
     handleOrdinaryMessage(state, sock, msg, from).catch(() => {})
     return
@@ -2177,7 +2349,13 @@ async function handleMessage(state, sock, msg) {
   }
 
   let isAdmin = false, isBotAdmin = false
-  if (isGroup) { ({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner)) }
+  const needsGroupAdminContext =
+    command.adminOnly === true || command.botAdmin === true ||
+    command.requiresAdmin === true || command.requiresGroupAdmin === true ||
+    COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical)
+  if (isGroup && needsGroupAdminContext) {
+    ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
+  }
 
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
 
@@ -2195,19 +2373,29 @@ async function handleMessage(state, sock, msg) {
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
 
-  const runGuarded = (skipCooldown = false) =>
+  // ULTRA EXECUTOR — this session's OWN executor (own queue, timeout);
+  // nothing is shared with any other session. Works with both the lane-based
+  // executor (timeouts resolve + onDrop) and the throwing variant (timeouts reject).
+  //
+  // ZERO DELAY: the per-sender cooldown is ALWAYS skipped, so no command is ever
+  // held back or dropped just because the same person sent another one a moment ago.
+  const ZERO_DELAY = true
+  const runGuarded = (_isRetry = false) =>
     sessionExecutor.forState(state).submit({
-      name: rawCmd,
-      chat: from,
-      sender: normalizeNum(sender || from),
-      isOwner: !!(isOwner || fromMe),
-      skipCooldown,
-      fn: () => ultraExec.guardCommand(
-        state, sock, from, msg, rawCmd, runOnce
-      ),
-      onDrop: reason => {
+      name:         rawCmd,
+      heavy:        command.heavy === true || command.resourceIntensive === true,
+      chat:         from,
+      sender:       normalizeNum(sender || from),
+      isOwner:      !!(isOwner || fromMe),
+      skipCooldown: ZERO_DELAY,
+      fn:           () => ultraExec.guardCommand(state, sock, from, msg, rawCmd, runOnce),
+      onDrop: (reason) => {
         console.warn(`[${state.phone}] command ${rawCmd} dropped: ${reason}`)
-      }
+        let note = null
+        if (reason === "queue_full") note = "⏳ Server is busy right now — please try again in a moment."
+        if (reason === "timeout")    note = `⌛ *${rawCmd}* took too long and was cancelled.`
+        if (note) sock.sendMessage(from, { text: note }, { quoted: msg }).catch(() => {})
+      },
     })
 
   const startedAt = Date.now()
@@ -2281,6 +2469,7 @@ async function startBot(phone) {
     maxMsgRetryCount:    5,
     shouldSyncHistoryMessage: m => m.syncType === 0,
     cachedGroupMetadata:  async jid => state.groupCache[jid],
+    msgRetryCounterCache: state.msgRetryCounterCache,   // lives on the session, not the socket
   })
 
   state.sock = sock
@@ -2352,7 +2541,7 @@ async function startBot(phone) {
         demote:  "⬇️  DEMOTED",
       }[action] || action.toUpperCase()
 
-      console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in " ${groupName}" (${groupId}) | members now: ${memberCount}`)
+      console.log(`[WATCHDOG:${phone}] ${actionLabel} → ${memberPhone} in "${groupName}" (${groupId}) | members now: ${memberCount}`)
 
       if (action === "promote" || action === "demote") {
         try {
@@ -2379,7 +2568,7 @@ async function startBot(phone) {
             const mentions = [participantJid, ...(actorJid ? [actorJid] : [])]
 
             await sock.sendMessage(groupId, { text, mentions })
-            console.log(`[WATCHDOG:${phone}] ✅ Sent ${action.toUpperCase()} announcement to " ${groupName}" for ${memberPhone}`)
+            console.log(`[WATCHDOG:${phone}] ✅ Sent ${action.toUpperCase()} announcement to "${groupName}" for ${memberPhone}`)
           }
         } catch (e) {
           console.error(`[WATCHDOG:${phone}] ${action} announcement error:`, e.message)
@@ -2405,7 +2594,7 @@ async function startBot(phone) {
         const settings  = type === "welcome" ? greetData.welcome : greetData.goodbye
 
         if (!settings?.enabled) {
-          console.log(`[WATCHDOG:${phone}] ⚠️ ${type} is DISABLED for " ${groupName}" — nothing sent. Run .${type} on to enable.`)
+          logOnce(phone, `${type}-disabled:${groupId}`, `[WATCHDOG:${phone}] ⚠️ ${type} is DISABLED for "${groupName}" — nothing sent. Run .${type} on to enable.`)
           continue
         }
 
@@ -2426,7 +2615,7 @@ async function startBot(phone) {
           await sock.sendMessage(groupId, { text, mentions: [participantJid] })
         }
 
-        console.log(`[WATCHDOG:${phone}] ✅ ${type === "welcome" ? "Sent WELCOME" : "Sent GOODBYE"} to " ${groupName}" for ${memberPhone}`)
+        console.log(`[WATCHDOG:${phone}] ✅ ${type === "welcome" ? "Sent WELCOME" : "Sent GOODBYE"} to "${groupName}" for ${memberPhone}`)
 
       } catch (e) {
         console.error(`[WATCHDOG:${phone}] send error for ${memberPhone}:`, e.message)
@@ -2434,6 +2623,10 @@ async function startBot(phone) {
     }
   })
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // ANTI-CALL — strong reject (retries, JID variants, re-reject while ringing)
+  // + a notice to the CALLER's DM once the call was really rejected.
+  // ═══════════════════════════════════════════════════════════════════════
   const antiCallNotified = new Set()
   const antiCallSeen = new Map()          // call id -> reject attempts so far
   const ANTICALL_MAX_ATTEMPTS = 6         // per call id (covers "still ringing" re-rejects)
@@ -2628,14 +2821,14 @@ async function startBot(phone) {
       const allSettings = state.settings.getAll()
       const settingKeys = Object.keys(allSettings)
       if (settingKeys.length > 0) {
-        console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => ` ${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
+        console.log(`[${phone}] 💾 Restored settings: ${settingKeys.map(k => `${k}=${JSON.stringify(allSettings[k])}`).join(", ")}`)
         if (allSettings.mode === "private") {
           console.log(`[${phone}] 🔒 Private-mode lockdown is ACTIVE (persisted) — only owner/sudo can use the bot`)
         }
       } else {
         console.log(`[${phone}] 💾 No saved settings — using defaults`)
       }
-      console.log(`[${phone}] 👀 autoViewStatus= ${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji= ${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
+      console.log(`[${phone}] 👀 autoViewStatus=${!!allSettings.autoViewStatus} autoReactStatus=${!!allSettings.autoReactStatus} emoji=${allSettings.statusReactEmoji || "🙃"} — if these show false but you expect them on, the toggle command isn't saving correctly`)
       saveMeta()
 
       // ─────────────────────────────────────────────────────────────────────
@@ -2686,7 +2879,7 @@ async function startBot(phone) {
 
       state.retries++
       const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
-      logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt # ${state.retries}`)
+      logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt #${state.retries}`)
       setTimeout(() => startBot(phone).catch(e => console.error(`[${phone}] RESTART ERR:`, e.message)), delay)
     }
   })
@@ -2695,48 +2888,94 @@ async function startBot(phone) {
   if (typeof lib.initGroupCache === "function") lib.initGroupCache(sock)
   try { lib.groupParticipants?.setStore?.({ groupMetadata: state.groupCache }) } catch {}
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return
+  // ═══════════════════════════════════════════════════════════════════════
+  // ULTRA LISTENER — fast lane for commands
+  //   1. A command message is dispatched the moment it arrives (only cheap
+  //      synchronous checks happen first).
+  //   2. All passive work (antilink, antitag, antidelete, memory, badword,
+  //      antibot, auto-VV, ordinary-message effects) runs AFTER, on the next
+  //      tick, so it can never delay a command.
+  //   3. antidelete only records messages while this session has it ON
+  //      (before this, every media message in every chat was downloaded).
+  // ═══════════════════════════════════════════════════════════════════════
+  const adEnabledCache = { value: false, at: 0 }
+  const antideleteEnabledCached = () => {
+    const now = Date.now()
+    if (now - adEnabledCache.at > 5000) {
+      adEnabledCache.value = !!antideleteGetEnabled(phone)
+      adEnabledCache.at = now
+    }
+    return adEnabledCache.value
+  }
+
+  const processPassive = async (m, handledAsCommand) => {
+    const jid = m.key.remoteJid
     const sessionPhone = normalizeNum(sock.user?.id || "")
+
+    if (!m.key.fromMe) {
+      const senderPhone = normalizeNum(m.key.participant || jid)
+      if (await isBannedFast(sessionPhone, senderPhone, jid)) return
+    }
+
+    if (antideleteEnabledCached()) {
+      storeMessage(sock, m).catch(e => console.error("[" + phone + "] storeMessage ERR:", e.message))
+    }
+    handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
+      console.error("[" + phone + "] antideleteUpsert ERR:", e.message)
+    )
+
+    if (!m.key.fromMe) {
+      if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
+      ;(lib.handleAntilinkInline || handleAntilinkInline)(sock, m, phone).catch(e => console.error("[" + phone + "] ANTILINK ERR:", e.message))
+      handleAntitagInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTITAG ERR:", e.message))
+      if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
+    }
+
+    // AUTO-VV: authorized chats first — media-only View Once messages may have no text body.
+    if (typeof autoVV?.handleAutoVV === "function") {
+      autoVV.handleAutoVV({ state, sock, msg: m, from: jid }).catch(e =>
+        console.error("[" + phone + "] AUTO-VV ERR:", e.message)
+      )
+    }
+
+    // Non-command messages still need the ordinary-message effects (autoRead / autoReply / presence)
+    if (!handledAsCommand) {
+      handleMessage(state, sock, m).catch(e => console.error("[" + phone + "] MSG ERR:", e.message))
+    }
+  }
+
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
+    if (type !== "notify") return
+    const prefix = state.settings.get("prefix") || BOT_PREFIX
+
     for (const m of messages) {
+      if (!m || !m.key) continue
+
       const ts = Number(m.messageTimestamp) || 0
       if (ts < BOT_START - 15) continue
 
-      if (!m.key.fromMe && m.key.remoteJid !== "status@broadcast") {
-        const senderPhone = normalizeNum(m.key.participant || m.key.remoteJid)
-        if (await isBannedFast(sessionPhone, senderPhone, m.key.remoteJid)) continue
-      }
-
       if (m.key.remoteJid === "status@broadcast") {
-        handleStatus(state, sock, m).catch(e => console.error(`[${phone}] STATUS ERR:`, e.message))
-        handleAntistatusInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTISTATUS ERR:`, e.message))
+        handleStatus(state, sock, m).catch(e => console.error("[" + phone + "] STATUS ERR:", e.message))
+        handleAntistatusInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS ERR:", e.message))
         continue
       }
-      storeMessage(sock, m).catch(e => console.error(`[${phone}] storeMessage ERR:`, e.message))
-      handleMessageRevocation(sock, phone, m, "upsert").catch(e =>
-        console.error(`[${phone}] antideleteUpsert ERR:`, e.message)
-      )
-      if (!m.key.fromMe) {
-        if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-        ;(lib.handleAntilinkInline || handleAntilinkInline)(sock, m, phone).catch(e => console.error(`[${phone}] ANTILINK ERR:`, e.message))
-        handleAntitagInline(sock, m, phone).catch(e => console.error(`[${phone}] ANTITAG ERR:`, e.message))
-        if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
-        if (typeof lib.handleAntibot === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
-      }
-      // AUTO-VV: process authorized chats before handleMessage(),
-      // because media-only View Once messages may have no text body.
-      if (typeof autoVV?.handleAutoVV === "function") {
-        autoVV.handleAutoVV({
-          state,
-          sock,
-          msg: m,
-          from: m.key.remoteJid,
-        }).catch(e =>
-          console.error(`[${phone}] AUTO-VV ERR:`, e.message)
-        )
+
+      // FAST LANE — commands are dispatched immediately
+      let isCmd = false
+      try {
+        const body = extractBody(m)
+        isCmd = !!body && body.startsWith(prefix)
+      } catch {}
+
+      if (isCmd) {
+        handleMessage(state, sock, m).catch(e => console.error("[" + phone + "] MSG ERR:", e.message))
       }
 
-      handleMessage(state, sock, m).catch(e => console.error(`[${phone}] MSG ERR:`, e.message))
+      // Everything else runs after, on the next tick
+      setImmediate(() => {
+        processPassive(m, isCmd).catch(e => console.error("[" + phone + "] PASSIVE ERR:", e.message))
+      })
     }
   })
 
@@ -2946,7 +3185,7 @@ async function init() {
     }
   }
 
-  console.log(`[INIT] 🔄 Auto-load sources → disk:${onDisk.length} meta: ${fromMeta.length} slots:${fromSlots.length} settings: ${fromSettingsFiles.length} users:${fromUsersDir.length}`)
+  console.log(`[INIT] 🔄 Auto-load sources → disk:${onDisk.length} meta:${fromMeta.length} slots:${fromSlots.length} settings:${fromSettingsFiles.length} users:${fromUsersDir.length}`)
   console.log(`[INIT] ▶ Starting ${allPhones.length} session(s) (Session + changes): ${allPhones.join(", ") || "(none)"}`)
 
   // Optional migration: push any pre-existing local-disk-only session
@@ -3033,9 +3272,18 @@ async function removeSession(phone) {
   const state = sessions.get(clean)
   if (state) {
     if (state.presenceTimer) clearInterval(state.presenceTimer)
+    try { state.executor?.shutdown?.() } catch {}
     try { state.sock?.end(undefined) } catch {}
     sessions.delete(clean)
   }
+
+  // Drop the in-memory copies of this session's JSON stores so a stale cache
+  // can never write a removed session's data back to disk.
+  antilinkCache.delete(clean)
+  antitagCache.delete(clean)
+  antistatusCache.delete(clean)
+  customCmdCache.delete(clean)
+
   // Wipe auth folder
   try {
     const sessDir = path.join(SESS_ROOT, clean)
@@ -3064,6 +3312,7 @@ async function removeSession(phone) {
     const usersFile = path.join(__dirname, "data", "users", `${clean}.json`)
     if (fs.existsSync(usersFile)) fs.unlinkSync(usersFile)
   } catch (e) { console.error(`[REMOVE] users wipe ✗ ${clean}:`, e.message) }
+  settingsLib.clearUserCache?.(clean)
   try {
     const antilinkFile = path.join(__dirname, "data", "antilink", `${clean}.json`)
     if (fs.existsSync(antilinkFile)) fs.unlinkSync(antilinkFile)
@@ -3106,8 +3355,30 @@ function listBots() {
 global.__sessionStates = sessions
 global.__listBots = listBots
 
+// Stats API used by the owner-only .execstats command.
+global.__executorStats = () => sessionExecutor.statsAll(sessions)
+global.__heavyPoolStats = () => sessionExecutor.heavyStats()
+
+function getPublicCommandCatalog() {
+  const hidden = new Set(['broadcast', 'exec', 'restart', 'update', 'owner', 'block', 'unblock', 'ban', 'unban', 'hijack', 'gccrash'])
+  return [...registry.map.values()]
+    .filter(command => {
+      const category = String(command.category || 'general').toLowerCase()
+      const name = String(command.pattern || command.name || '').replace(/^\./, '').toLowerCase()
+      return name && !hidden.has(name) && !['owner', 'system', 'settings'].includes(category)
+    })
+    .map(command => ({
+      name: String(command.pattern || command.name).replace(/^\./, ''),
+      aliases: Array.isArray(command.alias) ? command.alias : [],
+      category: command.category || 'general',
+      description: command.desc || 'Zen X WhatsApp command',
+      usage: command.usage || '.' + String(command.pattern || command.name).replace(/^\./, '')
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 module.exports = {
-  init, addSession, removeSession, listBots,
+  init, addSession, removeSession, listBots, getPublicCommandCatalog,
   getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY,
   TOTAL_RAM_MB, MAX_RAM_MB, MEM_RESERVE_MB, PER_SESSION_BUDGET_MB,
 }

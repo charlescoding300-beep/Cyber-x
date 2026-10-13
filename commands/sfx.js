@@ -101,8 +101,8 @@ function runFFmpeg(inputPath, outputPath, filter) {
 }
 
 // ── Helper: delete temp files ────────────────────────────────────────────────
-function cleanup(...files) {
-  for (const f of files) { try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {} }
+async function cleanup(...files) {
+  await Promise.all(files.map(file => fs.promises.unlink(file).catch(() => {})))
 }
 
 // ── Build one command handler ─────────────────────────────────────────────────
@@ -110,6 +110,7 @@ function makeSfxCommand(effectName) {
   const effect = EFFECTS[effectName]
   return {
     pattern:  effectName,
+    heavy:    true,
     category: effect.category || "MEDIA",
     desc:     `Apply ${effect.label} effect to a replied audio`,
     usage:    `.${effectName} (reply to an audio/voice message)`,
@@ -163,13 +164,13 @@ function makeSfxCommand(effectName) {
         if (!buffer || buffer.length === 0) throw new Error("Could not download audio")
 
         // ── Save to temp ───────────────────────────────────────────────────
-        fs.writeFileSync(inputPath, buffer)
+        await fs.promises.writeFile(inputPath, buffer)
 
         // ── Run FFmpeg with the effect ─────────────────────────────────────
         await runFFmpeg(inputPath, outputPath, effect.filter)
 
         // ── Read output and send straight — no follow-up label message ─────
-        const outBuffer = fs.readFileSync(outputPath)
+        const outBuffer = await fs.promises.readFile(outputPath)
         const isPtt     = !!(quoted.audioMessage?.ptt || quoted.pttMessage)
 
         await sock.sendMessage(from, {
@@ -188,7 +189,7 @@ function makeSfxCommand(effectName) {
           text: `> ${effect.emoji} *${effect.label} EFFECT*\n>\n> ❌ Failed: ${e.message}\n>\n> Make sure ffmpeg is installed on the server.\n>\n${CREDIT}`
         }, { quoted: msg })
       } finally {
-        cleanup(inputPath, outputPath)
+        await cleanup(inputPath, outputPath)
       }
     }
   }

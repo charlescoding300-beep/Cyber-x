@@ -43,21 +43,39 @@ function banFilePath(sessionPhone) {
   return path.join(BANS_DIR, `${sessionPhone}.json`)
 }
 
-function loadBanned(sessionPhone) {
-  try {
-    const file = banFilePath(sessionPhone)
-    if (fs.existsSync(file)) {
-      return JSON.parse(fs.readFileSync(file, 'utf8'))
+const bannedCache = new Map()
+
+async function loadBanned(sessionPhone) {
+  const key = String(sessionPhone)
+  if (bannedCache.has(key)) return bannedCache.get(key)
+
+  const loading = (async () => {
+    try {
+      const raw = await fs.promises.readFile(banFilePath(sessionPhone), 'utf8')
+      return JSON.parse(raw)
+    } catch (e) {
+      if (e.code === 'ENOENT') return {}
+      console.warn(`[BAN:${sessionPhone}] Load error:`, e.message)
+      throw e
     }
-  } catch (e) {
-    console.warn(`[BAN:${sessionPhone}] Load error:`, e.message)
+  })()
+  bannedCache.set(key, loading)
+
+  try {
+    const data = await loading
+    bannedCache.set(key, data)
+    return data
+  } catch {
+    if (bannedCache.get(key) === loading) bannedCache.delete(key)
+    return {}
   }
-  return {}
 }
 
-function saveBanned(sessionPhone, data) {
+async function saveBanned(sessionPhone, data) {
+  const key = String(sessionPhone)
   try {
-    fs.writeFileSync(banFilePath(sessionPhone), JSON.stringify(data, null, 2))
+    await fs.promises.writeFile(banFilePath(sessionPhone), JSON.stringify(data, null, 2))
+    bannedCache.set(key, data)
   } catch (e) {
     console.error(`[BAN:${sessionPhone}] Save error:`, e.message)
   }
@@ -67,8 +85,8 @@ function saveBanned(sessionPhone, data) {
  * Checked from index.js's handleMessage() via global.__isBanned(sessionPhone, userPhone).
  * Scoped correctly: only checks THAT session's own ban list.
  */
-function isBanned(sessionPhone, userPhone) {
-  const banned = loadBanned(sessionPhone)
+async function isBanned(sessionPhone, userPhone) {
+  const banned = await loadBanned(sessionPhone)
   return !!banned[userPhone]
 }
 
@@ -89,7 +107,7 @@ module.exports = {
     }
 
     const sessionPhone = getSessionPhone(sock)
-    const banned = loadBanned(sessionPhone)
+    const banned = await loadBanned(sessionPhone)
     const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage
 
     let targetJid = null
@@ -117,7 +135,8 @@ module.exports = {
       }
       if (banned[phone]) {
         delete banned[phone]
-        saveBanned(sessionPhone, banned)
+        await saveBanned(sessionPhone, banned)
+        global.__banCacheInvalidate?.(sessionPhone, phone)
         return sock.sendMessage(from, {
           text: `✅ *Unbanned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
           quoted: msg
@@ -159,7 +178,8 @@ module.exports = {
       reason: args.slice(1).join(' ') || 'No reason'
     }
 
-    saveBanned(sessionPhone, banned)
+    await saveBanned(sessionPhone, banned)
+    global.__banCacheInvalidate?.(sessionPhone, phone)
 
     sock.sendMessage(from, {
       text: `🚫 *Banned:* +${phone}\n*Reason:* ${banned[phone].reason}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,

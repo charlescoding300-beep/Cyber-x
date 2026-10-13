@@ -16,6 +16,8 @@ const path = require('path')
 
 const GREET_DIR = path.join(__dirname, '..', 'data', 'greet')
 if (!fs.existsSync(GREET_DIR)) fs.mkdirSync(GREET_DIR, { recursive: true })
+const greetCache = new Map()
+const greetWrites = new Map()
 
 function safePhone(phone) {
     return (phone || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -24,20 +26,26 @@ function filePath(phone) {
     return path.join(GREET_DIR, `${safePhone(phone)}.json`)
 }
 function load(phone) {
+    if (greetCache.has(phone)) return greetCache.get(phone)
     const file = filePath(phone)
+    let data = { groups: {} }
     try {
-        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (fs.existsSync(file)) data = JSON.parse(fs.readFileSync(file, 'utf8'))
     } catch (e) {
         console.error(`[GREET] load error for ${phone}:`, e.message)
     }
-    return { groups: {} }
+    greetCache.set(phone, data)
+    return data
 }
 function save(phone, data) {
-    try {
-        fs.writeFileSync(filePath(phone), JSON.stringify(data, null, 2))
-    } catch (e) {
-        console.error(`[GREET] save error for ${phone}:`, e.message)
-    }
+    greetCache.set(phone, data)
+    const snapshot = JSON.stringify(data, null, 2)
+    const previous = greetWrites.get(phone) || Promise.resolve()
+    const pending = previous.catch(() => {}).then(() =>
+        fs.promises.writeFile(filePath(phone), snapshot, 'utf8')
+    ).catch(e => console.error(`[GREET] save error for ${phone}:`, e.message))
+    greetWrites.set(phone, pending)
+    return pending
 }
 
 /**
@@ -54,12 +62,12 @@ function loadGreet(phone, groupId) {
     }
 }
 
-function saveGreet(phone, groupId, type, updates) {
+async function saveGreet(phone, groupId, type, updates) {
     const data = load(phone)
     if (!data.groups[groupId]) data.groups[groupId] = {}
     if (!data.groups[groupId][type]) data.groups[groupId][type] = {}
     Object.assign(data.groups[groupId][type], updates)
-    save(phone, data)
+    await save(phone, data)
     return data.groups[groupId][type]
 }
 
@@ -313,7 +321,7 @@ module.exports = {
             }, { quoted: msg })
         }
 
-        saveGreet(phone, from, 'welcome', { enabled: sub === 'on' })
+        await saveGreet(phone, from, 'welcome', { enabled: sub === 'on' })
         const reply = sub === 'on'
             ? '*Welcome Command Enabled successfully ✅*'
             : '*Welcome Command Disabled successfully ❌*'

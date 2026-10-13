@@ -189,7 +189,7 @@ async function gifToMp4(gifBuffer) {
     )
 
     try {
-        fs.writeFileSync(inPath, gifBuffer)
+        await fs.promises.writeFile(inPath, gifBuffer)
 
         await runFfmpeg([
             '-i',
@@ -207,15 +207,10 @@ async function gifToMp4(gifBuffer) {
             outPath
         ])
 
-        return fs.readFileSync(outPath)
+        return await fs.promises.readFile(outPath)
     } finally {
-        try {
-            fs.unlinkSync(inPath)
-        } catch (_) {}
-
-        try {
-            fs.unlinkSync(outPath)
-        } catch (_) {}
+        await fs.promises.unlink(inPath).catch(() => {})
+        await fs.promises.unlink(outPath).catch(() => {})
     }
 }
 
@@ -512,6 +507,7 @@ ${all}`
 
 module.exports = {
     name: 'anime',
+    heavy: true,
     aliases: ['anime', 'reaction'],
     category: 'fun',
     desc: 'Send anime reaction GIFs',

@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
-const { spawnSync }            = require("child_process")
+const { runProcess }           = require("../lib/runProcess")
 const fs                       = require("fs")
 const path                     = require("path")
 const os                       = require("os")
@@ -122,61 +122,43 @@ async function toWebPviaFFmpeg(inputBuf, isAnimated) {
   const id  = `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const inp = path.join(TMP, `inp_${id}`)
   const out = path.join(TMP, `out_${id}.webp`)
-
-  fs.writeFileSync(inp, inputBuf)
+  await fs.promises.writeFile(inp, inputBuf)
 
   try {
     if (isAnimated) {
-      const r = spawnSync("ffmpeg", [
-        "-y",
-        "-i",       inp,
-        "-t",       "9",
-        "-vf",      "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,fps=15",
-        "-vcodec",  "libwebp",
-        "-lossless","0",
-        "-q:v",     "80",
-        "-loop",    "0",
-        "-preset",  "picture",
-        "-an",
-        "-vsync",   "0",
-        out,
-      ], { timeout: 60000 })
-
-      if (r.status !== 0) throw new Error(r.stderr?.toString() || "ffmpeg failed")
-
+      await runProcess('ffmpeg', [
+        '-y', '-i', inp, '-t', '9',
+        '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,fps=15',
+        '-vcodec', 'libwebp', '-threads', '1', '-lossless', '0', '-q:v', '80',
+        '-loop', '0', '-preset', 'picture', '-an', '-vsync', '0', out,
+      ], { timeoutMs: 60000 })
     } else {
-      // Static image → PNG → cwebp (or ffmpeg fallback)
       const png = path.join(TMP, `out_${id}.png`)
-
-      spawnSync("ffmpeg", [
-        "-y", "-i", inp,
-        "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000",
-        "-frames:v", "1", png,
-      ], { timeout: 30000 })
-
-      const r2 = spawnSync("cwebp", ["-q", "90", png, "-o", out], { timeout: 30000 })
-
-      try { fs.unlinkSync(png) } catch {}
-
-      if (r2.status !== 0) {
-        // cwebp failed — use ffmpeg static webp directly
-        const r3 = spawnSync("ffmpeg", [
-          "-y", "-i", inp,
-          "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000",
-          "-frames:v", "1",
-          "-vcodec", "libwebp", "-lossless", "0", "-q:v", "90",
-          out,
-        ], { timeout: 30000 })
-
-        if (r3.status !== 0) throw new Error("ffmpeg static conversion failed")
+      try {
+        await runProcess('ffmpeg', [
+          '-y', '-i', inp,
+          '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+          '-frames:v', '1', '-threads', '1', png,
+        ], { timeoutMs: 30000 })
+        let cwebpWorked = true
+        try {
+          await runProcess('cwebp', ['-q', '90', png, '-o', out], { timeoutMs: 30000 })
+        } catch { cwebpWorked = false }
+        if (!cwebpWorked) {
+          await runProcess('ffmpeg', [
+            '-y', '-i', inp,
+            '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+            '-frames:v', '1', '-vcodec', 'libwebp', '-threads', '1',
+            '-lossless', '0', '-q:v', '90', out,
+          ], { timeoutMs: 30000 })
+        }
+      } finally {
+        await fs.promises.rm(png, { force: true }).catch(() => {})
       }
     }
-
-    return fs.readFileSync(out)
-
+    return await fs.promises.readFile(out)
   } finally {
-    try { fs.unlinkSync(inp) } catch {}
-    try { fs.unlinkSync(out) } catch {}
+    await Promise.all([inp, out].map(file => fs.promises.rm(file, { force: true }).catch(() => {})))
   }
 }
 

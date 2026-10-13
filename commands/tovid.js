@@ -26,7 +26,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
-const { spawnSync }            = require("child_process")
+const { runProcess }           = require("../lib/runProcess")
 const fs                       = require("fs")
 const path                     = require("path")
 const os                       = require("os")
@@ -71,111 +71,72 @@ async function animatedWebpToMp4(inputBuf) {
   const workDir  = path.join(TMP, id)
   const listPath = path.join(workDir, "list.txt")
   const outPath  = path.join(workDir, "out.mp4")
-
-  fs.mkdirSync(workDir, { recursive: true })
+  await fs.promises.mkdir(workDir, { recursive: true })
 
   try {
-    // ── Read animation metadata ──────────────────────────────────────────────
     const meta  = await sharp(inputBuf, { animated: true }).metadata()
     const pages = meta.pages && meta.pages > 1 ? meta.pages : 1
     const { width, pageHeight } = meta
     const frameHeight = pageHeight || meta.height
-
-    // delay[] is in milliseconds per frame; fall back to 100ms (10fps) if missing
     const delays = (Array.isArray(meta.delay) && meta.delay.length === pages)
       ? meta.delay
       : new Array(pages).fill(100)
 
-    // ── Decode the WHOLE animation ONCE into raw RGBA pixels ─────────────────
-    // sharp stacks all frames vertically when animated:true, so we get one
-    // big buffer of size width x (pageHeight * pages) x 4 channels, then slice
-    // each frame out of memory instead of re-decoding the webp per frame.
     const { data: raw, info } = await sharp(inputBuf, { animated: true })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-
-    const channels  = info.channels
+      .ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    const channels = info.channels
     const frameBytes = width * frameHeight * channels
-
-    // ── Export each frame as PNG from the sliced raw buffer ──────────────────
     const frameFiles = []
+
     for (let i = 0; i < pages; i++) {
       const slice = raw.subarray(i * frameBytes, (i + 1) * frameBytes)
       const frameBuf = await sharp(slice, {
         raw: { width, height: frameHeight, channels },
       }).png().toBuffer()
-
       const framePath = path.join(workDir, `frame_${String(i).padStart(4, "0")}.png`)
-      fs.writeFileSync(framePath, frameBuf)
+      await fs.promises.writeFile(framePath, frameBuf)
       frameFiles.push({ file: framePath, duration: Math.max(delays[i], 20) / 1000 })
     }
 
-    // ── Build ffmpeg concat list (last frame repeated, per ffmpeg quirk) ─────
-    let list = ""
-    for (const f of frameFiles) {
-      list += `file '${f.file}'\n`
-      list += `duration ${f.duration}\n`
+    let list = ''
+    for (const frame of frameFiles) {
+      list += `file '${frame.file}'\n`
+      list += `duration ${frame.duration}\n`
     }
     list += `file '${frameFiles[frameFiles.length - 1].file}'\n`
-    fs.writeFileSync(listPath, list)
+    await fs.promises.writeFile(listPath, list)
 
-    // ── Encode PNG sequence → MP4 ────────────────────────────────────────────
-    const r = spawnSync("ffmpeg", [
-      "-y",
-      "-f",        "concat",
-      "-safe",     "0",
-      "-i",        listPath,
-      "-vsync",    "vfr",
-      "-pix_fmt",  "yuv420p",
-      "-vf",       "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p",
-      "-c:v",      "libx264",
-      "-crf",      "20",
-      "-preset",   "ultrafast",
-      "-movflags", "faststart",
-      "-an",
-      outPath,
-    ], { timeout: 60000 })
+    await runProcess('ffmpeg', [
+      '-y', '-f', 'concat', '-safe', '0', '-i', listPath,
+      '-vsync', 'vfr', '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p',
+      '-c:v', 'libx264', '-threads', '1', '-crf', '20', '-preset', 'ultrafast',
+      '-movflags', 'faststart', '-an', outPath,
+    ], { timeoutMs: 60000 })
 
-    if (r.status !== 0 || !fs.existsSync(outPath)) {
-      throw new Error(ffmpegError(r))
-    }
-
-    return fs.readFileSync(outPath)
-
+    return await fs.promises.readFile(outPath)
   } finally {
-    try { fs.rmSync(workDir, { recursive: true, force: true }) } catch {}
+    await fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Static WebP → PNG via ffmpeg
 // ─────────────────────────────────────────────────────────────────────────────
-function webpToPng(inputBuf) {
+async function webpToPng(inputBuf) {
   const id  = `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const inp = path.join(TMP, `inp_${id}.webp`)
   const out = path.join(TMP, `out_${id}.png`)
-
-  fs.writeFileSync(inp, inputBuf)
-
+  await fs.promises.writeFile(inp, inputBuf)
   try {
-    const r = spawnSync("ffmpeg", [
-      "-y",
-      "-i",        inp,
-      "-frames:v", "1",
-      "-vf",       "scale=512:512:force_original_aspect_ratio=decrease",
-      out,
-    ], { timeout: 30000 })
-
-    if (r.status !== 0 || !fs.existsSync(out)) {
-      throw new Error(ffmpegError(r))
-    }
-
-    return fs.readFileSync(out)
-
+    await runProcess('ffmpeg', [
+      '-y', '-i', inp, '-frames:v', '1',
+      '-vf', 'scale=512:512:force_original_aspect_ratio=decrease',
+      '-threads', '1', out,
+    ], { timeoutMs: 30000 })
+    return await fs.promises.readFile(out)
   } finally {
-    try { fs.unlinkSync(inp) } catch {}
-    try { fs.unlinkSync(out) } catch {}
+    await Promise.all([inp, out].map(file => fs.promises.rm(file, { force: true }).catch(() => {})))
   }
 }
 
@@ -265,7 +226,7 @@ module.exports = {
 
       } else {
         // ── Static sticker → PNG image ─────────────────────────────────────
-        const pngBuf = webpToPng(webpBuf)
+        const pngBuf = await webpToPng(webpBuf)
 
         await sock.sendMessage(from, {
           image:   pngBuf,

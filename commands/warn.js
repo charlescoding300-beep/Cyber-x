@@ -7,17 +7,31 @@ const path = require('path');
 const DATA_DIR  = path.join(__dirname, '../data');
 const DATA_FILE = path.join(DATA_DIR, 'warns.json');
 
+let dbCache = null
+let dbSaveQueue = Promise.resolve()
+
 function loadDB() {
+  if (dbCache) return dbCache
   try {
     if (!fs.existsSync(DATA_DIR))  fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '{}');
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch { return {}; }
+    dbCache = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  } catch { dbCache = {}; }
+  return dbCache
 }
 
 function saveDB(db) {
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2)); } catch {}
+  dbCache = db
+  const snapshot = JSON.stringify(db, null, 2)
+  dbSaveQueue = dbSaveQueue.catch(() => {}).then(async () => {
+    await fs.promises.mkdir(DATA_DIR, { recursive: true })
+    await fs.promises.writeFile(DATA_FILE, snapshot, 'utf8')
+  }).catch(e => console.error('[WARN] save failed:', e.message))
+  return dbSaveQueue
 }
+
+// Read the small legacy JSON file during command loading, not on the first warn.
+loadDB()
 
 function getGroup(db, gid) {
   if (!db[gid]) db[gid] = { maxwarn: 10, members: {} };
@@ -197,7 +211,7 @@ _Example: .warn set 5_`
       }
 
       g.maxwarn = n;
-      saveDB(db);
+      await saveDB(db);
 
       return sock.sendMessage(from, {
         text:
@@ -218,7 +232,7 @@ ${LINE}
     if (sub === 'reset' && (args[1] || '').toLowerCase() === 'all') {
       const total = Object.keys(g.members).length;
       g.members = {};
-      saveDB(db);
+      await saveDB(db);
 
       return sock.sendMessage(from, {
         text:
@@ -251,7 +265,7 @@ _Tag the member you want to clear._`
 
       const had = g.members[target] || 0;
       delete g.members[target];
-      saveDB(db);
+      await saveDB(db);
 
       return sock.sendMessage(from, {
         text:
@@ -337,7 +351,7 @@ Warns cannot be issued to admins.`,
       const count = g.members[target];
       const left  = Math.max(0, g.maxwarn - count);
       const bar   = progressBar(count, g.maxwarn);
-      saveDB(db);
+      await saveDB(db);
 
       // DM the warned member
       try {
@@ -410,7 +424,7 @@ ${count >= g.maxwarn
             await new Promise(r => setTimeout(r, 1500));
             await sock.groupParticipantsUpdate(from, [kickTarget], 'remove');
             delete g.members[target];
-            saveDB(db);
+            await saveDB(db);
 
             console.log(`[WARN] ✅ Kicked ${kickTarget}`);
 

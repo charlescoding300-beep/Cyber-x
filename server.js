@@ -4,7 +4,7 @@ const https = require("https")
 const fs    = require("fs")
 const path  = require("path")
 
-const { init, addSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY } = require("./index")
+const { init, addSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY, getPublicCommandCatalog } = require("./index")
 const sessionBackup = require("./lib/sessionBackup")
 
 const PORT       = process.env.PORT || 3000
@@ -282,6 +282,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── /pair — FIXED: correct field mapping + proper error on null code ───────
+  if (url === "/api/commands" && method === "GET") {
+    return json(res, { commands: getPublicCommandCatalog() })
+  }
+
+  if (url === "/commands" && method === "GET") {
+    return servePublicFile(res, "commands.html", "text/html")
+  }
+
   if ((url === "/pair" || url === "/pair.html") && method === "GET") {
     const params     = new URL(req.url, "http://internal").searchParams
     const phoneParam = params.get("phone")
@@ -375,6 +383,7 @@ const server = http.createServer(async (req, res) => {
       activeRegions:      1,
       memoryMB:           Math.round(mem.heapUsed / 1024 / 1024),
       memory:             Math.round(mem.heapUsed / 1024 / 1024) + "MB",
+      eventLoopLagP99Ms:  global.__loopStats?.()?.p99 ?? null,
       backup:             sessionBackup.enabled,
       availability:       "99.98%",
       commandsLoaded:     global.__commandCount || "—",

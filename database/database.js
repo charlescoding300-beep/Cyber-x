@@ -119,6 +119,16 @@ CREATE TABLE IF NOT EXISTS wa_auth (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS wa_auth_keys (
+    phone TEXT NOT NULL,
+    key_type TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (phone, key_type, key_id),
+    FOREIGN KEY (phone) REFERENCES wa_auth(phone) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS app_data (
     namespace TEXT NOT NULL,
     data_key TEXT NOT NULL,

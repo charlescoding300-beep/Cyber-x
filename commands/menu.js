@@ -79,12 +79,11 @@ function getBotPPFile(phone) {
     return path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
 }
 
-function loadBotPP(phone) {
+async function loadBotPP(phone) {
     try {
-        const file = getBotPPFile(phone)
-        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'))
-    } catch {}
-    return {}
+        const raw = await fs.promises.readFile(getBotPPFile(phone), 'utf8')
+        return JSON.parse(raw)
+    } catch { return {} }
 }
 
 function formatUptime(totalSec) {
@@ -201,8 +200,8 @@ module.exports = {
                 combinedCommands.set(name, { pattern: name, category: cmd.category || 'general' })
             }
         }
-        for (const cmd of discoverCommands()) {
-            combinedCommands.set(cmd.pattern, cmd)
+        if (!Array.isArray(cmdDetails)) {
+            for (const cmd of discoverCommands()) combinedCommands.set(cmd.pattern, cmd)
         }
 
         const grouped = new Map()
@@ -261,7 +260,7 @@ ${sections}
 
         const contextInfo = buildChannelContext()
 
-        const botpp = loadBotPP(phone)
+        const botpp = await loadBotPP(phone)
         if (botpp.imageBase64) {
             try {
                 await sock.sendMessage(from, {
