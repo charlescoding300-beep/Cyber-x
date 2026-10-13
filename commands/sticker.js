@@ -8,22 +8,30 @@
 //   Reply to an image/video/gif → .sticker
 //   Send image/video with caption .s
 //
-// FEATURES:
-//   - Static images AND animated (gif/video) → WebP sticker
-//   - Always full 512x512 canvas (WhatsApp's max sticker dimension)
-//   - Animated stickers use WhatsApp's max duration (10s) at a smooth 20 fps
-//   - Quality ladder: if the result is too big, it lowers fps/quality FIRST and
-//     only shortens the duration as a last resort, so stickers stay long + smooth
-//   - Embeds ZEN X pack name + emoji into the sticker EXIF metadata
-//   - Auto temp file cleanup, even on failure
+// WHAT'S NEW IN THIS VERSION
+//   FIX "fetch failed":
+//   - Forces IPv4-first DNS (VPS with broken IPv6 is the #1 cause)
+//   - Download now has 4 strategies with delays (normal → retry → stream →
+//     refresh media URL → download), instead of failing on the first error
+//   - The REAL network reason (e.cause) is logged and shown, not just
+//     the useless "fetch failed"
+//   FIX lag:
+//   - Max 2 conversions at once (extra ones queue instead of choking the VPS)
+//   - ffmpeg runs at low priority (nice) so the bot itself stays responsive
+//   - ffmpeg only reads the first N seconds (-t before -i)
+//   - Starts at a lighter tier for big input files, skips tiers when the
+//     result is far too big, and only writes EXIF once (on the winner)
+//   - Faster libwebp compression_level (4)
 //
-// TUNING (edit the constants below):
-//   MAX_SECONDS    → animation length cap (WhatsApp spec max is 10s)
-//   MAX_ANIM_KB    → size target for animated stickers
-//   MAX_STATIC_KB  → size target for static stickers
+// TUNING (constants below):
+//   MAX_SECONDS / MAX_ANIM_KB / MAX_STATIC_KB / MAX_PARALLEL
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { downloadMediaMessage } = require('@whiskeysockets/baileys')
+// Many VPS have no working IPv6 route; Node's fetch then dies with "fetch failed"
+try { require('dns').setDefaultResultOrder('ipv4first') } catch {}
+
+const baileys = require('@whiskeysockets/baileys')
+const { downloadMediaMessage, downloadContentFromMessage } = baileys
 const { exec } = require('child_process')
 const fs   = require('fs')
 const path = require('path')
@@ -37,35 +45,63 @@ const PACK_EMOJI = '👾'
 const CREDIT     = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 
 // ── Limits ───────────────────────────────────────────────────────────────────
-// WhatsApp's published sticker spec: 512x512, animated max 10s.
-// Official pack limit for animated is 500 KB, but stickers sent directly in
-// chat are accepted up to roughly 1 MB, so we aim just under that.
-// If a sticker ever fails to send, lower MAX_ANIM_KB (try 500).
-const MAX_SECONDS   = 10
-const MAX_ANIM_KB   = 950
-const MAX_STATIC_KB = 200
+const MAX_SECONDS    = 10     // WhatsApp's max animated sticker length
+const MAX_ANIM_KB    = 950    // size target for animated (lower to 500 if sends fail)
+const MAX_STATIC_KB  = 200    // size target for static
+const MAX_PARALLEL   = 2      // simultaneous conversions (extra ones wait in line)
+const EXIF_ALLOWANCE = 4 * 1024
+const FFMPEG_TIMEOUT = 90000  // per ffmpeg run
 
-// Animated tiers: best quality first. Duration is kept at 10s as long as possible.
+// Run ffmpeg at low priority so the bot never freezes while converting
+const NICE = process.platform === 'win32' ? '' : 'nice -n 10 '
+
+// Animated tiers, best first. Duration is kept at 10s as long as possible.
 const ANIMATED_TIERS = [
-  { seconds: MAX_SECONDS, fps: 20, quality: 80 },
-  { seconds: MAX_SECONDS, fps: 15, quality: 70 },
-  { seconds: MAX_SECONDS, fps: 15, quality: 55 },
+  { seconds: MAX_SECONDS, fps: 20, quality: 75 },
+  { seconds: MAX_SECONDS, fps: 15, quality: 60 },
   { seconds: 8,           fps: 15, quality: 50 },
   { seconds: 6,           fps: 12, quality: 45 },
-  { seconds: 5,           fps: 10, quality: 40 },
-  { seconds: 3,           fps: 10, quality: 30 },
+  { seconds: 4,           fps: 10, quality: 35 },
 ]
 
-// Static tiers: quality only
-const STATIC_TIERS = [90, 80, 65, 50]
+const STATIC_TIERS = [90, 75, 55]
+
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Node's "fetch failed" hides the real reason inside e.cause — surface it
+function describeError(e) {
+  const cause  = e?.cause
+  const detail = cause ? (cause.code || cause.message || String(cause)) : ''
+  const base   = e?.message || String(e)
+  return detail ? `${base} (${detail})` : base
+}
 
 function run(cmd) {
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout: 180000, maxBuffer: 1024 * 1024 * 20 }, (error) => {
+    exec(cmd, { timeout: FFMPEG_TIMEOUT, maxBuffer: 1024 * 1024 * 20 }, (error) => {
       error ? reject(error) : resolve()
     })
   })
 }
+
+// Tiny semaphore: at most MAX_PARALLEL conversions at once
+let _active = 0
+const _waiting = []
+function acquire() {
+  return new Promise((resolve) => {
+    if (_active < MAX_PARALLEL) { _active++; resolve() }
+    else _waiting.push(resolve)
+  })
+}
+function release() {
+  const next = _waiting.shift()
+  if (next) next()        // hand the slot straight to the next in line
+  else _active--
+}
+
+// ── EXIF / pack metadata ─────────────────────────────────────────────────────
 
 function buildExif() {
   const json = {
@@ -96,22 +132,152 @@ async function embedMetadata(webpBuffer) {
   }
 }
 
-// ── ffmpeg command builders ──────────────────────────────────────────────────
-const FIT = 'scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0'
+// ── Media download with multiple strategies ──────────────────────────────────
 
+function mediaTypeOf(targetMessage) {
+  const m = targetMessage?.message || {}
+  if (m.imageMessage)    return 'image'
+  if (m.videoMessage)    return 'video'
+  if (m.documentMessage) return 'document'
+  return null
+}
+
+async function streamDownload(mediaMessage, type) {
+  const stream = await downloadContentFromMessage(mediaMessage, type)
+  const chunks = []
+  for await (const c of stream) chunks.push(c)
+  return Buffer.concat(chunks)
+}
+
+async function downloadMedia(sock, targetMessage, mediaMessage) {
+  const type = mediaTypeOf(targetMessage)
+
+  const normal = () =>
+    downloadMediaMessage(targetMessage, 'buffer', {}, {
+      logger: undefined,
+      reuploadRequest: sock.updateMediaMessage,
+    })
+
+  const attempts = [
+    { name: 'download',          delay: 0,    fn: normal },
+    { name: 'download (retry)',  delay: 1500, fn: normal },
+  ]
+
+  if (typeof downloadContentFromMessage === 'function' && type) {
+    attempts.push({ name: 'stream download', delay: 1000, fn: () => streamDownload(mediaMessage, type) })
+  }
+
+  if (typeof sock.updateMediaMessage === 'function') {
+    attempts.push({
+      name: 'refresh URL + download',
+      delay: 1500,
+      fn: async () => {
+        const fresh = await sock.updateMediaMessage(targetMessage)
+        return downloadMediaMessage(fresh || targetMessage, 'buffer', {}, {
+          logger: undefined,
+          reuploadRequest: sock.updateMediaMessage,
+        })
+      },
+    })
+  }
+
+  let lastErr
+  for (const a of attempts) {
+    if (a.delay) await sleep(a.delay)
+    try {
+      const buf = await a.fn()
+      if (buf?.length) return buf
+      throw new Error('empty download')
+    } catch (e) {
+      lastErr = e
+      console.error(`[STICKER] ${a.name} failed:`, describeError(e))
+    }
+  }
+  throw lastErr
+}
+
+// ── ffmpeg command builders ──────────────────────────────────────────────────
+
+const FIT = 'scale=512:512:force_original_aspect_ratio=decrease,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0'
+
+// -t BEFORE -i = ffmpeg only reads the first N seconds (much faster on long videos)
 function animatedCmd(input, output, { seconds, fps, quality }) {
-  return `ffmpeg -y -i "${input}" -t ${seconds} -an ` +
+  return `${NICE}ffmpeg -y -hide_banner -loglevel error -t ${seconds} -i "${input}" -an ` +
     `-vf "fps=${fps},${FIT}" ` +
-    `-c:v libwebp -lossless 0 -quality ${quality} -compression_level 6 -preset default ` +
-    `-loop 0 -pix_fmt yuva420p -max_muxing_queue_size 1024 "${output}"`
+    `-c:v libwebp -lossless 0 -quality ${quality} -compression_level 4 -preset default ` +
+    `-loop 0 -pix_fmt yuva420p "${output}"`
 }
 
 function staticCmd(input, output, quality) {
-  return `ffmpeg -y -i "${input}" -frames:v 1 -an ` +
+  return `${NICE}ffmpeg -y -hide_banner -loglevel error -i "${input}" -frames:v 1 -an ` +
     `-vf "${FIT}" ` +
-    `-c:v libwebp -lossless 0 -quality ${quality} -compression_level 6 -preset default ` +
+    `-c:v libwebp -lossless 0 -quality ${quality} -compression_level 4 -preset default ` +
     `-pix_fmt yuva420p "${output}"`
 }
+
+// ── Conversion (runs inside the queue) ───────────────────────────────────────
+
+async function convert({ isAnimated, tempInput, tmpDir, id, inputBytes, cleanupPaths }) {
+  let winner = null
+  let smallest = null
+
+  if (isAnimated) {
+    const limit = MAX_ANIM_KB * 1024 - EXIF_ALLOWANCE
+    const sizeMB = inputBytes / (1024 * 1024)
+
+    // Big source files start on a lighter tier instead of wasting a slow first pass
+    let start = 0
+    if (sizeMB > 15) start = 2
+    else if (sizeMB > 6) start = 1
+
+    for (let i = start; i < ANIMATED_TIERS.length; i++) {
+      const out = path.join(tmpDir, `out_${id}_${i}.webp`)
+      cleanupPaths.push(out)
+
+      try {
+        await run(animatedCmd(tempInput, out, ANIMATED_TIERS[i]))
+        if (!fs.existsSync(out)) continue
+
+        let raw
+        try { raw = await fs.promises.readFile(out) } catch { continue }
+        if (!smallest || raw.length < smallest.length) smallest = raw
+
+        if (raw.length <= limit) { winner = raw; break }
+        if (raw.length > limit * 2.2) i++      // far too big → skip a tier
+      } catch (e) {
+        console.error(`[STICKER] animated tier ${i + 1} failed:`, describeError(e))
+      }
+    }
+  } else {
+    const limit = MAX_STATIC_KB * 1024 - EXIF_ALLOWANCE
+
+    for (let i = 0; i < STATIC_TIERS.length; i++) {
+      const out = path.join(tmpDir, `out_${id}_s${i}.webp`)
+      cleanupPaths.push(out)
+
+      try {
+        await run(staticCmd(tempInput, out, STATIC_TIERS[i]))
+        if (!fs.existsSync(out)) continue
+
+        let raw
+        try { raw = await fs.promises.readFile(out) } catch { continue }
+        if (!smallest || raw.length < smallest.length) smallest = raw
+
+        if (raw.length <= limit) { winner = raw; break }
+      } catch (e) {
+        console.error(`[STICKER] static tier ${i + 1} failed:`, describeError(e))
+      }
+    }
+  }
+
+  const pick = winner || smallest
+  if (!pick) throw new Error('conversion failed (is ffmpeg installed?)')
+
+  // EXIF is written once, on the final pick only
+  return embedMetadata(pick)
+}
+
+// ── Command ──────────────────────────────────────────────────────────────────
 
 module.exports = {
   pattern:  's',
@@ -157,76 +323,43 @@ module.exports = {
     const cleanupPaths = [tempInput]
 
     try {
-      // ── Download media ─────────────────────────────────────────────────────
-      const mediaBuffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
-        logger: undefined,
-        reuploadRequest: sock.updateMediaMessage,
-      })
-
-      if (!mediaBuffer?.length) {
+      // ── Download media (4 strategies, real error reason on failure) ────────
+      let mediaBuffer
+      try {
+        mediaBuffer = await downloadMedia(sock, targetMessage, mediaMessage)
+      } catch (e) {
+        console.error('[STICKER] all download strategies failed:', describeError(e))
+        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
         return sock.sendMessage(from, {
-          text: `❌ Failed to download media. Try again.\n\n${CREDIT}`,
+          text:
+            `❌ Couldn't download that media.\n` +
+            `Reason: ${describeError(e)}\n\n` +
+            `Please resend the image/video and try again.\n\n${CREDIT}`,
         }, { quoted: msg })
       }
 
-      fs.writeFileSync(tempInput, mediaBuffer)
+      await fs.promises.writeFile(tempInput, mediaBuffer)
 
       const isAnimated =
         mediaMessage.mimetype?.includes('gif') ||
         mediaMessage.mimetype?.includes('video') ||
         mediaMessage.seconds > 0
 
-      let finalBuffer = null
-      let smallest    = null   // best-effort fallback if no tier hits the size target
-
-      if (isAnimated) {
-        // ── Animated: walk the quality ladder until it fits ───────────────────
-        const limit = MAX_ANIM_KB * 1024
-
-        for (let i = 0; i < ANIMATED_TIERS.length; i++) {
-          const tier = ANIMATED_TIERS[i]
-          const out  = path.join(tmpDir, `out_${id}_${i}.webp`)
-          cleanupPaths.push(out)
-
-          try {
-            await run(animatedCmd(tempInput, out, tier))
-            if (!fs.existsSync(out)) continue
-
-            const buf = await embedMetadata(fs.readFileSync(out))
-            if (!smallest || buf.length < smallest.length) smallest = buf
-
-            if (buf.length <= limit) { finalBuffer = buf; break }
-          } catch (e) {
-            console.error(`[STICKER] animated tier ${i + 1} failed:`, e.message)
-          }
-        }
-
-        if (!finalBuffer) finalBuffer = smallest
-      } else {
-        // ── Static: single image, lower quality only if it is too large ───────
-        const limit = MAX_STATIC_KB * 1024
-
-        for (let i = 0; i < STATIC_TIERS.length; i++) {
-          const out = path.join(tmpDir, `out_${id}_s${i}.webp`)
-          cleanupPaths.push(out)
-
-          try {
-            await run(staticCmd(tempInput, out, STATIC_TIERS[i]))
-            if (!fs.existsSync(out)) continue
-
-            const buf = await embedMetadata(fs.readFileSync(out))
-            if (!smallest || buf.length < smallest.length) smallest = buf
-
-            if (buf.length <= limit) { finalBuffer = buf; break }
-          } catch (e) {
-            console.error(`[STICKER] static tier ${i + 1} failed:`, e.message)
-          }
-        }
-
-        if (!finalBuffer) finalBuffer = smallest
+      // ── Convert (queued so many requests can't choke the VPS) ──────────────
+      await acquire()
+      let finalBuffer
+      try {
+        finalBuffer = await convert({
+          isAnimated,
+          tempInput,
+          tmpDir,
+          id,
+          inputBytes: mediaBuffer.length,
+          cleanupPaths,
+        })
+      } finally {
+        release()
       }
-
-      if (!finalBuffer) throw new Error('conversion failed (is ffmpeg installed?)')
 
       // ── Send the sticker ──────────────────────────────────────────────────────
       await sock.sendMessage(from, { sticker: finalBuffer }, { quoted: msg })
@@ -234,14 +367,14 @@ module.exports = {
       await sock.sendMessage(from, { react: { text: '❤️', key: msg.key } }).catch(() => {})
 
     } catch (e) {
-      console.error('[STICKER]', e.message)
+      console.error('[STICKER]', describeError(e))
       await sock.sendMessage(from, {
-        text: `❌ Failed to create sticker: ${e.message}\n\n${CREDIT}`,
+        text: `❌ Failed to create sticker: ${describeError(e)}\n\n${CREDIT}`,
       }, { quoted: msg })
     } finally {
       // ── Always clean up temp files, success or failure ──────────────────────
       for (const p of cleanupPaths) {
-        try { fs.unlinkSync(p) } catch {}
+        await fs.promises.unlink(p).catch(() => {})
       }
     }
   },

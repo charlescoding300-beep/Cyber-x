@@ -233,7 +233,7 @@ ${CREDIT}`,
 module.exports = {
     pattern:  'bomb',
     alias:    ['bom'],
-    category: 'fun',
+    category: 'games',
     desc:     'Challenge someone to a 1v1 bomb game!',
     usage:    '.bomb @user  OR  reply to someone + .bomb',
 

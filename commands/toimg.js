@@ -1,5 +1,5 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
-const { spawnSync } = require("child_process")
+const { runProcess } = require("../lib/runProcess")
 const fs = require("fs")
 const path = require("path")
 const os = require("os")
@@ -19,26 +19,16 @@ async function mediaToImage(inputBuf) {
   const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const inp = path.join(TMP, `inp_${id}`)
   const out = path.join(TMP, `out_${id}.png`)
-
-  fs.writeFileSync(inp, inputBuf)
-
+  await fs.promises.writeFile(inp, inputBuf)
   try {
-    const r = spawnSync("ffmpeg", [
-      "-y",
-      "-i", inp,
-      "-frames:v", "1",
-      "-vf", "scale=512:512:force_original_aspect_ratio=decrease",
-      out,
-    ], { timeout: 30000 })
-
-    if (r.status !== 0 || !fs.existsSync(out)) {
-      throw new Error(ffmpegError(r))
-    }
-
-    return fs.readFileSync(out)
+    await runProcess('ffmpeg', [
+      '-y', '-i', inp, '-frames:v', '1',
+      '-vf', 'scale=512:512:force_original_aspect_ratio=decrease',
+      '-threads', '1', out,
+    ], { timeoutMs: 30000 })
+    return await fs.promises.readFile(out)
   } finally {
-    try { fs.unlinkSync(inp) } catch {}
-    try { fs.unlinkSync(out) } catch {}
+    await Promise.all([inp, out].map(file => fs.promises.rm(file, { force: true }).catch(() => {})))
   }
 }
 

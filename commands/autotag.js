@@ -94,9 +94,8 @@ function writeFlag(state, enabled) {
     console.error(`[AUTOTAG:${state.phone}] settings.set failed:`, e.message)
   }
   fileCache.set(state.phone, enabled)
-  try { fs.writeFileSync(flagFile(state.phone), JSON.stringify({ enabled }, null, 2)) } catch (e) {
-    console.error(`[AUTOTAG:${state.phone}] file save failed:`, e.message)
-  }
+  fs.promises.writeFile(flagFile(state.phone), JSON.stringify({ enabled }, null, 2))
+    .catch(e => console.error(`[AUTOTAG:${state.phone}] file save failed:`, e.message))
 }
 
 // ── MEMBER LIST ──────────────────────────────────────────────────────────────

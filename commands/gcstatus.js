@@ -461,13 +461,13 @@ async function prepareAudio(buffer, mimetype) {
   const outPath = path.join(os.tmpdir(), `gcs-${id}.ogg`)
 
   try {
-    fs.writeFileSync(inPath, buffer)
+    await fs.promises.writeFile(inPath, buffer)
     await runFfmpeg([
       "-y", "-i", inPath, "-vn",
       "-c:a", "libopus", "-b:a", "48k", "-ar", "48000", "-ac", "1",
       "-f", "ogg", outPath,
     ])
-    const out = fs.readFileSync(outPath)
+    const out = await fs.promises.readFile(outPath)
     if (out.length < 100) throw new Error("ffmpeg produced an empty file")
     console.log("[GCSTATUS] Audio converted to ogg/opus", { from: mt || "unknown", bytes: out.length })
     return { buffer: out, mimetype: "audio/ogg; codecs=opus" }
@@ -475,8 +475,8 @@ async function prepareAudio(buffer, mimetype) {
     console.warn(`[GCSTATUS] Audio conversion skipped (${e.message}) — sending original`)
     return { buffer, mimetype: mt || "audio/mpeg" }
   } finally {
-    try { fs.unlinkSync(inPath) } catch {}
-    try { fs.unlinkSync(outPath) } catch {}
+    await fs.promises.unlink(inPath).catch(() => {})
+    await fs.promises.unlink(outPath).catch(() => {})
   }
 }
 
@@ -592,32 +592,29 @@ async function sendFlatMedia(sock, groupJid, content) {
 
 const LIB_PACKAGES = ["@systemzero/baileys", "@whiskeysockets/baileys"]
 
-function pkgRoot(name) {
-  try {
-    let dir = path.dirname(require.resolve(name))
-    for (let i = 0; i < 6; i++) {
-      const pj = path.join(dir, "package.json")
-      if (fs.existsSync(pj)) {
-        try {
-          if (JSON.parse(fs.readFileSync(pj, "utf8")).name === name) return dir
-        } catch {}
-      }
-      const up = path.dirname(dir)
-      if (up === dir) break
-      dir = up
-    }
-  } catch {}
+async function pkgRoot(name) {
+  let dir
+  try { dir = path.dirname(require.resolve(name)) } catch { return null }
+  for (let i = 0; i < 6; i++) {
+    const pj = path.join(dir, "package.json")
+    try {
+      if (JSON.parse(await fs.promises.readFile(pj, "utf8")).name === name) return dir
+    } catch {}
+    const up = path.dirname(dir)
+    if (up === dir) break
+    dir = up
+  }
   return null
 }
 
-function findSendFiles(dir, depth = 0, out = []) {
+async function findSendFiles(dir, depth = 0, out = []) {
   if (depth > 5) return out
   let entries = []
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return out }
+  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }) } catch { return out }
   for (const e of entries) {
     if (e.name === "node_modules" || e.name === ".git") continue
     const full = path.join(dir, e.name)
-    if (e.isDirectory()) findSendFiles(full, depth + 1, out)
+    if (e.isDirectory()) await findSendFiles(full, depth + 1, out)
     else if (/^messages-send\.(c|m)?js$/.test(e.name)) out.push(full)
   }
   return out
@@ -630,20 +627,19 @@ function isMediaTypeFixed(src) {
   )
 }
 
-function inspectLib() {
+async function inspectLib() {
   const report = []
   for (const name of LIB_PACKAGES) {
-    const root = pkgRoot(name)
+    const root = await pkgRoot(name)
     if (!root) continue
-    for (const file of findSendFiles(root)) {
+    for (const file of await findSendFiles(root)) {
       let src = ""
-      try { src = fs.readFileSync(file, "utf8") } catch { continue }
+      try { src = await fs.promises.readFile(file, "utf8") } catch { continue }
       report.push({ name, file, fixed: isMediaTypeFixed(src) })
     }
   }
   return report
 }
-
 // ── POST TO EVERY GROUP  (.gcstatus all) ─────────────────────────────────────
 // Reply to any content in your DM and send:  .gcstatus all
 // The media is downloaded + uploaded ONCE and re-used for every group, groups are
@@ -880,6 +876,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
 
 module.exports = {
   name: "gcstatus",
+  heavy: true,
   aliases: ["groupstatus"],
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",
@@ -897,7 +894,7 @@ module.exports = {
 
     // diagnostics
     if (destination.toLowerCase() === "check") {
-      const report = inspectLib()
+      const report = await inspectLib()
       if (!report.length) {
         return helper.reply(sock, msg, "> ⚠️ *Couldn't locate the baileys library files to inspect.*")
       }

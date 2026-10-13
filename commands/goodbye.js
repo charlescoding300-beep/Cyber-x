@@ -33,7 +33,7 @@ module.exports = {
             }, { quoted: msg })
         }
 
-        saveGreet(phone, from, 'goodbye', { enabled: sub === 'on' })
+        await saveGreet(phone, from, 'goodbye', { enabled: sub === 'on' })
         const reply = sub === 'on'
             ? '*Goodbye Command Enabled successfully ✅*'
             : '*Goodbye Command Disabled successfully ❌*'

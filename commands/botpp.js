@@ -13,19 +13,17 @@ function getBotPPFile(phone) {
     return path.join(__dirname, '..', 'data', `botpp_${phone}.json`)
 }
 
-function loadBotPP(phone) {
+async function loadBotPP(phone) {
     try {
-        const file = getBotPPFile(phone)
-        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'))
-    } catch {}
-    return {}
+        return JSON.parse(await fs.promises.readFile(getBotPPFile(phone), 'utf8'))
+    } catch { return {} }
 }
 
-function saveBotPP(phone, data) {
+async function saveBotPP(phone, data) {
     try {
         const file = getBotPPFile(phone)
-        fs.mkdirSync(path.dirname(file), { recursive: true })
-        fs.writeFileSync(file, JSON.stringify(data, null, 2))
+        await fs.promises.mkdir(path.dirname(file), { recursive: true })
+        await fs.promises.writeFile(file, JSON.stringify(data, null, 2))
     } catch (e) {
         console.error(`[BOTPP:${phone}] save error:`, e.message)
     }
@@ -52,14 +50,14 @@ module.exports = {
 
         // ── .botpp remove ─────────────────────────────────────────
         if ((args[0] || '').toLowerCase() === 'remove') {
-            const data = loadBotPP(phone)
+            const data = await loadBotPP(phone)
             if (!data.imageBase64) {
                 await sock.sendMessage(from, {
                     text: '⚠️ *No custom picture is set for this session.*'
                 }, { quoted: msg })
                 return
             }
-            saveBotPP(phone, {})
+            await saveBotPP(phone, {})
             await sock.sendMessage(from, {
                 text: [
                     `✅ *Bot picture removed for session ${phone}!*`,
@@ -111,7 +109,7 @@ module.exports = {
             const mime   = imgMsg.mimetype || 'image/jpeg'
 
             // ── Save to data/botpp_<phone>.json ───────────────────
-            saveBotPP(phone, { imageBase64: base64, mimetype: mime, setAt: Date.now() })
+            await saveBotPP(phone, { imageBase64: base64, mimetype: mime, setAt: Date.now() })
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } })
             await sock.sendMessage(from, {

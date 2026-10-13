@@ -86,39 +86,31 @@ async function elevenLabsTTS(text) {
 // ── WhatsApp voice notes (ptt) require OGG/Opus, mono, proper VBR settings —
 // ElevenLabs returns MP3 stereo, so it has to be transcoded correctly or the
 // bubble shows "audio not available" even though bytes technically exist.
-function mp3ToOggOpus(mp3Buffer) {
-  return new Promise((resolve, reject) => {
-    const timestamp  = Date.now()
-    const inputPath  = path.join(TEMP, `say_in_${timestamp}.mp3`)
-    const outputPath = path.join(TEMP, `say_out_${timestamp}.ogg`)
+async function mp3ToOggOpus(mp3Buffer) {
+  const timestamp  = Date.now()
+  const inputPath  = path.join(TEMP, `say_in_${timestamp}.mp3`)
+  const outputPath = path.join(TEMP, `say_out_${timestamp}.ogg`)
+  const cmd = `"${ffmpegPath}" -y -i "${inputPath}" -vn -ac 1 -ar 48000 -c:a libopus -b:a 64k -vbr on -compression_level 10 -frame_duration 60 -application voip "${outputPath}"`
 
-    fs.writeFileSync(inputPath, mp3Buffer)
-
-    const cmd = `"${ffmpegPath}" -y -i "${inputPath}" -vn -ac 1 -ar 48000 -c:a libopus -b:a 64k -vbr on -compression_level 10 -frame_duration 60 -application voip "${outputPath}"`
-    exec(cmd, { timeout: 60000 }, (err, stdout, stderr) => {
-      const cleanup = () => {
-        try { fs.unlinkSync(inputPath) } catch {}
-        try { fs.unlinkSync(outputPath) } catch {}
-      }
-      if (err) {
-        cleanup()
-        return reject(new Error(stderr || err.message))
-      }
-      try {
-        const outBuffer = fs.readFileSync(outputPath)
-        cleanup()
-        resolve(outBuffer)
-      } catch (e) {
-        cleanup()
-        reject(e)
-      }
+  try {
+    await fs.promises.writeFile(inputPath, mp3Buffer)
+    await new Promise((resolve, reject) => {
+      exec(cmd, { timeout: 60000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message))
+        else resolve()
+      })
     })
-  })
+    return await fs.promises.readFile(outputPath)
+  } finally {
+    await fs.promises.unlink(inputPath).catch(() => {})
+    await fs.promises.unlink(outputPath).catch(() => {})
+  }
 }
 
 module.exports = {
   pattern:  "say",
   alias:    ["tts"],
+  heavy:    true,
   category: "media",
   desc:     "Speak text back as a voice note (Sarah — ElevenLabs)",
   usage:    ".say <text>",
