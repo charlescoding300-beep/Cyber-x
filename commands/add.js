@@ -1,172 +1,310 @@
 'use strict'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// commands/add.js  —  ZENX  |  Add member to group
-//
-// USAGE (group only — admin or bot owner only):
-//   .add 234812345678        → add by international number
-//   .add (reply to a message from someone who left) → add that person back
-//
-// PERMISSIONS:
-//   - Group admins: allowed
-//   - Bot owner: allowed even if NOT a group admin in this group
-//   - Regular members: blocked entirely
-//   Uses isAdmin/isOwner exactly as passed in from index.js's checkGroupAdmin.
-//
-// GROUP SETTINGS CHECK:
-//   Before attempting the add, reads groupMetadata.memberAddMode. If it's
-//   "admin_add" (only admins may add members) AND the person running the
-//   command is NOT actually a group admin (i.e. they're only here via the
-//   owner bypass), the command refuses with:
-//     "*settings as prohibited me from adding*"
-//   This only blocks the owner-bypass case — a real admin is always
-//   allowed to add regardless of this setting, since the setting itself
-//   is about restricting non-admins.
-//
-// REACTIONS (exactly two, per spec):
-//   ✅ — person was added successfully
-//   ❗ — add call did not error, but WhatsApp blocked it due to the
-//        target's privacy settings (status 403). Bot fetches the group's
-//        invite link and DMs it directly to that person, and reports
-//        their number back in the group chat.
-//   ❌ — total failure for any other reason (bot not admin, invalid
-//        number, not on WhatsApp, already a member, etc) — the specific
-//        reason is included in the chat reply.
-//
-// Baileys' groupParticipantsUpdate returns Promise<Array<{ status, jid }>>
-// — one status per participant, not a single throw/success. Status "200"
-// = added. "403" = privacy-restricted, needs invite link. Anything else
-// (401/404/408/etc, or simply not "200") falls into the ❌ branch with
-// whatever status code WhatsApp returned, since not every non-success
-// code is officially documented and a generic message is safer than
-// guessing at meanings that may not hold.
-// ─────────────────────────────────────────────────────────────────────────────
+const CREDIT = '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+const WHATSAPP_USER_SUFFIX = '@s.whatsapp.net'
+const NIGERIA_CALLING_CODE = '234'
 
-function extractTargetJid(args, msg) {
-  // Method 1: .add <number> — supports any formatting style:
-  //   .add 2348123456789
-  //   .add 234 3556 2663 3663      (spaced)
-  //   .add +234 812 345 6789       (with + and spaces)
-  //   .add 234-812-345-6789        (dashed)
-  //   .add (234) 812 345 6789      (parenthesized)
-  // args is already split on whitespace by the message handler, so a
-  // spaced number arrives as multiple args — join them all back together
-  // BEFORE stripping non-digits, otherwise only args[0] (the first chunk)
-  // would be read and the rest of the number would be silently dropped.
-  const joined = args.join('')
-  const rawNum = joined.replace(/\D/g, '')
-  if (rawNum.length >= 8) {
-    return `${rawNum}@s.whatsapp.net`
+function normalizePhoneNumber(input) {
+  let digits = String(input || '').replace(/\D/g, '')
+  if (!digits) {
+    return {
+      error: 'Send a phone number with its international country calling code.',
+    }
   }
 
-  // Method 2: reply to a message from someone who left the group
-  const quotedParticipant =
-    msg.message?.extendedTextMessage?.contextInfo?.participant ||
-    msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.key?.participant ||
-    null
+  // 00 is the international dialing prefix used in many countries.
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2)
+  } else if (digits.startsWith('0')) {
+    // The examples include Nigerian local numbers, so 0-prefixed local
+    // numbers are interpreted as Nigeria. Other countries must include a code.
+    digits = NIGERIA_CALLING_CODE + digits.slice(1)
+  }
 
-  if (quotedParticipant) return quotedParticipant
+  // Accept common Nigerian input with the country code plus its local trunk 0.
+  if (digits.startsWith('2340')) {
+    digits = NIGERIA_CALLING_CODE + digits.slice(4)
+  }
+
+  // E.164 allows at most 15 digits. WhatsApp performs the final account check.
+  if (!/^[1-9]\d{7,14}$/.test(digits)) {
+    return {
+      error:
+        'That number does not look valid. Send 8–15 digits with the country code, ' +
+        'for example *.add 234 812 345 6789*. Nigerian local numbers may start with 0.',
+    }
+  }
+
+  return { phone: digits }
+}
+
+function getContextInfo(msg) {
+  const queue = [{ value: msg && msg.message, depth: 0 }]
+  const seen = new Set()
+
+  while (queue.length) {
+    const current = queue.shift()
+    const value = current && current.value
+    if (!value || typeof value !== 'object' || seen.has(value)) continue
+    seen.add(value)
+
+    if (value.contextInfo) return value.contextInfo
+    if (current.depth >= 5) continue
+
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') {
+        queue.push({ value: child, depth: current.depth + 1 })
+      }
+    }
+  }
 
   return null
 }
 
-module.exports = {
-  pattern:  'add',
-  alias:    [],
-  desc:     'Add a member to this group (admin/owner only)',
-  usage:    '.add 234812345678  |  reply to someone\'s message with .add',
-  category: 'group',
+function normalizeQuotedJid(value) {
+  if (typeof value !== 'string' || !value.includes('@')) return null
 
-  async run({ sock, from, msg, args, isAdmin, isOwner, isGroup }) {
-    if (!isGroup) {
-      return sock.sendMessage(from, { text: '❌ This command only works in groups.' }, { quoted: msg })
+  const [localPart, server] = value.split('@')
+  if (server === 'lid') {
+    return { jid: localPart + '@lid', phone: null }
+  }
+
+  if (server !== 's.whatsapp.net') return null
+  const phone = localPart.split(':')[0].replace(/\D/g, '')
+  if (!/^[1-9]\d{7,14}$/.test(phone)) return null
+  return { jid: phone + WHATSAPP_USER_SUFFIX, phone }
+}
+
+function getTarget(args, msg) {
+  const context = getContextInfo(msg)
+  const mentioned = context && Array.isArray(context.mentionedJid)
+    ? normalizeQuotedJid(context.mentionedJid[0])
+    : null
+  if (mentioned) return { ...mentioned, fromReply: false }
+
+  if (Array.isArray(args) && args.length) {
+    const parsed = normalizePhoneNumber(args.join(' '))
+    return parsed.error
+      ? { error: parsed.error }
+      : { phone: parsed.phone, fromReply: false }
+  }
+
+  if (!context) return null
+
+  const quoted =
+    context.participantAlt ||
+    context.participant ||
+    (context.quotedMessage &&
+      context.quotedMessage.key &&
+      (context.quotedMessage.key.participantAlt ||
+        context.quotedMessage.key.participant))
+
+  const identity = normalizeQuotedJid(mentioned || quoted)
+  return identity ? { ...identity, fromReply: !mentioned } : null
+}
+
+async function reply(sock, from, msg, text) {
+  const body = text + '\n\n' + CREDIT
+  return sock.sendMessage(from, { text: body }, { quoted: msg })
+}
+
+async function react(sock, from, msg, emoji) {
+  if (!msg || !msg.key) return
+  try {
+    await sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
+  } catch {}
+}
+
+function getStatus(value) {
+  const raw =
+    value &&
+    (value.status ??
+      (value.output && value.output.statusCode) ??
+      value.statusCode)
+  const status = Number(raw)
+  return Number.isFinite(status) ? status : null
+}
+
+function labelForJid(jid) {
+  if (typeof jid !== 'string' || !jid.includes('@')) {
+    return 'the person you replied to'
+  }
+  const localPart = jid.split('@')[0].split(':')[0]
+  const phone = localPart.replace(/\D/g, '')
+  return /^[1-9]\d{7,14}$/.test(phone)
+    ? '+' + phone
+    : 'the person you replied to'
+}
+
+function explainAddFailure(status) {
+  if (status === 401) {
+    return 'I could not add them because the bot needs admin rights in this group.'
+  }
+  if (status === 403) {
+    return (
+      'WhatsApp did not allow the direct addition. The person’s group privacy ' +
+      'settings may require them to join through an invitation link.'
+    )
+  }
+  if (status === 404) {
+    return 'This number is not registered on WhatsApp. Check the number and country code.'
+  }
+  if (status === 408 || status === 429 || (status >= 500 && status < 600)) {
+    return 'WhatsApp could not complete the request just now. Please try again shortly.'
+  }
+  if (status === 409) {
+    return 'That person is already in this group.'
+  }
+  return (
+    'WhatsApp could not add this person. Check the number and make sure the bot ' +
+    'has admin rights in the group, then try again.'
+  )
+}
+
+async function verifyPhoneNumber(sock, phone) {
+  if (typeof sock.onWhatsApp !== 'function') {
+    return { error: 'This bot cannot verify WhatsApp numbers right now.' }
+  }
+
+  const results = await sock.onWhatsApp(phone + WHATSAPP_USER_SUFFIX)
+  if (!Array.isArray(results)) {
+    return { error: 'WhatsApp could not verify that number right now. Please try again.' }
+  }
+
+  const account = results.find((item) => item && item.exists === true)
+  if (!account) return { registered: false }
+
+  return {
+    registered: true,
+    jid:
+      typeof account.jid === 'string' && account.jid.includes('@')
+        ? account.jid
+        : phone + WHATSAPP_USER_SUFFIX,
+  }
+}
+
+async function resolveQuotedLid(sock, jid) {
+  const mapping = sock.signalRepository && sock.signalRepository.lidMapping
+  if (!mapping || typeof mapping.getPNForLID !== 'function') return jid
+
+  try {
+    const phoneJid = await mapping.getPNForLID(jid)
+    if (typeof phoneJid === 'string' && phoneJid.includes('@')) return phoneJid
+    if (typeof phoneJid === 'string') {
+      const parsed = normalizePhoneNumber(phoneJid)
+      if (!parsed.error) return parsed.phone + WHATSAPP_USER_SUFFIX
+    }
+    if (phoneJid && typeof phoneJid.phoneNumber === 'string') {
+      const parsed = normalizePhoneNumber(phoneJid.phoneNumber)
+      if (!parsed.error) return parsed.phone + WHATSAPP_USER_SUFFIX
+    }
+  } catch {}
+
+  // A quoted LID identifies a real sender from an earlier group message.
+  return jid
+}
+
+module.exports = {
+  pattern: 'add',
+  alias: [],
+  desc: 'Add a WhatsApp user to this group by number or replied message',
+  usage:
+    '.add +234 812 345 6789 | .add 0812 345 6789 | reply to their message with .add',
+  category: 'group',
+  adminOnly: true,
+  botAdmin: true,
+
+  async run({ sock, from, msg, args, isAdmin, isOwner, isBotAdmin, isGroup }) {
+    if (!isGroup || !from.endsWith('@g.us')) {
+      return reply(sock, from, msg, 'This command works in groups only.')
     }
 
     if (!isAdmin && !isOwner) {
-      return sock.sendMessage(from, { text: '❌ Only group admins or the bot owner can use this command.' }, { quoted: msg })
+      return reply(
+        sock,
+        from,
+        msg,
+        'Only a group admin or the bot owner can add people.',
+      )
     }
 
-    const target = extractTargetJid(args, msg)
+    if (!isBotAdmin && !isOwner) {
+      return reply(
+        sock,
+        from,
+        msg,
+        'I need to be a group admin before I can add someone.',
+      )
+    }
+
+    const target = getTarget(args, msg)
+    if (target && target.error) {
+      return reply(sock, from, msg, target.error)
+    }
     if (!target) {
-      return sock.sendMessage(from, {
-        text:
-          '❌ Usage:\n' +
-          '*.add 234812345678* — add by number\n' +
-          '*.add* (reply to a message from someone who left) — add them back',
-      }, { quoted: msg })
+      return reply(
+        sock,
+        from,
+        msg,
+        [
+          'To add someone, send a number with its country code:',
+          '• *.add +234 812 345 6789*',
+          '• *.add 234 812 345 6789*',
+          '• *.add 0812 345 6789* (Nigerian local format)',
+          '',
+          'Or reply to a message from the person who left and send *.add*.',
+        ].join('\n'),
+      )
     }
 
-    // ── Group settings check ──────────────────────────────────────────────
-    // Only blocks the OWNER-bypass path. A real group admin is always
-    // allowed regardless of memberAddMode, since that setting exists
-    // specifically to restrict non-admins.
-    if (!isAdmin && isOwner) {
-      try {
-        const meta = await sock.groupMetadata(from)
-        if (meta.memberAddMode === 'admin_add') {
-          return sock.sendMessage(from, {
-            text: '*settings as prohibited me from adding*',
-          }, { quoted: msg })
-        }
-      } catch (e) {
-        // If metadata fetch fails, fall through and let the actual
-        // groupParticipantsUpdate call be the source of truth.
+    let targetJid
+    let targetLabel
+    if (target.phone) {
+      const checked = await verifyPhoneNumber(sock, target.phone).catch(() => ({
+        error: 'WhatsApp could not verify that number right now. Please try again.',
+      }))
+      if (checked.error) return reply(sock, from, msg, checked.error)
+      if (!checked.registered) {
+        await react(sock, from, msg, '❌')
+        return reply(
+          sock,
+          from,
+          msg,
+          'That number is not registered on WhatsApp. Check it and include the correct country code.',
+        )
       }
+      targetJid = checked.jid
+      targetLabel = '+' + target.phone
+    } else if (target.jid.endsWith('@lid')) {
+      targetJid = await resolveQuotedLid(sock, target.jid)
+      targetLabel = labelForJid(targetJid)
+    } else {
+      targetJid = target.jid
+      targetLabel = '+' + target.phone
     }
 
-    // ── Attempt the add ────────────────────────────────────────────────────
     let results
     try {
-      results = await sock.groupParticipantsUpdate(from, [target], 'add')
-    } catch (e) {
-      await sock.sendMessage(from, { react: { text: ' ❌', key: msg.key } }).catch(() => {})
-      return sock.sendMessage(from, {
-        text: `❌ Couldn't add *${target.split('@')[0]}* — ${e.message}`,
-      }, { quoted: msg }).catch(() => {})
+      results = await sock.groupParticipantsUpdate(from, [targetJid], 'add')
+    } catch (error) {
+      const status = getStatus(error)
+      const message = /connection (?:was )?closed|connection terminated/i.test(
+        String(error && error.message),
+      )
+        ? 'The bot’s WhatsApp connection is temporarily unavailable. Please try again shortly.'
+        : explainAddFailure(status)
+      await react(sock, from, msg, '❌')
+      return reply(sock, from, msg, message)
     }
 
     const result = Array.isArray(results) ? results[0] : null
-    const status = result?.status
-    const num    = target.split('@')[0]
-
-    // ── ✅ Success ──────────────────────────────────────────────────────────
-    if (status === '200' || status === 200) {
-      await sock.sendMessage(from, { react: { text: ' ✅', key: msg.key } }).catch(() => {})
-      return sock.sendMessage(from, {
-        text: `✅ Added *${num}* to the group.`,
-      }, { quoted: msg }).catch(() => {})
+    const status = getStatus(result)
+    if (status === 200) {
+      await react(sock, from, msg, '✅')
+      return reply(sock, from, msg, 'Added ' + targetLabel + ' to this group.')
     }
 
-    // ── ❗ Privacy-blocked — send invite link directly to the person ───────
-    if (status === '403' || status === 403) {
-      await sock.sendMessage(from, { react: { text: ' ❗', key: msg.key } }).catch(() => {})
-
-      let inviteSent = false
-      try {
-        const code = await sock.groupInviteCode(from)
-        const link = `https://chat.whatsapp.com/${code}`
-        await sock.sendMessage(target, {
-          text: `You've been invited to join a group! Tap to join:\n${link}`,
-        })
-        inviteSent = true
-      } catch (e) {
-        // Could fail if the person also blocks DMs from unknown numbers —
-        // that's reported below regardless of which way it fails.
-      }
-
-      return sock.sendMessage(from, {
-        text:
-          `❗ Couldn't add *${num}* directly due to their privacy settings.\n` +
-          (inviteSent
-            ? `An invite link was sent to their DM instead.`
-            : `Tried sending an invite link to their DM, but that failed too — they may have DM privacy restrictions as well.`),
-      }, { quoted: msg }).catch(() => {})
-    }
-
-    // ── ❌ Any other failure ─────────────────────────────────────────────────
-    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
-    return sock.sendMessage(from, {
-      text: `❌ Couldn't add *${num}* — WhatsApp returned status: ${status ?? 'unknown'}.`,
-    }, { quoted: msg }).catch(() => {})
+    await react(sock, from, msg, status === 403 ? '❗' : '❌')
+    return reply(sock, from, msg, explainAddFailure(status))
   },
 }
