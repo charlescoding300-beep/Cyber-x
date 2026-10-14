@@ -165,25 +165,21 @@ ${CREDIT}`
         { name: 'Keith', method: () => getKeithVideoByUrl(ytUrl) },
       ]
 
-      let videoData, downloadSuccess = false
-
-      for (const api of apiMethods) {
-        try {
-          videoData = await api.method()
-          const check = videoData.download || videoData.dl || videoData.url
-          if (!check) {
-            console.log(`[VIDEO] ${api.name} returned no download URL, trying next...`)
-            continue
+      let videoData
+      try {
+        videoData = await Promise.any(apiMethods.map(async api => {
+          try {
+            const result = await api.method()
+            const check = result.download || result.dl || result.url
+            if (!check) throw new Error('provider returned no download URL')
+            console.log('[VIDEO] ✅ ' + api.name + ' resolved')
+            return result
+          } catch (apiErr) {
+            console.log('[VIDEO] ❌ ' + api.name + ': ' + apiErr.message)
+            throw apiErr
           }
-          console.log(`[VIDEO] ✅ ${api.name} resolved`)
-          downloadSuccess = true
-          break
-        } catch (apiErr) {
-          console.log(`[VIDEO] ❌ ${api.name}: ${apiErr.message}`)
-        }
-      }
-
-      if (!downloadSuccess || !videoData) {
+        }))
+      } catch {
         throw new Error('All download sources failed. The content may be unavailable or blocked in your region.')
       }
 

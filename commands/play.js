@@ -29,11 +29,9 @@ const path = require('path')
 const crypto = require('crypto')
 const { spawn, execFile } = require('child_process')
 const { promisify } = require('util')
+const { pipeline } = require('stream/promises')
 
 const execFileAsync = promisify(execFile)
-
-let libConverter = null
-try { libConverter = require('../lib/converter') } catch {}
 
 const TAG = '[ZEN X PLAY]'
 const API_TIMEOUT_MS = 30000
@@ -163,8 +161,8 @@ function customSources() {
 const allSources = () => [...customSources(), ...SOURCES]
 
 // ── audio validation (an HTML/JSON error page can never be sent as a song) ───
-function sniffAudio(b) {
-  if (!b || b.length < 10000) return null
+function sniffAudio(b, size = b?.length || 0) {
+  if (!b || size < 10000) return null
   if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return { ext: 'mp3', mime: 'audio/mpeg' }
   if (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0) return { ext: 'mp3', mime: 'audio/mpeg' }
   if (b.slice(4, 8).toString('latin1') === 'ftyp') return { ext: 'm4a', mime: 'audio/mp4' }
@@ -174,17 +172,41 @@ function sniffAudio(b) {
   return null
 }
 
+async function inspectAudioFile(filePath) {
+  const stat = await fs.promises.stat(filePath)
+  const handle = await fs.promises.open(filePath, 'r')
+  const header = Buffer.alloc(16)
+  try {
+    await handle.read(header, 0, header.length, 0)
+  } finally {
+    await handle.close()
+  }
+  const kind = sniffAudio(header, stat.size)
+  if (!kind) throw new Error('download did not contain a supported audio file')
+  return { filePath, size: stat.size, ...kind }
+}
+
 async function fetchAudio(url) {
-  const res = await axios.get(url, {
-    responseType: 'arraybuffer',
-    timeout: 120000,
-    maxContentLength: 100 * 1024 * 1024,
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' }
-  })
-  const buf = Buffer.from(res.data)
-  const kind = sniffAudio(buf)
-  if (!kind) throw new Error(`link didn't return audio (${buf.length} bytes)`)
-  return { buf, ...kind }
+  const stem = path.join(os.tmpdir(), 'zenx-play-' + crypto.randomBytes(8).toString('hex'))
+  const tempPath = stem + '.download'
+  let response
+  try {
+    response = await axios.get(url, {
+      responseType: 'stream',
+      timeout: 120000,
+      maxContentLength: 100 * 1024 * 1024,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' }
+    })
+    await pipeline(response.data, fs.createWriteStream(tempPath, { flags: 'wx' }))
+    const inspected = await inspectAudioFile(tempPath)
+    const filePath = stem + '.' + inspected.ext
+    await fs.promises.rename(tempPath, filePath)
+    return { ...inspected, filePath }
+  } catch (error) {
+    response?.data?.destroy?.()
+    await fs.promises.unlink(tempPath).catch(() => {})
+    throw error
+  }
 }
 
 // ── STEP 1: all APIs at once, answers handled in arrival order ───────────────
@@ -222,7 +244,7 @@ async function downloadViaApis(url, failures) {
   for await (const r of answersAsTheyArrive(url, failures)) {
     try {
       const file = await fetchAudio(r.data.download)
-      console.log(`${TAG} ✔ audio via ${r.name} (${(file.buf.length / 1e6).toFixed(2)}MB, ${file.ext})`)
+      console.log(TAG + ' ✔ audio via ' + r.name + ' (' + (file.size / 1e6).toFixed(2) + 'MB, ' + file.ext + ')')
       return { ...file, title: r.data.title, via: r.name }
     } catch (e) {
       failures.push({ src: r.name, reason: shortReason(e) })
@@ -266,13 +288,13 @@ async function downloadViaYtDlp(url) {
   const workDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'zenx-play-'))
   const out = path.join(workDir, 'audio.%(ext)s')
   const opts = { maxBuffer: 10 * 1024 * 1024, timeout: 150000 }
+  let keepWorkDir = false
   try {
     try {
       await execFileAsync('yt-dlp', [...ytdlpArgs(), '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', out, url], opts)
     } catch (e) {
-      const text = `${e.stderr || ''} ${e.message || ''}`
+      const text = (e.stderr || '') + ' ' + (e.message || '')
       if (e.code !== 'ENOENT' && /ffmpeg|ffprobe/i.test(text)) {
-        // no ffmpeg → take the native audio stream instead (nothing to convert)
         await execFileAsync('yt-dlp', [...ytdlpArgs(), '-f', 'bestaudio[ext=m4a]/bestaudio', '-o', out, url], opts)
       } else {
         throw e
@@ -281,12 +303,11 @@ async function downloadViaYtDlp(url) {
     const files = await fs.promises.readdir(workDir)
     const file = files.find(f => /\.(mp3|m4a|webm|ogg|opus|wav)$/i.test(f))
     if (!file) throw new Error('yt-dlp produced no audio file')
-    const buf = await fs.promises.readFile(path.join(workDir, file))
-    const kind = sniffAudio(buf)
-    if (!kind) throw new Error('yt-dlp output is not audio')
-    return { buf, ...kind }
+    const audio = await inspectAudioFile(path.join(workDir, file))
+    keepWorkDir = true
+    return { ...audio, cleanupDir: workDir }
   } finally {
-    fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
+    if (!keepWorkDir) fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -319,7 +340,7 @@ async function downloadAudio(url) {
 
   try {
     const file = await downloadViaYtDlp(url)
-    console.log(`${TAG} ✔ audio via yt-dlp (${(file.buf.length / 1e6).toFixed(2)}MB, ${file.ext})`)
+    console.log(TAG + ' ✔ audio via yt-dlp (' + (file.size / 1e6).toFixed(2) + 'MB, ' + file.ext + ')')
     return { ...file, via: 'yt-dlp' }
   } catch (e) {
     failures.push({ src: 'yt-dlp', reason: ytdlpReason(e) })
@@ -328,7 +349,7 @@ async function downloadAudio(url) {
 
   try {
     const file = await downloadViaVredenPkg(url)
-    console.log(`${TAG} ✔ audio via @vreden/youtube_scraper (${(file.buf.length / 1e6).toFixed(2)}MB, ${file.ext})`)
+    console.log(TAG + ' ✔ audio via @vreden/youtube_scraper (' + (file.size / 1e6).toFixed(2) + 'MB, ' + file.ext + ')')
     return { ...file, via: 'vreden-package' }
   } catch (e) {
     if (e.message !== 'package not installed') failures.push({ src: 'vreden package', reason: shortReason(e) })
@@ -362,28 +383,19 @@ function runFfmpeg(args, timeoutMs = 60000) {
   })
 }
 
-async function convertToMp3(buf, ext) {
-  if (libConverter && typeof libConverter.toAudio === 'function') {
-    try {
-      const out = await libConverter.toAudio(buf, ext)
-      if (Buffer.isBuffer(out) && sniffAudio(out)?.ext === 'mp3') return out
-    } catch (e) { console.log(`${TAG} lib/converter failed: ${e.message}`) }
-  }
-  const id = crypto.randomBytes(6).toString('hex')
-  const inPath = path.join(os.tmpdir(), `play-${id}.${ext}`)
-  const outPath = path.join(os.tmpdir(), `play-${id}.mp3`)
+async function convertToMp3(filePath) {
+  const outPath = filePath + '.mp3'
   try {
-    await fs.promises.writeFile(inPath, buf)
-    await runFfmpeg(['-y', '-i', inPath, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', outPath])
-    const out = await fs.promises.readFile(outPath)
-    if (out.length > 1000) return out
-  } catch (e) {
-    console.log(`${TAG} ffmpeg conversion skipped: ${e.message}`)
-  } finally {
-    await fs.promises.unlink(inPath).catch(() => {})
+    await runFfmpeg(['-y', '-i', filePath, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', outPath])
+    const stat = await fs.promises.stat(outPath)
+    if (stat.size > 1000) return outPath
     await fs.promises.unlink(outPath).catch(() => {})
+    return null
+  } catch (e) {
+    console.log(TAG + ' ffmpeg conversion skipped: ' + e.message)
+    await fs.promises.unlink(outPath).catch(() => {})
+    return null
   }
-  return null
 }
 
 // ── video lookup / preview ───────────────────────────────────────────────────
@@ -512,23 +524,28 @@ module.exports = {
       const previewDone = sendPreview(sock, from, msg, video)
 
       const audio = await downloadAudio(video.url)
-      let { buf, ext, mime } = audio
+      let { filePath, ext, mime } = audio
 
-      if (ext !== 'mp3') {
-        const mp3 = await convertToMp3(buf, ext)
-        if (mp3) { buf = mp3; ext = 'mp3'; mime = 'audio/mpeg' }
+      try {
+        if (ext !== 'mp3') {
+          const mp3Path = await convertToMp3(filePath)
+          if (mp3Path) { filePath = mp3Path; ext = 'mp3'; mime = 'audio/mpeg' }
+        }
+
+        const title = audio.title || video.title || 'audio'
+        const safe = String(title).replace(/[^\w\s-]/g, '').trim() || 'audio'
+
+        await previewDone
+        await sock.sendMessage(from, {
+          audio: { url: filePath },
+          mimetype: mime,
+          fileName: safe + '.' + ext,
+          ptt: false
+        }, { quoted: msg })
+      } finally {
+        await Promise.all([...new Set([audio.filePath, filePath])].map(file => fs.promises.unlink(file).catch(() => {})))
+        if (audio.cleanupDir) await fs.promises.rm(audio.cleanupDir, { recursive: true, force: true }).catch(() => {})
       }
-
-      const title = audio.title || video.title || 'audio'
-      const safe = String(title).replace(/[^\w\s-]/g, '').trim() || 'audio'
-
-      await previewDone
-      await sock.sendMessage(from, {
-        audio: buf,
-        mimetype: mime,
-        fileName: `${safe}.${ext}`,
-        ptt: false
-      }, { quoted: msg })
 
     } catch (err) {
       console.error(`${TAG} error:`, err.failures ? err.message : err)
