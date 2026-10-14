@@ -1,99 +1,115 @@
-// ─────────────────────────────────────────────────────────
-// commands/antistatus.js — ZENX ANTISTATUS
+'use strict'
+
+// 𓃦 𝗭Ξ𝗡 𝗫 — .antistatus
 //
-// Actions taken when a NORMAL member (not admin, not owner) tags this
-// group in their personal WhatsApp status. Admins and the bot owner
-// can configure this, but are themselves always exempt from being
-// actioned by it.
+// Turns the status-deleter on/off per group. When ON, any WhatsApp status that
+// gets shared into the group chat (a member tagging the group in their status)
+// is DELETED by the bot (lib/antistatusgc.js does the work), then:
+//   warn   (default) → warning each time, 3 warnings = removed from the group
+//   delete           → just delete + short notice (no warnings, no kick)
+//   kick             → delete + removed instantly
+// Group admins and the owner are never touched. The bot must be a group admin.
 //
-// IMPORTANT: WhatsApp does not allow deleting another person's actual
-// personal status post — that's a WhatsApp protocol restriction, not
-// a bug here. "delete" mode attempts it but may not succeed; "warn"
-// and "kick" are the actions that reliably work every time.
+//   .antistatus on [warn|delete|kick]
+//   .antistatus off
+//   .antistatus status
+//   shortcut:  .antistatus kick   (= turn on in kick mode)
 //
-// Usage:
-//   .antistatus on          → enable (warn mode)
-//   .antistatus off         → disable
-//   .antistatus delete      → delete-only mode (best-effort, see above)
-//   .antistatus warn        → warn 3x then kick
-//   .antistatus kick        → instant kick
-//   .antistatus status      → show current settings
-// ─────────────────────────────────────────────────────────
+// Credit: set BOT_CREDIT in .env to change it everywhere (default below).
+
+const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
+
+const MODES = {
+  warn:   '🗑️ Deletes the status + warns — 3 warnings = removed',
+  delete: '🗑️ Deletes the status + short notice (no warnings, no kick)',
+  kick:   '🗑️ Deletes the status + removes the member instantly',
+}
+
+const USAGE =
+  '❌ Usage:\n' +
+  '• .antistatus on [warn|delete|kick]\n' +
+  '• .antistatus off\n' +
+  '• .antistatus status'
+
+const box = (title, lines) =>
+  `╔════════════════════╗\n║  ${title}  ║\n╚════════════════════╝\n\n${lines.join('\n')}\n\n${CREDIT}`
+
+// The engine stores its data per session, so find which session this socket belongs to.
+function sessionPhone(sock) {
+  try {
+    for (const [phone, st] of (global.__sessionStates || [])) {
+      if (st?.sock === sock) return phone
+    }
+  } catch {}
+  return String(sock.user?.id || '').replace(/@.+$/, '').replace(/:\d+$/, '').replace(/\D/g, '')
+}
 
 module.exports = {
-  pattern:  "antistatus",
-  desc:     "Action normal members who tag this group in their WhatsApp status",
-  category: "group",
+  name: 'antistatus',
+  aliases: [],
+  desc: 'Delete statuses shared in this group (warn / kick the sender)',
+  usage: '.antistatus on [warn|delete|kick] | off | status',
+  category: 'group',
+  adminOnly: true,
 
-  async run({ sock, from, msg, args, isOwner, isAdmin, isGroup }) {
-    if (!isGroup) {
-      return sock.sendMessage(from, { text: "❌ *Antistatus only works in groups.*", quoted: msg })
-    }
-    if (!isOwner && !isAdmin) {
-      return sock.sendMessage(from, { text: "❌ *Only the bot owner or a group admin can use this command.*", quoted: msg })
-    }
+  run: async ({ sock, from, msg, args, lib, isGroup, isAdmin, isBotAdmin }) => {
+    const reply = (text) => sock.sendMessage(from, { text }, { quoted: msg })
 
-    const phone = (sock.user?.id || "").split("@")[0].split(":")[0]
-    const sub = (args[0] || "").toLowerCase().trim()
+    if (!isGroup) return reply('❌ This command only works in groups.')
+    if (!isAdmin) return reply('❌ Only admins can use this command.')
 
-    if (sub === "on") {
-      global.__antistatusEnable(phone, from, "warn")
-      return sock.sendMessage(from, {
-        text:
-`╔════════════════════╗
-║  📱 *ANTISTATUS ON!* ║
-╚════════════════════╝
-
-┌─────〔 ✅ *ENABLED* 〕─────
-│ 📱 Normal members who tag this group
-│    in their status get actioned
-│ ⚙️ Mode: *warn* (3 warns = kick)
-│ 👑 Admins + owner are exempt
-│
-│ ⚠️ Note: WhatsApp doesn't allow deleting
-│ someone else's status — warn/kick are
-│ what actually works reliably.
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
-      })
+    const enable    = global.__antistatusEnable
+    const disable   = global.__antistatusDisable
+    const isEnabled = global.__antistatusIsEnabled
+    const getMode   = global.__antistatusGetMode
+    if ([enable, disable, isEnabled, getMode].some(fn => typeof fn !== 'function')) {
+      return reply('❌ Anti-status engine is not loaded — restart the bot and try again.')
     }
 
-    if (sub === "off") {
-      global.__antistatusDisable(phone, from)
-      return sock.sendMessage(from, {
-        text: `╔════════════════════╗\n║  🔓 *ANTISTATUS OFF* ║\n╚════════════════════╝\n\n┌─────〔 ❌ *DISABLED* 〕─────\n│ 📱 Status tags allowed again\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
-      })
+    const phone   = sessionPhone(sock)
+    const action  = String(args[0] || '').toLowerCase()
+    const modeArg = String(args[1] || '').toLowerCase()
+
+    // ── ON (".antistatus on kick" or the shortcut ".antistatus kick") ──
+    if (action === 'on' || MODES[action]) {
+      if (action === 'on' && modeArg && !MODES[modeArg]) return reply(USAGE)
+      const mode = MODES[action] ? action : (MODES[modeArg] ? modeArg : 'warn')
+
+      enable(phone, from, mode)
+
+      const lines = [
+        '│ ✅ *Anti-Status is now ON*',
+        `│ ⚙️ *Mode:* ${mode}`,
+        `│ ${MODES[mode]}`,
+        '│ 📱 Applies to statuses shared in this group chat (admins are exempt)',
+      ]
+      if (!isBotAdmin) {
+        lines.push('│ ⚠️ I am not an admin here — I cannot delete statuses until I am promoted')
+      }
+      if (!lib || typeof lib.handleAntistatusGroup !== 'function') {
+        lines.push('│ ⚠️ lib/antistatusgc.js is not loaded — add it and restart the bot')
+      }
+      return reply(box('📱 *ANTISTATUS*', lines))
     }
 
-    if (["delete", "warn", "kick"].includes(sub)) {
-      global.__antistatusEnable(phone, from, sub)
-      const label = { delete: "🗑️ DELETE MODE", warn: "⚠️ WARN MODE", kick: "👢 KICK MODE" }[sub]
-      return sock.sendMessage(from, {
-        text: `╔════════════════════╗\n║  ${label}  ║\n╚════════════════════╝\n\n┌─────〔 ⚙️ *MODE SET* 〕─────\n│ Mode: *${sub}*\n${sub === "delete" ? "│ ⚠️ Best-effort only — WhatsApp restricts deleting others' status\n" : ""}└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-        quoted: msg
-      })
+    // ── OFF ──
+    if (action === 'off') {
+      disable(phone, from)
+      return reply(box('📱 *ANTISTATUS*', ['│ ❌ *Anti-Status is now OFF*']))
     }
 
-    const enabled = global.__antistatusIsEnabled(phone, from)
-    const mode    = global.__antistatusGetMode(phone, from)
-    return sock.sendMessage(from, {
-      text:
-`╔════════════════════╗
-║  📊 *ANTISTATUS STATUS*║
-╚════════════════════╝
+    // ── STATUS ──
+    if (action === 'status') {
+      const on = !!isEnabled(phone, from)
+      const lines = [`│ 📊 *Status:* ${on ? '🟢 ON' : '🔴 OFF'}`]
+      if (on) {
+        const mode = getMode(phone, from)
+        lines.push(`│ ⚙️ *Mode:* ${mode}`)
+        if (MODES[mode]) lines.push(`│ ${MODES[mode]}`)
+      }
+      return reply(box('📱 *ANTISTATUS*', lines))
+    }
 
-┌─────〔 ℹ️ *INFO* 〕─────
-│ 🛡️ *Status:* ${enabled ? "✅ ENABLED" : "❌ DISABLED"}
-│ ⚙️ *Mode:* ${mode.toUpperCase()}
-│
-│ 📌 *Commands:*
-│  *.antistatus on/off*
-│  *.antistatus delete/warn/kick*
-└──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
-      quoted: msg
-    })
+    return reply(USAGE)
   }
 }
