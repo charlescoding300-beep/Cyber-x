@@ -3,7 +3,7 @@
 
 const { getRandom, getByCategory, JOKES } = require('../lib/jokes')
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 
 const command = {
   pattern:  'joke',

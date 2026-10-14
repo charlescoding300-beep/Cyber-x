@@ -56,7 +56,7 @@ module.exports = {
                     '  at the QR image and tap the link that',
                     '  pops up. It will open in your browser.',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
                 ].join('\n')
             }, { quoted: msg })
             return
@@ -99,7 +99,7 @@ module.exports = {
                     '',
                     '🔄 Please try again later',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
                 ].join('\n')
             }, { quoted: msg })
             return
@@ -119,7 +119,7 @@ module.exports = {
                 '',
                 '📱 *Scan with your camera to open*',
                 '',
-                '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+                '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
             ].join('\n'),
             mimetype: 'image/png'
         }, { quoted: msg })

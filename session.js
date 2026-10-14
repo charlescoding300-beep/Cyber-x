@@ -120,7 +120,7 @@ async function handleSubOwnerAuth(entry, sock, msg, body) {
         `╠══════════════════════════╣\n` +
         `║  Welcome back, Boss! 👑  ║\n` +
         `║  All commands unlocked.  ║\n` +
-        `╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+        `╚══════════════════════════╝\n\n© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
     }, { quoted: msg })
     return true
   }
@@ -337,7 +337,7 @@ async function startSession(phone, callbacks = {}) {
                 `║  Type to unlock:         ║\n` +
                 `║  *.owner ${password}*    ║\n` +
                 `╚══════════════════════════╝\n\n` +
-                `_Then type *.menu* to get started._\n\n© 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+                `_Then type *.menu* to get started._\n\n© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
             })
             console.log(`[SESSION] 📨 Password sent to ${phone}`)
           } catch (e) {

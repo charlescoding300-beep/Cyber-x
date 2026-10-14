@@ -8,7 +8,7 @@ Commands run through the shared dispatcher and per-session executor. Every comma
 - Await network and database operations without blocking the event loop. Use the shared `helper.fetchWithRetry`, `helper.fetchJson`, and `helper.fetchBuffer` helpers where they fit.
 - Avoid waiting for group metadata unless the command actually needs admin or participant data. The dispatcher already checks admin context for commands that declare `adminOnly`, `botAdmin`, or `requiresAdmin`.
 - Use the provided `settings` object (`get`, `set`, `unset`) rather than reading or writing `data/users/*.json` directly. Session settings are loaded once and then served from memory; settings API writes update that cache.
-- Mark CPU-heavy or media-processing command modules with `heavy: true`. The executor then puts them in the bounded heavy lane shared across sessions, keeping ordinary commands available while media work runs.
+- Mark CPU-heavy, large-media download/upload, conversion, or multi-session broadcast command modules with `heavy: true`. The executor then puts them in the bounded heavy lane shared across sessions, keeping ordinary commands available while that work runs. New commands get this isolation automatically when they declare `heavy: true`.
 
 Example:
 

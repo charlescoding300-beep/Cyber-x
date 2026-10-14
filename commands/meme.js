@@ -43,11 +43,11 @@ const run = async ({ sock, from, message, args }) => {
         meme = await getMeme(subreddit)
     } catch (err) {
         return sock.sendMessage(from, {
-            text: `❌ *Couldn't fetch a meme:* _${err.message}_\n\nTry \`.meme\` with no subreddit, or a different one.\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+            text: `❌ *Couldn't fetch a meme:* _${err.message}_\n\nTry \`.meme\` with no subreddit, or a different one.\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
         }, { quoted: message })
     }
 
-    const caption = `😂 *${meme.title}*\n\n📌 r/${meme.subreddit} · 👍 ${meme.ups}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+    const caption = `😂 *${meme.title}*\n\n📌 r/${meme.subreddit} · 👍 ${meme.ups}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
     try {
         const buf = await fetchBuffer(meme.url)

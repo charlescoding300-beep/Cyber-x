@@ -73,7 +73,7 @@ module.exports = {
   _.pinterest aesthetic dark_
   _.pinterest cute cats_
 
-> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
       }, { quoted: msg })
     }
 
@@ -81,7 +81,7 @@ module.exports = {
     await sock.sendMessage(from, { react: { text: '🩸', key: msg.key } }).catch(() => {})
 
     const imageUrl = await getPinterestImage(query)
-    const caption  = `🩸 *Pinterest* — _${query}_\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+    const caption  = `🩸 *Pinterest* — _${query}_\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
     if (!imageUrl) {
       await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
@@ -93,7 +93,7 @@ module.exports = {
 ❌ *No results for:* _"${query}"_
 💡 Try different keywords
 
-> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
       }, { quoted: msg })
     }
 
@@ -123,7 +123,7 @@ module.exports = {
       } catch {
         await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
         return sock.sendMessage(from, {
-          text: `❌ *Could not load image*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+          text: `❌ *Could not load image*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
         }, { quoted: msg })
       }
     }

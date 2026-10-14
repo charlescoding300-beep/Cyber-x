@@ -27,6 +27,7 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
+const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
@@ -760,7 +761,7 @@ const helper = {
   downloadMediaSafe: (msg, sock, retries) => downloadMediaSafe(msg, sock, retries),
   box(title, lines = []) {
     const body = lines.map(l => `║  ${l}`).join("\n")
-    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n ${body}\n╚══════════════════════════╝\n\n© 𝕮𝖄𝕭𝖤𝕽 𝖃 ™`
+    return `╔══════════════════════════╗\n║  ${title}\n╠══════════════════════════╣\n ${body}\n╚══════════════════════════╝\n\n© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
   },
   msToTime(ms) { const s = Math.floor(ms/1000); return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s` },
   sleep(ms)    { return new Promise(r => setTimeout(r, ms)) },
@@ -1878,12 +1879,12 @@ async function handleAntilinkInline(sock, msg, phone) {
 
     if (action === "delete") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here!${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  🔗 *LINK DETECTED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *BLOCKED* 〕─────\n│ 👤 *User:* @${tag}\n│ ❌ Links are *NOT* allowed here!${ocrNote}\n│ 🗑️ Message has been deleted.\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         mentions: [sender]
       })
     } else if (action === "kick") {
       await sock.sendMessage(groupId, {
-        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+        text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *INSTANT KICK* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 *Reason:* Posted a link${ocrNote}\n│ ⚡ *Mode:* Strict — no warnings given\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         mentions: [sender]
       })
       try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
@@ -1894,14 +1895,14 @@ async function handleAntilinkInline(sock, msg, phone) {
       if (warns >= maxWarns) {
         antilinkResetWarnings(phone, groupId, sender)
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
         })
         try { await sock.groupParticipantsUpdate(groupId, [sender], "remove") }
         catch (e) { console.error("[ANTILINK] warn-kick failed:", e.message) }
       } else {
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here!${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  ⚠️ *LINK WARNING!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *WARNING* 〕─────\n│ 👤 *User:* @${tag}\n│ 🔗 Links are *NOT* allowed here!${ocrNote}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🗑️ Message deleted\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
         })
       }
@@ -2188,7 +2189,7 @@ async function handleAntistatusInline(sock, msg, phone) {
         try {
           await sock.groupParticipantsUpdate(groupId, [sender], "remove")
           await sock.sendMessage(groupId, {
-            text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 📱 *Reason:* Tagged this group in their status\n│ ⚡ *Mode:* Instant kick\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 📱 *Reason:* Tagged this group in their status\n│ ⚡ *Mode:* Instant kick\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
             mentions: [sender]
           })
         } catch (e) {
@@ -2202,7 +2203,7 @@ async function handleAntistatusInline(sock, msg, phone) {
           try {
             await sock.groupParticipantsUpdate(groupId, [sender], "remove")
             await sock.sendMessage(groupId, {
-              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+              text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 📱 *Reason:* Repeatedly tagged this group in status\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
               mentions: [sender]
             })
           } catch (e) {
@@ -2210,13 +2211,13 @@ async function handleAntistatusInline(sock, msg, phone) {
           }
         } else {
           await sock.sendMessage(groupId, {
-            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+            text: `╔════════════════════╗\n║  ⚠️ *STATUS WARNING* ║\n╚════════════════════╝\n\n┌─────〔 📱 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Don't tag this group in your status!\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ ⚡ *${maxWarns - warns} more = KICK!*\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
             mentions: [sender]
           }).catch(() => {})
         }
       } else {
         await sock.sendMessage(groupId, {
-          text: `╔════════════════════╗\n║  📱 *STATUS ACTION* ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Tagged this group in their status — action taken\n└──────────────────────────\n> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+          text: `╔════════════════════╗\n║  📱 *STATUS ACTION* ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ANTISTATUS* 〕─────\n│ 👤 *User:* @${tag}\n│ 🚫 Tagged this group in their status — action taken\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
         }).catch(() => {})
       }
@@ -2365,8 +2366,9 @@ async function handleMessage(state, sock, msg) {
 
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
 
+  const commandSock = createQuotedCommandSocket(sock, msg, from)
   const runOnce = () => command.run({
-    sock, from, msg, message: msg, sender, args,
+    sock: commandSock, from, msg, message: msg, sender, args,
     text: rest, full: body,
     commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
     settings: state.settings, lib, api, config, helper,
@@ -2415,20 +2417,8 @@ async function handleMessage(state, sock, msg) {
       try { await sock.sendMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
       return
     }
-    console.warn(`[${state.phone}] RUN ERR ${rawCmd} (attempt 1, ${Date.now() - startedAt}ms): ${e.message} — retrying with fresh group metadata`)
-    try {
-      if (isGroup) {
-        const fresh = await sock.groupMetadata(from)
-        state.groupCache[from] = { ...fresh, _cachedAt: Date.now() }
-        ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
-      }
-      const retryStartedAt = Date.now()
-      await runGuarded(true)
-      console.log(`[${state.phone}] ✔ ${rawCmd} succeeded on retry in ${Date.now() - retryStartedAt}ms`)
-    } catch (e2) {
-      console.error(`[${state.phone}] RUN ERR ${rawCmd} (attempt 2, final): ${e2.message}`)
-      try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e2.message}` }, { quoted: msg }) } catch {}
-    }
+    console.error(`[${state.phone}] RUN ERR ${rawCmd} (${Date.now() - startedAt}ms): ${e.message}`)
+    try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
   }
 }
 
@@ -2569,7 +2559,7 @@ async function startBot(phone) {
               `👤 @${memberPhone} has been ${verb} *Admin*\n` +
               `🛡️ ${action === "promote" ? "Promoted" : "Demoted"} by: ${actorJid ? "@" + actorPhone : "Unknown"}\n` +
               `📊 Total Admins: ${adminCount}\n\n` +
-              `> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™`
+              `> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
             const mentions = [participantJid, ...(actorJid ? [actorJid] : [])]
 

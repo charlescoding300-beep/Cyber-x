@@ -279,7 +279,7 @@ Reply to someone for best effect!
 🔥 *Available:*
 ${cmds}
 
-> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
             },
             {
                 quoted: message
@@ -354,7 +354,7 @@ ${all}`
         )
 
     const caption =
-        `${reaction.emoji} *${actionText}*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+        `${reaction.emoji} *${actionText}*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
     const mentions = [
         senderJid

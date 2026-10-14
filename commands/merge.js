@@ -1,7 +1,7 @@
 // commands/ship.js — ZENX Ship Command
 'use strict'
 
-const CREDIT = '> 🎨 _Designed by_ *Charles Tech*\n> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT = '> 🎨 _Designed by_ *Charles Tech*\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 
 function getScore(jid1, jid2) {
   const str = [jid1, jid2].sort().join('')

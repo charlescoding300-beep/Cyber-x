@@ -582,6 +582,7 @@ function engineReadiness(sock) {
 module.exports = {
   name: "cs",
   aliases: ["channelstatus"],
+  heavy: true,
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Channel you own or administer.",
   usage: ".cs <channel link|code|JID|name> | .cs all | .cs all stop | .cs check <link>  (flags: --plain; Baileys native channel media is the default)",
   category: "owner",

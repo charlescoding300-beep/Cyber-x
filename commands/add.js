@@ -1,6 +1,6 @@
 'use strict'
 
-const CREDIT = '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const WHATSAPP_USER_SUFFIX = '@s.whatsapp.net'
 const NIGERIA_CALLING_CODE = '234'
 

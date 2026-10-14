@@ -4,7 +4,7 @@
 const axios = require('axios')
 const yts   = require('yt-search')
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const AXIOS_DEFAULTS = {
   timeout: 60000,
   headers: {
@@ -103,6 +103,7 @@ function fmtViews(n) {
 
 module.exports = {
   pattern:  'youtube',
+  heavy:    true,
   alias:    ['yt', 'ytlink', 'ytdl'],
   category: 'download',
   desc:     'Download YouTube video by link',

@@ -3,7 +3,7 @@
 
 const axios = require('axios')
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const AXIOS_DEFAULTS = {
   timeout: 60000,
   headers: {
@@ -172,6 +172,7 @@ function fmtNum(n) {
 
 const command = {
   pattern:  'instagram',
+  heavy:    true,
   alias:    ['ig', 'igdl', 'insta', 'reel'],
   category: 'download',
   desc:     'Download Instagram videos and reels without watermark',

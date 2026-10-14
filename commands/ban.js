@@ -101,7 +101,7 @@ module.exports = {
 
     if (!isOwner) {
       return sock.sendMessage(from, {
-        text: `❌ *Owner only command*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `❌ *Owner only command*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -123,7 +123,7 @@ module.exports = {
 
     if (!targetJid && args[0]?.toLowerCase() !== 'unban' && args[0]?.toLowerCase() !== 'list') {
       return sock.sendMessage(from, {
-        text: `╔════════════════════════╗\n║  🚫 *BAN COMMAND*      ║\n╚════════════════════════╝\n\n⚠️ *Owner Only*\n\n*Usage:*\n• *Reply to message + .ban* — ban that user\n• *.ban @username* — ban by tag\n• *.ban 234XXXXXXXXXX* — ban by number\n\n*Commands:*\n• *.ban unban <number>* — unban user\n• *.ban list* — show banned users on this session\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `╔════════════════════════╗\n║  🚫 *BAN COMMAND*      ║\n╚════════════════════════╝\n\n⚠️ *Owner Only*\n\n*Usage:*\n• *Reply to message + .ban* — ban that user\n• *.ban @username* — ban by tag\n• *.ban 234XXXXXXXXXX* — ban by number\n\n*Commands:*\n• *.ban unban <number>* — unban user\n• *.ban list* — show banned users on this session\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -131,19 +131,19 @@ module.exports = {
     if (args[0]?.toLowerCase() === 'unban') {
       const phone = (args[1] || '').replace(/[^0-9]/g, '')
       if (!phone) {
-        return sock.sendMessage(from, { text: `⚠️ Usage: *.ban unban <number>*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`, quoted: msg })
+        return sock.sendMessage(from, { text: `⚠️ Usage: *.ban unban <number>*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`, quoted: msg })
       }
       if (banned[phone]) {
         delete banned[phone]
         await saveBanned(sessionPhone, banned)
         global.__banCacheInvalidate?.(sessionPhone, phone)
         return sock.sendMessage(from, {
-          text: `✅ *Unbanned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+          text: `✅ *Unbanned:* +${phone}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           quoted: msg
         })
       }
       return sock.sendMessage(from, {
-        text: `⚠️ *User not banned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `⚠️ *User not banned:* +${phone}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -152,13 +152,13 @@ module.exports = {
       const list = Object.keys(banned)
       if (list.length === 0) {
         return sock.sendMessage(from, {
-          text: `📋 *Banned Users (this session):* None\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+          text: `📋 *Banned Users (this session):* None\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           quoted: msg
         })
       }
       const bannedList = list.map((p, i) => `${i + 1}. +${p}`).join('\n')
       return sock.sendMessage(from, {
-        text: `📋 *Banned Users on this session (${list.length}):*\n\n${bannedList}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `📋 *Banned Users on this session (${list.length}):*\n\n${bannedList}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -167,7 +167,7 @@ module.exports = {
 
     if (banned[phone]) {
       return sock.sendMessage(from, {
-        text: `⚠️ *Already banned:* +${phone}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `⚠️ *Already banned:* +${phone}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -182,13 +182,13 @@ module.exports = {
     global.__banCacheInvalidate?.(sessionPhone, phone)
 
     sock.sendMessage(from, {
-      text: `🚫 *Banned:* +${phone}\n*Reason:* ${banned[phone].reason}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+      text: `🚫 *Banned:* +${phone}\n*Reason:* ${banned[phone].reason}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
       quoted: msg
     })
 
     try {
       await sock.sendMessage(`${phone}@s.whatsapp.net`, {
-        text: `🚫 *You have been banned from using this bot.*\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+        text: `🚫 *You have been banned from using this bot.*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
       })
     } catch (_) {}
   },

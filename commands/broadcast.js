@@ -1,10 +1,11 @@
 // commands/broadcast.js — ZENX Broadcast Command
 'use strict'
 
-const CREDIT = `> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™ *All rights reserved*\n_Charles Tech broadcast_`
+const CREDIT = `> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦 *All rights reserved*\n_Charles Tech broadcast_`
 
 module.exports = {
   pattern:  'broadcast',
+  heavy:    true,
   alias:    ['bc'],
   desc:     'Broadcast a message to all connected WhatsApp sessions',
   usage:    '.broadcast <message>',

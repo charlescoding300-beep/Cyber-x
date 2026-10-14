@@ -143,6 +143,7 @@ async function downloadToBuffer(fakeMsg, sock) {
 
 module.exports = {
   pattern:  "vv",
+  heavy:    true,
   desc:     "Reveal a view-once image, video, or voice note",
   category: 'utility',
 

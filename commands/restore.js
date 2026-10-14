@@ -17,6 +17,6 @@ module.exports = {
     await sock.sendMessage(jid, { text: "⟳ Restoring all data from Redis..." }, { quoted: m })
     const { restored, skipped } = await restoreAllData()
     if (!restored && !skipped) return sock.sendMessage(jid, { text: "⚠️ *NO BACKUP FOUND*\n\nRun *.restore push* first to create a backup." }, { quoted: m })
-    return sock.sendMessage(jid, { text: `✅ *RESTORE COMPLETE*\n\n📁 Restored: *${restored}* files\n❌ Failed: *${skipped}*\n\n> Everything restored ✓\n\n_© 𝕮𝖄𝕭𝙀𝙍 𝖃 ™_` }, { quoted: m })
+    return sock.sendMessage(jid, { text: `✅ *RESTORE COMPLETE*\n\n📁 Restored: *${restored}* files\n❌ Failed: *${skipped}*\n\n> Everything restored ✓\n\n_© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦` }, { quoted: m })
   }
 }

@@ -64,7 +64,7 @@ module.exports = {
                     '',
                     'Menu will now use the fallback image.',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™',
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦',
                 ].join('\n'),
             }, { quoted: msg })
             return
@@ -89,7 +89,7 @@ module.exports = {
                     '',
                     `📱 *Session:* ${phone}`,
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™',
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦',
                 ].join('\n'),
             }, { quoted: msg })
             return
@@ -121,7 +121,7 @@ module.exports = {
                     'It will survive Render restarts.',
                     'Use `.botpp remove` to clear it.',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™',
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦',
                 ].join('\n'),
             }, { quoted: msg })
 

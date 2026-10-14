@@ -11,7 +11,7 @@ module.exports = {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
-        text: `╔═══════════════════════╗\n║  ⚠️  𝗚𝗥𝗢𝗨𝗣 𝗢𝗡𝗟𝗬 ⚠️  ║\n╚═══════════════════════╝\n\n❌ This command only works in groups!\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `╔═══════════════════════╗\n║  ⚠️  𝗚𝗥𝗢𝗨𝗣 𝗢𝗡𝗟𝗬 ⚠️  ║\n╚═══════════════════════╝\n\n❌ This command only works in groups!\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }
@@ -49,7 +49,7 @@ module.exports = {
 
       const desc = meta.desc ? meta.desc.trim() : 'No description set'
 
-      const caption = `╔══════════════════════════╗\n║  🌐 ⚡ 𝗚𝗥𝗢𝗨𝗣 𝗜𝗡𝗙𝗢 ⚡ 🌐  ║\n╚══════════════════════════╝\n\n🏷️ *Name:* ${meta.subject}\n🆔 *Group ID:* ${meta.id}\n📅 *Created:* ${created}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n👥 *Members:* ${totalMembers}\n👑 *Admins:* ${totalAdmins}\n🧑‍💻 *Regular:* ${totalRegular}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📝 *Description:*\n${desc}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚙️ *Settings:*\n  • ${isLocked}\n  • ${isAnnounce}\n  • ${isEphemeral}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🔗 *Invite Link:*\n${inviteLink}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`
+      const caption = `╔══════════════════════════╗\n║  🌐 ⚡ 𝗚𝗥𝗢𝗨𝗣 𝗜𝗡𝗙𝗢 ⚡ 🌐  ║\n╚══════════════════════════╝\n\n🏷️ *Name:* ${meta.subject}\n🆔 *Group ID:* ${meta.id}\n📅 *Created:* ${created}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n👥 *Members:* ${totalMembers}\n👑 *Admins:* ${totalAdmins}\n🧑‍💻 *Regular:* ${totalRegular}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📝 *Description:*\n${desc}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚙️ *Settings:*\n  • ${isLocked}\n  • ${isAnnounce}\n  • ${isEphemeral}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🔗 *Invite Link:*\n${inviteLink}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
       if (ppUrl) {
         await sock.sendMessage(from, {
@@ -63,7 +63,7 @@ module.exports = {
     } catch (err) {
       console.error('[groupinfo error]', err)
       sock.sendMessage(from, {
-        text: `❌ Failed to fetch group info.\nError: ${err.message}\n\n> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™`,
+        text: `❌ Failed to fetch group info.\nError: ${err.message}\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         quoted: msg
       })
     }

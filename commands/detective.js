@@ -12,7 +12,7 @@
  * ✅ Deterministic — same user = same file every time
  */
 
-const CREDIT = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const IMG_URL = 'https://i.ibb.co/RTY5HnLR/file-000000007a7071f4b7a02e91da447704.png'
 
 function getTarget(msg) {

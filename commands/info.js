@@ -8,7 +8,7 @@
  * ✅ Quoted reply
  */
 
-const CREDIT  = '> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™'
+const CREDIT  = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const IMG_URL = 'https://i.ibb.co/spf35QYC/file-00000000a30c71f48bb49e183e1d43cb.png'
 
 module.exports = {

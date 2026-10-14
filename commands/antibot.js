@@ -26,7 +26,7 @@
 // your antilink/antibadword sections already use.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BRAND = "> © 𝕮𝖄𝕭𝙴𝚁 𝖃 ™"
+const BRAND = "> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦"
 const MAX_WARNINGS = 3
 
 function normalizeJid(id) {

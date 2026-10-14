@@ -61,7 +61,7 @@ async function handleAntilink(sock, msg) {
 │ ❌ *Links are not allowed here!*
 │ 🗑️ Message has been deleted.
 └──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
         mentions: [sender]
       })
 
@@ -84,7 +84,7 @@ async function handleAntilink(sock, msg) {
 │ 🔗 *Reason:* Sending links repeatedly
 │ 👢 *Status:* Removed from group
 └──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
         })
         await sock.groupParticipantsUpdate(from, [sender], "remove")
@@ -103,7 +103,7 @@ async function handleAntilink(sock, msg) {
 │ 🗑️ Message has been deleted
 │ ⚡ *${maxWarns - warns} more = KICK!*
 └──────────────────────────
-> © *𝕮𝖄𝕭𝙴𝚁 𝖃 ™*`,
+> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
         })
       }

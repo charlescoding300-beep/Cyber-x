@@ -91,7 +91,7 @@ module.exports = {
                     '  `.news UK`',
                     '  `.news Japan`',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
                 ].join('\n')
             }, { quoted: msg })
             return
@@ -111,7 +111,7 @@ module.exports = {
                     '',
                     '💡 Try a different country name',
                     '',
-                    '> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™'
+                    '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
                 ].join('\n')
             }, { quoted: msg })
             return
@@ -144,7 +144,7 @@ module.exports = {
         })
 
         lines.push('')
-        lines.push('> © 𝕮𝖄𝕭𝕰𝕽 𝖃 ™')
+        lines.push('> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
 
         const caption = lines.join('\n')
 
