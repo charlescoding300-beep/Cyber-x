@@ -585,6 +585,7 @@ module.exports = {
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Channel you own or administer.",
   usage: ".cs <channel link|code|JID|name> | .cs all | .cs all stop | .cs check <link>  (flags: --plain; Baileys native channel media is the default)",
   category: "owner",
+  heavy: true,
 
   // exported for offline tests
   _internals: { roleOf, resolveRole, uploadRaw, buildChannelMessage, relayChannelMedia, sendMediaDirect, channelKind, encodeForUpload, describeResult },

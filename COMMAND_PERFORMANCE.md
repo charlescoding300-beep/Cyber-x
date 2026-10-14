@@ -9,6 +9,7 @@ Commands run through the shared dispatcher and per-session executor. Every comma
 - Avoid waiting for group metadata unless the command actually needs admin or participant data. The dispatcher already checks admin context for commands that declare `adminOnly`, `botAdmin`, or `requiresAdmin`.
 - Use the provided `settings` object (`get`, `set`, `unset`) rather than reading or writing `data/users/*.json` directly. Session settings are loaded once and then served from memory; settings API writes update that cache.
 - Mark CPU-heavy or media-processing command modules with `heavy: true`. The executor then puts them in the bounded heavy lane shared across sessions, keeping ordinary commands available while media work runs.
+- The executor also learns command names that take longer than `EXEC_AUTO_HEAVY_MS` (default 1000 ms) and saves them in `data/learned-heavy-commands.json`. Later runs, including after a restart, use the bounded heavy lane automatically.
 
 Example:
 

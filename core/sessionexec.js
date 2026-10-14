@@ -30,7 +30,12 @@
 //    EXEC_HEAVY_COMMANDS      extra heavy command names, comma separated
 // ════════════════════════════════════════════════════════════════════
 
-const cpuCount = (require('os').cpus() || []).length || 2
+const os = require('os')
+const fs = require('fs')
+const path = require('path')
+const cpuCount = typeof os.availableParallelism === 'function'
+  ? Math.max(1, os.availableParallelism())
+  : ((os.cpus() || []).length || 2)
 
 function envInt(name, def) {
   const v = parseInt(process.env[name], 10)
@@ -44,6 +49,7 @@ const CFG = {
   cooldownMs:       envInt('EXEC_SENDER_COOLDOWN_MS', 0),
   timeoutMs:        envInt('EXEC_TIMEOUT_MS', 120000),
   heavyTimeoutMs:   envInt('EXEC_HEAVY_TIMEOUT_MS', 300000),
+  autoHeavyMs:      Math.max(250, envInt('EXEC_AUTO_HEAVY_MS', 1000)),
   noticeGapMs:      10000,   // min gap between "busy" notices to the same sender
 }
 
@@ -52,6 +58,8 @@ const DEFAULT_HEAVY = [
   's', 'sticker', 'toimg', 'tovideo', 'togif', 'convert', 'tovid',
   'removebg', 'remini', 'upscale', 'blur',
   'wasted', 'waste', 'gta', 'gtawasted',
+  'gcstatus', 'cs', 'meme', 'vv', 'alive', 'reverse', 'ai',
+  'tiktok', 'instagram', 'youtube', 'backup', 'restore',
 ]
 
 const GLOBAL_HEAVY_MAX = envInt('EXEC_GLOBAL_HEAVY_CONCURRENCY', Math.max(1, Math.floor(cpuCount / 2)))
@@ -76,6 +84,50 @@ const HEAVY = new Set([
   ...String(process.env.EXEC_HEAVY_COMMANDS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
 ])
+
+// Slow command names are learned once and persisted so newly added commands
+// move off the quick lane after their first slow run, including after restarts.
+const LEARNED_HEAVY_FILE = path.join(__dirname, '..', 'data', 'learned-heavy-commands.json')
+const MAX_LEARNED_HEAVY = 512
+const learnedHeavy = new Set()
+try {
+  const names = JSON.parse(fs.readFileSync(LEARNED_HEAVY_FILE, 'utf8'))
+  if (Array.isArray(names)) {
+    for (const value of names) {
+      const name = String(value).toLowerCase()
+      if (/^[a-z0-9][a-z0-9_-]{0,39}$/.test(name)) learnedHeavy.add(name)
+      if (learnedHeavy.size >= MAX_LEARNED_HEAVY) break
+    }
+  }
+} catch {}
+
+let learnedWriteTimer = null
+let learnedWriteQueue = Promise.resolve()
+function persistLearnedHeavy() {
+  if (learnedWriteTimer) clearTimeout(learnedWriteTimer)
+  learnedWriteTimer = setTimeout(() => {
+    learnedWriteTimer = null
+    const tmp = LEARNED_HEAVY_FILE + '.' + process.pid + '.tmp'
+    const data = JSON.stringify([...learnedHeavy].sort(), null, 2)
+    learnedWriteQueue = learnedWriteQueue.catch(() => {}).then(async () => {
+      await fs.promises.mkdir(path.dirname(LEARNED_HEAVY_FILE), { recursive: true })
+      await fs.promises.writeFile(tmp, data, 'utf8')
+      await fs.promises.rename(tmp, LEARNED_HEAVY_FILE)
+    }).catch(error => console.warn('[EXEC] Could not save learned command lanes:', error.message))
+  }, 500)
+  learnedWriteTimer.unref?.()
+}
+
+function learnSlowCommand(name, runtimeMs) {
+  if (HEAVY.has(name) || learnedHeavy.has(name) || runtimeMs < CFG.autoHeavyMs) return
+  if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(name)) return
+  if (learnedHeavy.size >= MAX_LEARNED_HEAVY) {
+    learnedHeavy.delete(learnedHeavy.values().next().value)
+  }
+  learnedHeavy.add(name)
+  console.warn('[EXEC] Auto-isolating .' + name + ' after ' + runtimeMs + 'ms; future runs use the heavy lane')
+  persistLearnedHeavy()
+}
 
 function makeLane(max) {
   return { max, active: 0, high: [], normal: [] }
@@ -111,7 +163,7 @@ class SessionExecutor {
         if (this.lastRun.size > 500) this._purge(this.lastRun, 60000)
       }
 
-      const lane = (task.heavy === true || HEAVY.has(name)) ? this.heavy : this.light
+      const lane = (task.heavy === true || HEAVY.has(name) || learnedHeavy.has(name)) ? this.heavy : this.light
 
       if (lane.high.length + lane.normal.length >= CFG.maxQueue) {
         return this._drop(task, 'queue_full', resolve)
@@ -180,6 +232,7 @@ class SessionExecutor {
       this.stats.lastAt  = Date.now()
       this.stats.totalMs += ms
       if (ms > this.stats.maxMs) this.stats.maxMs = ms
+      if (!job.heavy) learnSlowCommand(job.name, ms)
 
       if (timedOut) {
         this.stats.timedOut++
@@ -239,7 +292,7 @@ function forState(state) {
 }
 
 function heavyStats() {
-  return { active: globalHeavyActive, max: GLOBAL_HEAVY_MAX, waitingSessions: globalHeavyWaiters.size }
+  return { active: globalHeavyActive, max: GLOBAL_HEAVY_MAX, waitingSessions: globalHeavyWaiters.size, learnedCommands: learnedHeavy.size, autoHeavyMs: CFG.autoHeavyMs }
 }
 
 function statsAll(sessions) {
