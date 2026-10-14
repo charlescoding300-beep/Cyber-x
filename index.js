@@ -47,6 +47,12 @@ async function gracefulShutdown(signal) {
   }
 
   console.log("[LIVE-RECOVERY] ✔ Session protection checkpoint complete")
+
+  try {
+    await require("./lib/memory").flush()
+  } catch (e) {
+    console.error("[MEMORY] Shutdown flush failed:", e.message)
+  }
 }
 
 process.once("SIGTERM", () => {
@@ -2502,7 +2508,7 @@ async function startBot(phone) {
   sock.ev.on("group-participants.update", async (update) => {
     let meta = null
     try {
-      meta = await sock.groupMetadata(update.id)
+      meta = await refreshGroupMeta(state, sock, update.id)
       state.groupCache[update.id] = { ...meta, _cachedAt: Date.now() }
     } catch (e) {
       console.error(`[WATCHDOG:${phone}] metadata fetch failed for ${update.id}:`, e.message)
@@ -2928,6 +2934,7 @@ async function startBot(phone) {
       if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
       ;(lib.handleAntilinkInline || handleAntilinkInline)(sock, m, phone).catch(e => console.error("[" + phone + "] ANTILINK ERR:", e.message))
       handleAntitagInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTITAG ERR:", e.message))
+      if (typeof lib.handleAntistatusGroup === "function") lib.handleAntistatusGroup(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS-GC ERR:", e.message))
       if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
       if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
     }
@@ -2957,7 +2964,7 @@ async function startBot(phone) {
 
       if (m.key.remoteJid === "status@broadcast") {
         handleStatus(state, sock, m).catch(e => console.error("[" + phone + "] STATUS ERR:", e.message))
-        handleAntistatusInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS ERR:", e.message))
+        // handleAntistatusInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS ERR:", e.message))  // replaced by lib/antistatusgc.js
         continue
       }
 
@@ -3047,6 +3054,8 @@ async function init() {
   global.__antistatusDisable   = antistatusDisable
   global.__antistatusIsEnabled = antistatusIsEnabled
   global.__antistatusGetMode   = antistatusGetMode
+  global.__antistatusAddWarning    = antistatusAddWarning
+  global.__antistatusResetWarnings = antistatusResetWarnings
   console.log("[ANTISTATUS] ✔ Wired up inline")
 
   global.__customCmdAdd    = customCmdAdd

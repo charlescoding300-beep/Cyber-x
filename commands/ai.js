@@ -16,107 +16,85 @@ function clearHistory(jid) {
   histories.set(jid, [])
 }
 
-async function askGroq(jid, text, imageBase64 = null, imageMime = null) {
-  const GROQ_KEY = process.env.GROQ_API_KEY
-  if (!GROQ_KEY) throw new Error("API_KEY not set")
+async function askAI(jid, text, imageBase64 = null, imageMime = null) {
+  const xaiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY
+  const groqKey = process.env.GROQ_API_KEY
+  const provider = xaiKey ? "xai" : (groqKey ? "groq" : null)
+  if (!provider) throw new Error("AI_API_KEY_NOT_SET")
 
+  const apiKey = provider === "xai" ? xaiKey : groqKey
   const history = getHistory(jid)
-
-  const model = imageBase64
-    ? "qwen/qwen3.6-27b"
-    : "openai/gpt-oss-20b"
+  const model = provider === "xai"
+    ? (process.env.GROK_MODEL || "grok-4.7")
+    : (imageBase64 ? "qwen/qwen3.8-27b" : "openai/gpt-oss-20b")
 
   const userContent = imageBase64
     ? [
-        { type: "text", text: text || "Analyze this image and describe everything you see in detail" },
+        { type: "text", text: text || "Analyze this image and describe what you see." },
         {
           type: "image_url",
           image_url: {
-            url: `data:${imageMime || "image/jpeg"};base64,${imageBase64}`
+            url: "data:" + (imageMime || "image/jpeg") + ";base64," + imageBase64
           }
         }
       ]
     : text
 
-  history.push({ role: "user", content: text || "Analyze this image" })
-  if (history.length > 20) history.splice(0, history.length - 20)
+  const systemPrompt = [
+    "You are ZEN X_Bot AI, a friendly and helpful WhatsApp assistant.",
+    "Answer naturally and clearly. Keep replies concise unless the user asks for detail.",
+    "Use earlier messages in this chat as context when useful.",
+    "If asked which AI provider you use, say " + (provider === "xai" ? "Grok" : "Groq") + ".",
+    "For code, use fenced code blocks with a language name."
+  ].join("\n")
 
   const body = JSON.stringify({
     model,
     messages: [
-      {
-        role: "system",
-        content: `You are ZEN X_Bot AI — a powerful, smart, witty and very friendly AI assistant built into the ZEN X_Bot WhatsApp bot by Charles Chukwu (Charles Tech) from Nigeria.
-
-Your personality:
-- You are warm, fun and conversational — like talking to a smart friend
-- You match the user's energy — if they're casual, you're casual. If they're serious, you're serious
-- You use light humour naturally without overdoing it
-- You show genuine interest in what the user is saying
-- You give helpful, clear responses but make them feel natural — not robotic
-- You occasionally use emojis where it fits naturally 😄
-- You remember context from earlier in the conversation and reference it naturally
-- When someone greets you, greet them back warmly and ask what you can help with
-- When someone is struggling, be encouraging and supportive
-- Never sound like a manual or a textbook — always sound like a person
-
-You can:
-- Answer any question on any topic
-- Write and explain code in any programming language
-- Analyze and describe images in full detail
-- Tell jokes, roast people (nicely), have casual conversations
-- Help with essays, stories, translations, math, science
-- Give advice, explain concepts, summarize things
-- Do absolutely anything a helpful AI assistant would do
-
-Rules:
-- Keep responses concise and natural unless the user needs detail
-- For code always wrap in backticks with the language name
-- Never refuse reasonable requests
-- If asked who you are say you are ZEN X_Bot AI by Charles Chukwu (Charles Tech)
-- If asked what model or AI you are say ZEN X_Bot AI powered by Groq
-- Never start your response with "I" — vary your openings
-- Never sound stiff or formal unless the situation calls for it`
-      },
-      ...history.slice(-10).slice(0, -1).map(h => ({
-        role:    h.role,
-        content: h.content,
-      })),
+      { role: "system", content: systemPrompt },
+      ...history.slice(-10),
       { role: "user", content: userContent }
     ],
-    temperature: 0.9,
-    max_tokens:  1500,
+    temperature: 0.7,
+    ...(provider === "groq"
+      ? {
+          max_completion_tokens: 1200,
+          ...(!imageBase64 ? { reasoning_effort: "low" } : {})
+        }
+      : { max_tokens: 1200 })
   })
 
-  const data = await new Promise((resolve, reject) => {
-    const req = https.request({
-      hostname: "api.groq.com",
-      path:     "/openai/v1/chat/completions",
-      method:   "POST",
-      headers: {
-        "Content-Type":   "application/json",
-        "Authorization":  `Bearer ${GROQ_KEY}`,
-        "Content-Length": Buffer.byteLength(body),
-      }
-    }, res => {
-      let d = ""
-      res.on("data", c => d += c)
-      res.on("end",  () => { try { resolve(JSON.parse(d)) } catch { resolve(null) } })
-    })
-    req.on("error", reject)
-    req.setTimeout(30000, () => req.destroy())
-    req.write(body)
-    req.end()
+  const endpoint = provider === "xai"
+    ? "https://api.x.ai/v1/chat/completions"
+    : "https://api.groq.com/openai/v1/chat/completions"
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey
+    },
+    body,
+    signal: AbortSignal.timeout(45000)
   })
 
-  if (!data?.choices?.[0]?.message?.content) {
-    const errMsg = data?.error?.message || "empty response"
-    throw new Error(errMsg)
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(data?.error?.message || ("AI provider returned HTTP " + response.status))
   }
 
-  const reply = data.choices[0].message.content
+  let reply = data?.choices?.[0]?.message?.content
+  if (Array.isArray(reply)) {
+    reply = reply.map(part => part.text || "").join("")
+  }
+  if (typeof reply !== "string" || !reply.trim()) {
+    throw new Error(data?.error?.message || "AI provider returned an empty response")
+  }
+
+  history.push({ role: "user", content: text || "Analyze this image" })
   history.push({ role: "assistant", content: reply })
-  return reply
+  if (history.length > 20) history.splice(0, history.length - 20)
+  return reply.trim()
 }
 
 // ── VoiceRSS TTS — smooth UK female voice (Amy) ──
@@ -166,155 +144,151 @@ async function voiceRssTTS(text) {
   return data
 }
 
-const run = async ({ sock, from, message, text }) => {
+const run = async ({ sock, from, message, text = "" }) => {
+  const requestText = String(text || "").trim()
 
-  if (text.trim().toLowerCase() === "reset") {
+  if (requestText.toLowerCase() === "reset") {
     clearHistory(from)
     return sock.sendMessage(from, {
-      text: `🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n${CREDIT}`,
-      quoted: message
-    })
+      text: "🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n" + CREDIT
+    }, { quoted: message })
   }
 
-  const quoted      = message.message?.extendedTextMessage?.contextInfo?.quotedMessage
-  const isDirectImg = !!message.message?.imageMessage
-  const isQuotedImg = !!quoted?.imageMessage
-  const hasImage    = isDirectImg || isQuotedImg
+  const content = message?.message || {}
+  const contextInfo =
+    content.extendedTextMessage?.contextInfo ||
+    content.imageMessage?.contextInfo ||
+    content.videoMessage?.contextInfo ||
+    content.documentMessage?.contextInfo ||
+    {}
+  const quoted = contextInfo.quotedMessage
+  const quotedContent =
+    quoted?.ephemeralMessage?.message ||
+    quoted?.viewOnceMessage?.message ||
+    quoted
+  const quotedText =
+    quotedContent?.conversation ||
+    quotedContent?.extendedTextMessage?.text ||
+    quotedContent?.imageMessage?.caption ||
+    quotedContent?.videoMessage?.caption ||
+    quotedContent?.documentMessage?.caption ||
+    ""
 
-  if (!text && !hasImage) {
+  let prompt = requestText
+  if (quotedText && requestText) {
+    prompt = "Quoted message:\n" + quotedText + "\n\nYour request:\n" + requestText
+  } else if (quotedText) {
+    prompt = "Reply to this message:\n" + quotedText
+  }
+
+  const directImage = content.imageMessage
+  const quotedImage = quotedContent?.imageMessage
+  const hasImage = !!(directImage || quotedImage)
+
+  if (!prompt && !hasImage) {
+    const help = [
+      "╔═══════════════════════════╗",
+      "║  🤖 *ZEN X_Bot AI*        ║",
+      "╚═══════════════════════════╝",
+      "",
+      "Ask a question with *.ai <question>*.",
+      "Reply to a message with *.ai* to ask about it.",
+      "Reply to an image with *.ai* to analyze it.",
+      "Use *.ai reset* to clear this chat's AI history.",
+      "",
+      "Text replies quote your command. Voice replies are used only when VoiceRSS is configured."
+    ].join("\n")
     return sock.sendMessage(from, {
-      text:
-`╔═══════════════════════════╗
-║  🤖 *ZEN X_Bot AI*        ║
-╚═══════════════════════════╝
-
-Hey! 👋 I'm ZEN X_Bot AI — your smart assistant right here in WhatsApp.
-
-*Here's what I can do for you:*
-• 💬 Answer any question on any topic
-• 💻 Write & explain code in any language
-• 🖼️ Analyze images in full detail
-• 😂 Tell jokes, roast you, casual chat
-• ✍️ Essays, stories, translations, math
-• 🧠 Advice, explanations, summaries
-• 🎙️ Replies switch between voice note & text
-
-*How to use me:*
-• *.ai <your question>* — Ask me anything
-• *.ai reset* — Clear our conversation
-• *.ask* | *.chat* | *.gpt* — Also works
-• *Reply to an image + .ai* — I'll analyze it
-
-💡 *Try these:*
-  _.ai explain black holes like I'm 10_
-  _.ai write a snake game in JS_
-  _.ai roast me hard_ 😂
-  _.ai translate hello to Yoruba_
-
-Just talk to me naturally — I got you! 🔥
-
-${CREDIT}`,
-      quoted: message
-    })
+      text: help + "\n\n" + CREDIT
+    }, { quoted: message })
   }
 
   await sock.sendMessage(from, {
     react: { text: "🧠", key: message.key }
   }).catch(() => {})
-
   await sock.sendPresenceUpdate("composing", from).catch(() => {})
 
   try {
     let imageBase64 = null
-    let imageMime   = null
+    let imageMime = null
 
     if (hasImage) {
       try {
-        const imgMsg = isDirectImg
+        const imageMessage = directImage
           ? message
           : { key: message.key, message: quoted }
 
         const buffer = await downloadMediaMessage(
-          imgMsg, "buffer", {},
+          imageMessage,
+          "buffer",
+          {},
           { reuploadRequest: sock.updateMediaMessage }
         )
         imageBase64 = buffer.toString("base64")
-        imageMime   = isDirectImg
-          ? message.message.imageMessage.mimetype
-          : quoted.imageMessage.mimetype
-        imageMime   = imageMime || "image/jpeg"
-        console.log(`[AI] 🖼️ Image downloaded — ${Math.round(buffer.length / 1024)}KB`)
-      } catch (e) {
-        console.warn("[AI] Image download failed:", e.message)
+        imageMime = (directImage ? directImage.mimetype : quotedImage.mimetype) || "image/jpeg"
+      } catch (error) {
+        console.warn("[AI] Image download failed:", error.message)
         await sock.sendMessage(from, {
-          text: `⚠️ *Could not download the image.* Try sending it again and I'll take a look! 👀\n\n${CREDIT}`,
-          quoted: message
-        })
+          text: "⚠️ Could not download the image. Please send it again.\n\n" + CREDIT
+        }, { quoted: message })
         return
       }
     }
 
-    const reply = await askGroq(from, text, imageBase64, imageMime)
+    const reply = await askAI(from, prompt, imageBase64, imageMime)
+    let voiceSent = false
 
-    // ── Hard 60/40 switch: 60% voice note, 40% text. No fallback. ──
-    const useVoice = Math.random() < VOICE_CHANCE
+    if (process.env.VOICERSS_API_KEY && Math.random() < VOICE_CHANCE) {
+      try {
+        const audio = await voiceRssTTS(reply)
+        await sock.sendMessage(from, {
+          audio,
+          mimetype: "audio/mpeg",
+          ptt: true
+        }, { quoted: message })
+        await sock.sendMessage(from, {
+          text: "🎙️ Voice reply\n\n" + CREDIT
+        }, { quoted: message })
+        voiceSent = true
+      } catch (voiceError) {
+        console.warn("[AI] Voice reply failed; sending text instead:", voiceError.message)
+      }
+    }
 
-    if (useVoice) {
-      const audio = await voiceRssTTS(reply)
+    if (!voiceSent) {
       await sock.sendMessage(from, {
-        audio,
-        mimetype: "audio/mpeg",
-        ptt: true,
+        text: reply + "\n\n" + CREDIT
       }, { quoted: message })
-
-      await sock.sendMessage(from, {
-        text: `🎙️ *Voice reply*\n\n${CREDIT}`,
-      }, { quoted: message })
-    } else {
-      await sock.sendMessage(from, {
-        text: `${reply}\n\n${CREDIT}`,
-        quoted: message
-      })
     }
 
     await sock.sendMessage(from, {
       react: { text: "✅", key: message.key }
     }).catch(() => {})
-
-  } catch (e) {
-    console.error("[AI] Error:", e.message)
-
+  } catch (error) {
+    console.error("[AI] Error:", error.message)
     await sock.sendMessage(from, {
       react: { text: "❌", key: message.key }
     }).catch(() => {})
 
-    const friendly =
-      e.message.includes("API_KEY")
-        ? "❌ *GROQ_API_KEY not set!*\nAdd it to your .env file."
-      : e.message.includes("VOICERSS_API_KEY")
-        ? "❌ *VOICERSS_API_KEY not set!*\nAdd it to your .env file."
-      : e.message.includes("429") || e.message.includes("rate") || e.message.includes("quota")
-        ? "⚠️ *Too many requests.* Give me 30 seconds and try again! 😅"
-      : e.message.includes("empty")
-        ? "⚠️ *Hmm, I drew a blank on that one.* Try rephrasing your question?"
-      : e.message.includes("timeout") || e.message.includes("destroyed")
-        ? "⚠️ *That took too long and timed out.* Try again in a moment! ⏱️"
-      : e.message.includes("vision") || e.message.includes("image")
-        ? "⚠️ *Had trouble reading that image.* Try sending it again!"
-        : `❌ *Error:* ${e.message}`
+    const friendly = error.message === "AI_API_KEY_NOT_SET"
+      ? "❌ No AI API key is configured. Set GROQ_API_KEY or XAI_API_KEY/GROK_API_KEY."
+      : error.message.includes("429") || error.message.toLowerCase().includes("rate") || error.message.toLowerCase().includes("quota")
+        ? "⚠️ Too many requests. Please try again shortly."
+        : error.message.toLowerCase().includes("timeout")
+          ? "⚠️ The AI request timed out. Please try again."
+          : "❌ AI error: " + error.message
 
     await sock.sendMessage(from, {
-      text: `${friendly}\n\n${CREDIT}`,
-      quoted: message
-    })
+      text: friendly + "\n\n" + CREDIT
+    }, { quoted: message })
   }
 }
 
 module.exports = {
   name:     "ai",
   aliases:  ["ask", "chat", "gpt"],
-  desc:     "Chat with ZEN X_Bot AI — text, images, code, anything. Replies switch between voice note and text (60/40).",
-  usage:    ".ai <question> | .ai reset | reply image + .ai",
+  desc:     "Chat with ZEN X_Bot AI by quoting messages or asking questions; supports text and images.",
+  usage:    ".ai <question> | reply to a message/image + .ai | .ai reset",
   category: 'ai',
   run
 }
