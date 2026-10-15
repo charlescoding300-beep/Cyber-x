@@ -270,10 +270,111 @@ function readMeta(html, names) {
   return null
 }
 
+function readMetaAttribute(html, attribute, value) {
+  const tags = html.match(/<meta\b[^>]*>/gi) || []
+  for (const tag of tags) {
+    const attr = tag.match(new RegExp(`\\b${attribute}\\s*=\\s*["']${value}["']`, "i"))
+    if (!attr) continue
+    const content = tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i)
+    const result = content?.[1] || content?.[2] || content?.[3]
+    if (result) return decodeEntities(result)
+  }
+  return null
+}
+
+function tagAttribute(tag, name) {
+  const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"))
+  return decodeEntities(match?.[1] || match?.[2] || match?.[3] || "")
+}
+
+function normalizePreviewImageUrl(raw, baseUrl) {
+  const value = decodeEntities(raw).trim()
+  if (!value || /^data:/i.test(value)) return null
+  try {
+    const url = new URL(value, baseUrl)
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null
+    return url.href
+  } catch {
+    return null
+  }
+}
+
+// Up to ten real image sources, ordered from the page's strongest metadata
+// down to its icons and first content image. The page HTML is fetched once;
+// image candidates are each tried at most once with a short timeout.
+function getPreviewImageCandidates(html, baseUrl) {
+  const candidates = []
+  const add = raw => {
+    const url = normalizePreviewImageUrl(raw, baseUrl)
+    if (url && !candidates.includes(url) && candidates.length < 10) candidates.push(url)
+  }
+
+  add(readMeta(html, ["og:image"]))                         // 1: Open Graph image
+  add(readMeta(html, ["og:image:secure_url"]))             // 2: secure Open Graph image
+  add(readMeta(html, ["og:image:url"]))                    // 3: alternate Open Graph image
+  add(readMeta(html, ["twitter:image"]))                   // 4: Twitter card image
+  add(readMeta(html, ["twitter:image:src"]))               // 5: alternate Twitter image
+  add(readMetaAttribute(html, "itemprop", "image"))        // 6: Schema.org image
+
+  const scripts = html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || []
+  for (const script of scripts) {
+    const json = script.replace(/^.*?>|<\/script>.*$/gis, "").trim()
+    try {
+      const findImage = (value, depth = 0) => {
+        if (depth > 8 || value == null) return null
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            const found = findImage(item, depth + 1)
+            if (found) return found
+          }
+          return null
+        }
+        if (typeof value !== "object") return null
+        for (const key of ["image", "thumbnailUrl", "thumbnail"]) {
+          const image = value[key]
+          if (typeof image === "string") return image
+          if (Array.isArray(image) || (image && typeof image === "object")) {
+            const found = findImage(image, depth + 1) || image.url || image.contentUrl
+            if (typeof found === "string") return found
+          }
+        }
+        for (const [key, child] of Object.entries(value)) {
+          if (["image", "thumbnailUrl", "thumbnail"].includes(key)) continue
+          const found = findImage(child, depth + 1)
+          if (found) return found
+        }
+        return null
+      }
+      const image = findImage(JSON.parse(json))
+      if (image) {
+        add(image) // 7: Schema.org JSON-LD image
+        break
+      }
+    } catch {}
+  }
+
+  const links = html.match(/<link\b[^>]*>/gi) || []
+  for (const tag of links) {
+    const rel = tagAttribute(tag, "rel").toLowerCase().split(/\s+/)
+    if (rel.includes("image_src")) add(tagAttribute(tag, "href")) // 8: image_src
+  }
+  for (const tag of links) {
+    const rel = tagAttribute(tag, "rel").toLowerCase().split(/\s+/)
+    if (rel.includes("apple-touch-icon") || rel.includes("icon")) add(tagAttribute(tag, "href")) // 9: site icon
+  }
+
+  const images = html.match(/<img\b[^>]*>/gi) || []
+  for (const tag of images.slice(0, 8)) {
+    add(tagAttribute(tag, "src") || tagAttribute(tag, "data-src") || tagAttribute(tag, "data-original")) // 10: content image
+  }
+
+  return candidates
+}
+
 async function scrapePage(url) {
   const res = await axios.get(toFetchUrl(url), {
-    timeout: 8000,
-    maxRedirects: 5,
+    timeout: 4500,
+    maxRedirects: 4,
     maxContentLength: 3 * 1024 * 1024,
     responseType: "text",
     headers: {
@@ -286,17 +387,17 @@ async function scrapePage(url) {
   const html = String(res.data || "")
   const title =
     readMeta(html, ["og:title", "twitter:title"]) ||
-    decodeEntities(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1])
-  if (!title) return null
+    decodeEntities(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) ||
+    decodeEntities(html.match(/<h1[^>]*>([^<]*)<\/h1>/i)?.[1])
 
   const finalUrl = res.request?.res?.responseUrl || toFetchUrl(url)
-  let image = readMeta(html, ["og:image", "og:image:url", "twitter:image"])
-  if (image) { try { image = new URL(image, finalUrl).href } catch { image = null } }
+  let host = "Link preview"
+  try { host = new URL(finalUrl).hostname.replace(/^www\./i, "") } catch {}
 
   return {
-    title,
+    title: title || host,
     description: readMeta(html, ["og:description", "twitter:description", "description"]) || "",
-    image,
+    imageCandidates: getPreviewImageCandidates(html, finalUrl),
     canonicalUrl: readMeta(html, ["og:url"]) || finalUrl,
   }
 }
@@ -305,7 +406,18 @@ async function makeSmallThumb(buf) {
   if (sharp) {
     try { return await sharp(buf).resize({ width: 192, withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer() } catch {}
   }
-  return buf.length <= 40000 ? buf : null // without sharp, only use the image if it's already tiny
+  const isJpeg = buf?.[0] === 0xff && buf?.[1] === 0xd8
+  return isJpeg && buf.length <= 40000 ? buf : null
+}
+
+function escapeXml(value) {
+  return String(value || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c])
+}
+
+async function makeFallbackThumb(host, title) {
+  if (!sharp) return null
+  const svg = `<svg width="640" height="360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111827"/><stop offset="1" stop-color="#164e63"/></linearGradient></defs><rect width="640" height="360" rx="32" fill="url(#g)"/><circle cx="566" cy="70" r="120" fill="#22d3ee" opacity=".12"/><text x="48" y="104" fill="#67e8f9" font-family="Arial,sans-serif" font-size="24" font-weight="700">LINK PREVIEW</text><text x="48" y="190" fill="#fff" font-family="Arial,sans-serif" font-size="32" font-weight="700">${escapeXml(String(title || "").slice(0, 32))}</text><text x="48" y="250" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="24">${escapeXml(String(host || "").slice(0, 42))}</text></svg>`
+  try { return await sharp(Buffer.from(svg)).jpeg({ quality: 70 }).toBuffer() } catch { return null }
 }
 
 async function uploadBigThumb(sock, buf) {
@@ -319,51 +431,51 @@ async function uploadBigThumb(sock, buf) {
 
 // returns { matchedText, canonicalUrl, title, description, jpegThumbnail, hq } or null
 async function fetchLinkPreview(sock, url) {
-  // A) Baileys' own scraper + uploader (needs `npm i link-preview-js`)
-  if (typeof baileys.getUrlInfo === "function") {
-    try {
-      const info = await baileys.getUrlInfo(url, {
-        thumbnailWidth: 192,
-        fetchOpts: { timeout: 8000 },
-        uploadImage: sock.waUploadToServer,
-      })
-      if (info?.title) {
-        console.log("[GCSTATUS] Link preview via Baileys getUrlInfo", { title: info.title, hasBigThumb: !!info.highQualityThumbnail })
-        return {
-          matchedText: info["matched-text"] || url,
-          canonicalUrl: info["canonical-url"] || toFetchUrl(url),
-          title: info.title,
-          description: info.description || "",
-          jpegThumbnail: info.jpegThumbnail,
-          hq: info.highQualityThumbnail || null,
-        }
-      }
-    } catch (e) {
-      console.warn(`[GCSTATUS] getUrlInfo unavailable (${e.message}) — using built-in scraper`)
+  // Fetch the page once, then try its ten known image locations. A blocked or
+  // metadata-free page still gets a generic domain card so the URL is previewed.
+  let page
+  try { page = await scrapePage(url) } catch (e) {
+    let host
+    try { host = new URL(toFetchUrl(url)).hostname.replace(/^www\./i, "") } catch { throw e }
+    console.warn(`[GCSTATUS] page metadata unavailable for ${host}: ${e.message}`)
+    page = {
+      title: host,
+      description: `Open this link to view ${host}.`,
+      imageCandidates: [],
+      canonicalUrl: toFetchUrl(url),
     }
   }
-
-  // B) built-in scraper
-  const page = await scrapePage(url)
   if (!page) return null
 
   let jpegThumbnail, hq = null
-  if (page.image) {
+  for (const imageUrl of page.imageCandidates) {
     try {
-      const img = Buffer.from((await axios.get(page.image, {
-        responseType: "arraybuffer", timeout: 8000, maxContentLength: 8 * 1024 * 1024,
+      const response = await axios.get(imageUrl, {
+        responseType: "arraybuffer", timeout: 700, maxRedirects: 2, maxContentLength: 8 * 1024 * 1024,
         headers: { "User-Agent": "Mozilla/5.0" },
-      })).data)
-      if (img.length > 500) {
-        jpegThumbnail = await makeSmallThumb(img)
-        hq = await uploadBigThumb(sock, img).catch(e => { console.warn("[GCSTATUS] big thumbnail upload skipped:", e.message); return null })
+      })
+      const contentType = String(response.headers?.["content-type"] || "").toLowerCase()
+      const img = Buffer.from(response.data || [])
+      if (!contentType.startsWith("image/") || contentType.includes("svg") || img.length < 500) continue
+      jpegThumbnail = await makeSmallThumb(img)
+      if (jpegThumbnail) {
+        hq = await withTimeout(uploadBigThumb(sock, img), 2500, "thumbnail upload")
+          .catch(e => { console.warn("[GCSTATUS] big thumbnail upload skipped:", e.message); return null })
+        break
       }
     } catch (e) {
-      console.warn("[GCSTATUS] preview image skipped:", e.message)
+      // Try the next metadata image; each network attempt has a short timeout.
     }
   }
 
-  console.log("[GCSTATUS] Link preview via built-in scraper", { title: page.title, hasThumb: !!jpegThumbnail, hasBigThumb: !!hq })
+  let thumbnailSource = "website"
+  if (!jpegThumbnail) {
+    const host = (() => { try { return new URL(page.canonicalUrl).hostname.replace(/^www\./i, "") } catch { return "Link preview" } })()
+    jpegThumbnail = await makeFallbackThumb(host, page.title)
+    thumbnailSource = jpegThumbnail ? "generated fallback card" : "unavailable"
+  }
+
+  console.log("[GCSTATUS] Link preview via built-in scraper", { title: page.title, thumbnailSource, hasBigThumb: !!hq })
   return {
     matchedText: url,
     canonicalUrl: page.canonicalUrl,
@@ -374,36 +486,45 @@ async function fetchLinkPreview(sock, url) {
   }
 }
 
-function applyPreview(ext, preview) {
-  ext.matchedText = preview.matchedText
-  ext.canonicalUrl = preview.canonicalUrl
-  ext.title = preview.title
-  ext.description = preview.description
-  ext.previewType = 0
-  if (preview.jpegThumbnail) ext.jpegThumbnail = preview.jpegThumbnail
-
-  const hq = preview.hq
-  if (hq?.directPath && hq?.mediaKey) {
-    ext.thumbnailDirectPath = hq.directPath
-    ext.mediaKey = hq.mediaKey
-    ext.mediaKeyTimestamp = hq.mediaKeyTimestamp
-    ext.thumbnailSha256 = hq.fileSha256
-    ext.thumbnailEncSha256 = hq.fileEncSha256
-    ext.thumbnailHeight = hq.height
-    ext.thumbnailWidth = hq.width
-  }
-}
-
 // ── TEXT status ──────────────────────────────────────────────────────────────
 
-async function buildTextStatus(groupJid, text, userJid, preview) {
+async function buildTextStatus(sock, groupJid, text, userJid, preview) {
   const secret = crypto.randomBytes(32)
-
-  const ext = {
-    text,
-    contextInfo: buildStatusContext(STATUS_SOURCE.text),
+  const linkPreview = preview ? {
+    "canonical-url": preview.canonicalUrl || toFetchUrl(preview.matchedText),
+    "matched-text": preview.matchedText || extractFirstUrl(text) || text,
+    title: preview.title,
+    description: preview.description || "",
+    jpegThumbnail: preview.jpegThumbnail,
+    highQualityThumbnail: preview.hq || undefined,
   }
-  if (preview) applyPreview(ext, preview)
+  : undefined
+
+  // Use Baileys' content builder for linkPreview fields and thumbnail
+  // serialization, then add the Group Status context and wrapper.
+  const prepared = await generateWAMessageContent(
+    { text, linkPreview: linkPreview || null, groupStatus: true },
+    { upload: sock.waUploadToServer, logger: Pino({ level: "silent" }) }
+  )
+
+  const inner =
+    prepared?.groupStatusMessageV2?.message ||
+    prepared?.groupStatusMessage?.message ||
+    prepared?.message ||
+    prepared
+
+  if (!inner?.extendedTextMessage) {
+    throw new Error(`Text status content was not generated (got: ${Object.keys(prepared || {}).join(", ") || "nothing"})`)
+  }
+
+  inner.extendedTextMessage.contextInfo = {
+    ...(inner.extendedTextMessage.contextInfo || {}),
+    ...buildStatusContext(STATUS_SOURCE.text),
+  }
+  inner.messageContextInfo = {
+    ...(inner.messageContextInfo || {}),
+    messageSecret: secret,
+  }
 
   return generateWAMessageFromContent(
     groupJid,
@@ -411,10 +532,7 @@ async function buildTextStatus(groupJid, text, userJid, preview) {
       messageContextInfo: { messageSecret: secret },
 
       groupStatusMessageV2: {
-        message: {
-          extendedTextMessage: ext,
-          messageContextInfo: { messageSecret: secret },
-        },
+        message: inner,
       },
     },
     { userJid }
@@ -782,12 +900,12 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
       let preview = null
       const link = noPreview ? null : extractFirstUrl(textValue)
       if (link) {
-        try { preview = await withTimeout(fetchLinkPreview(sock, link), 20000, "link preview") }
+        try { preview = await withTimeout(fetchLinkPreview(sock, link), 16000, "link preview") }
         catch (e) { console.warn(`[GCSTATUS ALL] Link preview skipped: ${e.message}`) }
       }
 
       publish = async (g) => {
-        const st = await buildTextStatus(g.id, textValue, sock.user?.id, preview)
+        const st = await buildTextStatus(sock, g.id, textValue, sock.user?.id, preview)
         await relayStatus(sock, g, st, "text")
       }
     } else {
@@ -982,13 +1100,13 @@ module.exports = {
         const link = noPreview ? null : extractFirstUrl(textValue)
         if (link) {
           try {
-            preview = await withTimeout(fetchLinkPreview(sock, link), 20000, "link preview")
+            preview = await withTimeout(fetchLinkPreview(sock, link), 16000, "link preview")
           } catch (e) {
             console.warn(`[GCSTATUS] Link preview skipped: ${e.message}`)
           }
         }
 
-        status = await buildTextStatus(group.id, textValue, sock.user?.id, preview)
+        status = await buildTextStatus(sock, group.id, textValue, sock.user?.id, preview)
         await relayStatus(sock, group, status, "text")
       }
 
