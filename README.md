@@ -29,4 +29,6 @@ At the center is the WhatsApp bot ping: sessions, groups, commands, media, users
 
 <div align="center">
   <strong>ZEN X · REQUEST IN · ROUTE THROUGH · RESPONSE OUT</strong>
+  <br />Produced by <a href="https://github.com/charlescoding300-beep">Charles</a>
+  <br /><sub>© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦</sub>
 </div>

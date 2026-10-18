@@ -152,7 +152,7 @@ function ecosystemScene(frame) {
     const icon = ['◉','▤','⌘','↗','◌','◎'][i]
     return `<circle cx="${x}" cy="${y}" r="${r + 8}" fill="none" stroke="${color}" stroke-opacity="${(.12 + (Math.sin(pulse)+1)*.08).toFixed(2)}" stroke-width="1.2"/><circle cx="${x}" cy="${y}" r="${r}" fill="#07120f" stroke="${color}" stroke-opacity=".78" stroke-width="1.4"/><text x="${x}" y="${y + 5}" text-anchor="middle" fill="${color}" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="700">${icon}</text><text x="${x}" y="${y + 34}" text-anchor="middle" fill="#c8dfd7" font-family="Arial,Helvetica,sans-serif" font-size="10" font-weight="700" letter-spacing="1.7">${label}</text>`
   }).join('')
-  const ping = `<circle cx="540" cy="252" r="${72 + (Math.sin(phase * 2 * Math.PI) + 1) * 9}" fill="none" stroke="#34f2ae" stroke-opacity=".27" stroke-width="1.5"/><circle cx="540" cy="252" r="58" fill="#06130f" stroke="#63f5b7" stroke-opacity=".86" stroke-width="1.8"/><path d="M510 227Q510 218 520 218H560Q570 218 570 228V256Q570 266 560 266H542L528 278V266H520Q510 266 510 256Z" fill="#0b251b" stroke="#69f5bb" stroke-width="1.6"/><path d="M527 242q2-8 7-4l4 5q2 3-2 6l-2 2q4 7 11 10l3-3q3-3 6-1l4 4q3 4-3 8-5 3-14-1-13-6-19-19-4-9-1-14z" fill="#bfffe0"/><text x="540" y="304" text-anchor="middle" fill="#e5fff4" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="700" letter-spacing="2">WHATSAPP BOT</text><text x="540" y="322" text-anchor="middle" fill="#58dca9" font-family="Arial,Helvetica,sans-serif" font-size="9" font-weight="700" letter-spacing="2">PING  ·  ROUTE  ·  REPLY</text>`
+  const ping = `<circle cx="540" cy="252" r="${72 + (Math.sin(phase * 2 * Math.PI) + 1) * 9}" fill="none" stroke="#34f2ae" stroke-opacity=".27" stroke-width="1.5"/><circle cx="540" cy="252" r="58" fill="#06130f" stroke="#63f5b7" stroke-opacity=".86" stroke-width="1.8"/><path d="M510 227Q510 218 520 218H560Q570 218 570 228V256Q570 266 560 266H542L528 278V266H520Q510 266 510 256Z" fill="#13986b" stroke="#a1ffdc" stroke-width="1.6"/><path d="M527 242q2-8 7-4l4 5q2 3-2 6l-2 2q4 7 11 10l3-3q3-3 6-1l4 4q3 4-3 8-5 3-14-1-13-6-19-19-4-9-1-14z" fill="#ffffff"/><text x="540" y="304" text-anchor="middle" fill="#e5fff4" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="700" letter-spacing="2">WHATSAPP BOT</text><text x="540" y="322" text-anchor="middle" fill="#58dca9" font-family="Arial,Helvetica,sans-serif" font-size="9" font-weight="700" letter-spacing="2">PING  ·  ROUTE  ·  REPLY</text>`
   const content = `<rect width="${SOURCE_W}" height="${SOURCE_H}" fill="#020605"/>${topography()}<circle cx="540" cy="252" r="290" fill="url(#greenAura)" opacity=".42"/>${header('03  /  BOT ECOSYSTEM', 'PING  ·  WHATSAPP BOT', 'One active core. Sessions, groups, commands and replies in orbit.', '#edfff7')}${orbit}${links}${nodes}${ping}<text x="55" y="451" fill="#74988a" font-family="Arial,Helvetica,sans-serif" font-size="10" letter-spacing="2">MESSAGE ARRIVES  ·  BOT PINGS  ·  RESPONSE RETURNS</text>`
   return shell(content)
 }
@@ -274,6 +274,9 @@ async function render(file, scene) {
 
 async function main() {
   fs.mkdirSync(OUT,{recursive:true})
+  const target=process.argv[2]
+  if (target === 'ecosystem') return render('03-whatsapp-ecosystem.gif',ecosystemScene)
+  if (target && target !== 'all') throw new Error('Choose "all" or "ecosystem".')
   await render('01-world-to-device.gif',worldScene)
   await render('02-database-flow.gif',databaseScene)
   await render('03-whatsapp-ecosystem.gif',ecosystemScene)
