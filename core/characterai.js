@@ -11,6 +11,7 @@
 //    • Group messages get a reply only when someone mentions the bot or replies to
 //      one of its messages. Otherwise the bot stays silent in the group.
 //    • Each chat keeps a short memory on disk, so it survives restarts.
+//    • Chat history and expired runtime caches are cleaned weekly; AI settings stay.
 //    • If the person asks for a picture, the bot searches Pinterest and sends one.
 //    • It shows "typing…" for CHARAI_TYPING_SECONDS (default 3) before each reply.
 //
@@ -28,12 +29,15 @@ const fs = require('fs')
 const path = require('path')
 
 const DIR = path.join(__dirname, '..', 'data', 'characterai')
+const MAINTENANCE_FILE = path.join(DIR, 'maintenance.json')
 const MODEL = process.env.CHARAI_MODEL || 'gemini-3.5-flash-lite'
 const PREFIX = process.env.BOT_PREFIX || '.'
 const MEMORY_TURNS = 12                          // last 12 exchanges per chat (user + bot)
 const MAX_CHATS = 300                            // oldest chats are forgotten beyond this
 const TYPING_MS = Math.max(0, Number(process.env.CHARAI_TYPING_SECONDS ?? 3)) * 1000
 const SEEN_TTL_MS = 10 * 60 * 1000
+const WEEKLY_CLEANUP_MS = 7 * 24 * 60 * 60 * 1000
+const CLEANUP_CHECK_MS = 6 * 60 * 60 * 1000
 const FAILED_REPLY = "I can't reply right now, please try again in a moment."
 const DEFAULT_CHARACTER = 'a playful rage-bait troll'
 const MIN_EMOJIS = 2
@@ -100,6 +104,8 @@ const memoryFile = phone => path.join(DIR, `memory-${digits(phone) || 'unknown'}
 
 const configs = new Map()   // phone → { enabled, character, updatedAt }
 const memories = new Map()  // phone → { chats: { jid: [{ role, text, t }] } }
+let cleanupRunning = false
+let cleanupPromise = null
 
 function getConfig(phone) {
   const key = digits(phone)
@@ -114,7 +120,9 @@ function saveConfig(phone, cfg) {
 
 function getMemory(phone) {
   const key = digits(phone)
-  if (!memories.has(key)) memories.set(key, readJson(memoryFile(key), { chats: {} }))
+  if (!memories.has(key)) {
+    memories.set(key, cleanupRunning ? { chats: {} } : readJson(memoryFile(key), { chats: {} }))
+  }
   return memories.get(key)
 }
 
@@ -131,12 +139,94 @@ function remember(phone, jid, role, text) {
       .slice(0, keys.length - MAX_CHATS)
       .forEach(k => delete mem.chats[k])
   }
-  writeJson(memoryFile(phone), mem)
+  // During the weekly disk sweep, keep new turns in memory and flush them after
+  // old history is gone. This prevents both lost replies and reloading old data.
+  if (!cleanupRunning) writeJson(memoryFile(phone), mem)
 }
 
 function clearMemory(phone) {
   memories.set(digits(phone), { chats: {} })
-  writeJson(memoryFile(phone), { chats: {} })
+  if (!cleanupRunning) writeJson(memoryFile(phone), { chats: {} })
+}
+
+async function writeJsonAsync(file, data) {
+  await fs.promises.mkdir(DIR, { recursive: true })
+  const temp = `${file}.tmp`
+  await fs.promises.writeFile(temp, JSON.stringify(data, null, 2))
+  await fs.promises.rename(temp, file)
+}
+
+function pruneRuntimeCaches(now = Date.now()) {
+  for (const [id, seenAt] of seen) {
+    if (now - seenAt > SEEN_TTL_MS) seen.delete(id)
+  }
+  for (const [key, usableAt] of keyCooldown) {
+    if (usableAt <= now) keyCooldown.delete(key)
+  }
+}
+
+async function cleanupWeeklyMemory(now = Date.now()) {
+  if (cleanupPromise) return cleanupPromise
+
+  cleanupPromise = (async () => {
+    const state = readJson(MAINTENANCE_FILE, null)
+    const lastCleanupAt = Number(state?.lastCleanupAt)
+
+    // Start the seven-day clock without deleting existing history on first boot.
+    if (!Number.isFinite(lastCleanupAt) || lastCleanupAt <= 0) {
+      await writeJsonAsync(MAINTENANCE_FILE, { lastCleanupAt: now })
+      return { initialized: true, deleted: 0 }
+    }
+    if (now - lastCleanupAt < WEEKLY_CLEANUP_MS) return { skipped: true, deleted: 0 }
+
+    // Let active replies finish. The periodic checker will retry later.
+    if (queues.size > 0) return { deferred: true, deleted: 0 }
+
+    cleanupRunning = true
+    memories.clear()
+    let deleted = 0
+    try {
+      let names = []
+      try {
+        names = await fs.promises.readdir(DIR)
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err
+      }
+
+      // Only remove Character AI conversation-history files and stale atomic-write
+      // leftovers. Config files, maintenance state, auth, and other databases stay.
+      const memoryFiles = names.filter(name => /^memory-(?:\d+|unknown)\.json(?:\.tmp)?$/.test(name))
+      const failures = []
+      await Promise.all(memoryFiles.map(async name => {
+        const file = path.join(DIR, name)
+        try {
+          const stat = await fs.promises.lstat(file)
+          if (!stat.isFile()) return
+          if (name.endsWith('.tmp') && now - stat.mtimeMs < CLEANUP_CHECK_MS) return
+          await fs.promises.unlink(file)
+          deleted++
+        } catch (err) {
+          if (err.code !== 'ENOENT') failures.push(err)
+        }
+      }))
+      if (failures.length) throw failures[0]
+
+      pruneRuntimeCaches(now)
+      await writeJsonAsync(MAINTENANCE_FILE, { lastCleanupAt: now })
+      cleanupRunning = false
+
+      // Preserve any conversations that arrived while filesystem cleanup awaited.
+      for (const [phone, memory] of memories) writeJson(memoryFile(phone), memory)
+      console.log(`[CHARAI] weekly memory cleanup complete (${deleted} files removed; configs retained)`)
+      return { deleted }
+    } catch (err) {
+      cleanupRunning = false
+      for (const [phone, memory] of memories) writeJson(memoryFile(phone), memory)
+      throw err
+    }
+  })().finally(() => { cleanupPromise = null })
+
+  return cleanupPromise
 }
 
 // ── the persona ──────────────────────────────────────────────────────────────
@@ -281,7 +371,7 @@ function enqueue(jid, task) {
 const seen = new Map()
 function alreadySeen(id) {
   const now = Date.now()
-  for (const [k, t] of seen) if (now - t > SEEN_TTL_MS) seen.delete(k)
+  pruneRuntimeCaches(now)
   if (seen.has(id)) return true
   seen.set(id, now)
   return false
@@ -377,10 +467,18 @@ function wipe(phone) {
   }
 }
 
+// Run once at startup, then check periodically. The unref'ed timer never keeps
+// Node alive; cleanup is asynchronous and is deferred while AI replies are queued.
+const cleanupTimer = setInterval(() => {
+  cleanupWeeklyMemory().catch(err => console.error(`[CHARAI] weekly cleanup failed: ${err.message}`))
+}, CLEANUP_CHECK_MS)
+cleanupTimer.unref?.()
+cleanupWeeklyMemory().catch(err => console.error(`[CHARAI] weekly cleanup failed: ${err.message}`))
+
 module.exports = {
   attach, wipe, phoneOf,
   getConfig, saveConfig, clearMemory, getMemory,
   loadKeys, persona, parseReply, ensureEmojis, handle,
   DEFAULT_CHARACTER, MOOD_EMOJIS, MIN_EMOJIS,
-  TYPING_MS, MODEL,
+  TYPING_MS, MODEL, WEEKLY_CLEANUP_MS,
 }
