@@ -10,12 +10,12 @@ const H = 390
 const FRAMES = 32
 const DELAY = 11 // hundredths of a second
 const palette = [
-  [7, 12, 17], [11, 20, 26], [17, 31, 38], [30, 54, 60],
-  [32, 232, 151], [18, 143, 112], [72, 212, 234], [158, 133, 250],
-  [231, 244, 241], [137, 164, 161], [247, 190, 88], [13, 43, 39],
-  [246, 102, 110], [42, 67, 71], [95, 125, 120], [255, 255, 255],
+  [8, 7, 14], [17, 12, 23], [29, 17, 37], [67, 34, 68],
+  [255, 78, 204], [178, 35, 135], [255, 159, 226], [157, 103, 241],
+  [252, 244, 251], [183, 157, 183], [255, 193, 126], [52, 17, 48],
+  [255, 98, 145], [42, 25, 47], [124, 91, 126], [255, 255, 255],
 ]
-const C = { bg: 0, panel: 1, panel2: 2, border: 3, mint: 4, green: 5,
+const C = { bg: 0, panel: 1, panel2: 2, border: 3, pink: 4, rose: 5,
   cyan: 6, purple: 7, white: 8, muted: 9, amber: 10, deep: 11,
   red: 12, grid: 13, quiet: 14, pure: 15 }
 
@@ -111,7 +111,7 @@ class Canvas {
   dotGrid(x, y, w, h, spacing = 22) {
     for (let yy = y + 10; yy < y + h; yy += spacing) for (let xx = x + 10; xx < x + w; xx += spacing) this.pixel(xx, yy, C.grid)
   }
-  panel(x, y, w, h, title, accent = C.mint) {
+  panel(x, y, w, h, title, accent = C.pink) {
     this.rect(x, y, w, h, C.panel); this.outline(x, y, w, h, C.border)
     this.rect(x + 1, y + 1, w - 2, 25, C.panel2)
     this.rect(x + 10, y + 8, 3, 9, accent)
@@ -120,9 +120,9 @@ class Canvas {
 }
 
 function roundRect(c, x, y, w, h, color) { c.rect(x, y, w, h, color); c.outline(x, y, w, h, C.border) }
-function drawNode(c, x, y, label, frame, color = C.mint, radius = 5) {
+function drawNode(c, x, y, label, frame, color = C.pink, radius = 5) {
   const pulse = Math.floor(frame / 4) % 2 === 0
-  c.circle(x, y, radius + (pulse ? 2 : 0), C.green, false)
+  c.circle(x, y, radius + (pulse ? 2 : 0), C.rose, false)
   c.circle(x, y, radius, C.panel, true); c.circle(x, y, 2, color, true)
   c.text(label, x - Math.min(label.length * 3, 42), y + 12, C.muted, 1, 84)
 }
@@ -138,68 +138,73 @@ function makeFrame(mode, frame) {
   for (let x = 6; x < W; x += 24) c.line(x, 0, x, H, C.panel)
   for (let y = 6; y < H; y += 24) c.line(0, y, W, y, C.panel)
   c.rect(18, 14, 864, 38, C.panel); c.outline(18, 14, 864, 38, C.border)
-  c.circle(33, 33, 4, C.red, true); c.circle(48, 33, 4, C.amber, true); c.circle(63, 33, 4, C.mint, true)
-  c.text('ZEN X  /  BOT CONTROL PANEL', 80, 27, C.white, 2)
-  c.text('VISUAL LOOP  -  NOT LIVE TELEMETRY', 608, 29, C.muted, 1)
+  c.circle(33, 33, 4, C.red, true); c.circle(48, 33, 4, C.amber, true); c.circle(63, 33, 4, C.pink, true)
+  c.text('ZEN X  /  MULTI SESSION SIGNAL CORE', 80, 27, C.white, 2)
+  c.text('CONNECTED SYSTEM FLOW', 688, 29, C.muted, 1)
 
   c.rect(18, 64, 145, 308, C.panel); c.outline(18, 64, 145, 308, C.border)
   c.text('MODULES', 30, 76, C.muted)
-  const rows = [['CORE', 'core'], ['SESSIONS', 'sessions'], ['COMMANDS', 'commands'], ['PAIRING', 'pairing']]
+  const rows = [
+    ['CORE', 'core'], ['SESSIONS', 'sessions'], ['INITIATE', 'initiation'],
+    ['COMMANDS', 'commands'], ['OUTPUT', 'output'],
+  ]
   rows.forEach(([label, key], i) => {
-    const y = 101 + i * 34
-    if (key === mode) { c.rect(26, y - 5, 129, 25, C.deep); c.rect(26, y - 5, 2, 25, C.mint) }
-    c.circle(36, y + 5, 2, key === mode ? C.mint : C.quiet, true)
+    const y = 96 + i * 28
+    if (key === mode) { c.rect(26, y - 5, 129, 25, C.deep); c.rect(26, y - 5, 2, 25, C.pink) }
+    c.circle(36, y + 5, 2, key === mode ? C.pink : C.quiet, true)
     c.text(label, 46, y, key === mode ? C.white : C.muted)
   })
   c.line(29, 251, 152, 251, C.border)
-  c.text('ANIMATION', 30, 265, C.muted)
-  c.text('FRAME', 30, 284, C.quiet)
-  c.text(String(frame + 1).padStart(2, '0') + ' / ' + FRAMES, 30, 300, C.mint)
-  for (let i = 0; i < 14; i++) c.rect(30 + i * 8, 326, 5, 3, (i + frame) % 14 < 9 ? C.green : C.border)
-  c.text('ZENX', 30, 346, C.quiet)
+  c.text('SIGNAL LINES', 30, 265, C.muted)
+  c.text('ROUTING', 30, 284, C.quiet)
+  for (let i = 0; i < 14; i++) c.rect(30 + i * 8, 300, 5, 4, (i + frame) % 14 < 9 ? C.pink : C.border)
+  c.text('EVENT FLOW', 30, 326, C.quiet)
+  for (let i = 0; i < 14; i++) c.rect(30 + i * 8, 342, 5, 4, (i * 2 + frame + 3) % 14 < 8 ? C.cyan : C.border)
+  c.text('ZEN X', 30, 359, C.muted)
 
   const heading = {
     core: 'CORE ROUTING MAP', sessions: 'MULTI SESSION MESH',
-    commands: 'COMMAND EVENT PIPELINE', pairing: 'PAIRING HANDSHAKE',
+    initiation: 'SESSION INITIATION FLOW',
+    commands: 'COMMAND EVENT PIPELINE', output: 'MESSAGE RESPONSE ROUTE',
   }[mode]
-  c.panel(176, 64, 456, 208, heading, mode === 'pairing' ? C.cyan : C.mint)
+  c.panel(176, 64, 456, 208, heading, mode === 'output' ? C.cyan : C.pink)
   c.dotGrid(180, 92, 448, 178)
-  c.panel(642, 64, 238, 208, 'ACTIVITY SIGNAL', C.cyan)
-  c.panel(176, 282, 704, 90, 'EVENT STREAM', C.purple)
+  c.panel(642, 64, 238, 208, 'SIGNAL CHANNELS', C.cyan)
+  c.panel(176, 282, 704, 90, 'COMMAND AND EVENT FLOW', C.purple)
 
   const graph = { core: [[210,135],[286,119],[369,150],[447,111],[524,148],[592,118],[276,218],[391,222],[510,216]],
     sessions: [[207,165],[277,112],[363,124],[442,106],[526,128],[594,178],[530,228],[421,236],[311,224]],
     commands: [[211,139],[294,139],[379,139],[467,112],[467,169],[555,112],[555,169],[593,224]],
-    pairing: [[210,174],[313,174],[416,174],[519,174],[600,174]] }[mode]
+    initiation: [[210,174],[313,174],[416,174],[519,174],[600,174]],
+    output: [[210,174],[313,174],[416,174],[519,174],[600,174]] }[mode]
   let edges
-  if (mode === 'pairing') edges = [[0,1],[1,2],[2,3],[3,4]]
+  if (mode === 'output' || mode === 'initiation') edges = [[0,1],[1,2],[2,3],[3,4]]
   else if (mode === 'commands') edges = [[0,1],[1,2],[2,3],[2,4],[3,5],[4,6],[5,7],[6,7]]
   else edges = [[0,1],[1,2],[2,3],[3,4],[4,5],[2,7],[7,6],[7,8],[4,8],[1,6],[3,8]]
   edges.forEach(([a, b], i) => {
     const p = graph[a], q = graph[b]
-    c.line(p[0], p[1], q[0], q[1], i % 3 === 0 ? C.border : C.green)
-    packet(c, p, q, frame * 9 + i * 17, i % 3 === 0 ? C.cyan : C.mint)
+    c.line(p[0], p[1], q[0], q[1], i % 3 === 0 ? C.border : C.rose)
+    packet(c, p, q, frame * 9 + i * 17, i % 3 === 0 ? C.cyan : C.pink)
   })
-  if (mode === 'pairing') {
-    const labels = ['PHONE', 'PAIR CODE', 'VERIFY', 'WHATSAPP', 'BOT LINK']
-    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i], frame, i === 2 ? C.cyan : C.mint, 7))
-    // A drawn, abstract pairing tile avoids presenting a usable/real QR code.
-    const qx = 453, qy = 199
-    c.rect(qx, qy, 22, 22, C.panel); c.outline(qx, qy, 22, 22, C.cyan)
-    c.rect(qx + 4, qy + 4, 5, 5, C.cyan); c.rect(qx + 13, qy + 4, 5, 5, C.cyan)
-    c.rect(qx + 4, qy + 13, 5, 5, C.cyan); c.rect(qx + 13, qy + 13, 5, 5, frame % 2 ? C.purple : C.mint)
+  if (mode === 'output' || mode === 'initiation') {
+    const labels = mode === 'initiation'
+      ? ['REQUEST', 'SESSION', 'SOCKET', 'EVENTS', 'CORE']
+      : ['MESSAGE', 'DISPATCH', 'COMMAND', 'FORMAT', 'REPLY']
+    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i], frame, i === 2 ? C.cyan : C.pink, 7))
+    const echoX = 212 + (frame * 11) % 385
+    c.line(echoX, 112, echoX, 238, C.pink)
   } else if (mode === 'commands') {
     const labels = ['MESSAGE', 'HANDLER', 'QUEUE', 'GROUP', 'MEDIA', 'FAST LANE', 'HEAVY LANE', 'REPLY']
-    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i] || 'ROUTE', frame, i === 2 ? C.cyan : C.mint, 5))
+    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i] || 'ROUTE', frame, i === 2 ? C.cyan : C.pink, 5))
     const cursorX = 200 + (frame * 13) % 408
     c.line(cursorX, 102, cursorX, 240, C.quiet)
   } else {
     const labels = mode === 'sessions'
       ? ['HUB','NODE 01','NODE 02','NODE 03','NODE 04','NODE 05','NODE 06','NODE 07','NODE 08']
       : ['CORE','SOCKET','EVENTS','ROUTES','QUEUE','MEDIA','CACHE','GROUPS','TOOLS']
-    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i], frame, i % 4 === 0 ? C.cyan : C.mint, i === 0 ? 7 : 5))
+    graph.forEach((p, i) => drawNode(c, p[0], p[1], labels[i], frame, i % 4 === 0 ? C.cyan : C.pink, i === 0 ? 7 : 5))
     const scanX = 190 + (frame * 12) % 432
-    c.line(scanX, 100, scanX, 254, C.green)
+    c.line(scanX, 100, scanX, 254, C.rose)
   }
 
   const signals = [
@@ -207,34 +212,34 @@ function makeFrame(mode, frame) {
   ]
   signals.forEach(([x, y, label], i) => {
     const active = (frame + i * 3) % 8 < 6
-    c.circle(858, y, 3, active ? (i === 1 ? C.cyan : C.mint) : C.border, true)
+    c.circle(858, y, 3, active ? (i === 1 ? C.cyan : C.pink) : C.border, true)
     c.text(label, 654, y - 4, C.muted, 1)
     const count = 9
     for (let b = 0; b < count; b++) {
       const h = 4 + ((frame * (i + 2) + b * 7 + i * 3) % 10)
-      c.rect(654 + b * 22, y + 26 - h, 12, h, b < (frame + i) % 10 ? (i === 1 ? C.cyan : C.green) : C.border)
+      c.rect(654 + b * 22, y + 26 - h, 12, h, b < (frame + i) % 10 ? (i === 1 ? C.cyan : C.rose) : C.border)
     }
   })
 
   const events = [
-    '[00:01]  SOCKET  >  EVENT ROUTED',
-    '[00:02]  COMMAND  >  HANDLER READY',
-    '[00:03]  SESSION  >  LINK FLOW',
-    '[00:04]  WORKER  >  TASK QUEUED',
-    '[00:05]  ROUTER  >  MESSAGE SENT',
-    '[00:06]  MODULE  >  RESPONSE BUILT',
+    'SOCKET  >  MESSAGE RECEIVED',
+    'ROUTER  >  HANDLER SELECTED',
+    'COMMAND  >  EXECUTION FLOW',
+    'SESSION  >  EVENT ROUTED',
+    'HANDLER  >  RESPONSE BUILT',
+    'CORE  >  MESSAGE DELIVERED',
   ]
   const offset = Math.floor(frame / 4) % events.length
   for (let row = 0; row < 2; row++) {
     const idx = (offset + row) % events.length
     const y = 313 + row * 25
-    c.circle(193, y + 4, 2, row === 0 ? C.mint : C.cyan, true)
+    c.circle(193, y + 4, 2, row === 0 ? C.pink : C.cyan, true)
     c.text(events[idx], 205, y, row === 0 ? C.white : C.muted, 1)
-    c.text(row === 0 ? 'FLOW' : 'MODULE', 806, y, row === 0 ? C.mint : C.cyan, 1)
+    c.text(row === 0 ? 'FLOW' : 'MODULE', 806, y, row === 0 ? C.pink : C.cyan, 1)
   }
   // A small moving caret makes the terminal feel active without claiming
   // that the image is reporting real server state.
-  if (frame % 8 < 5) c.rect(786, 351, 7, 2, C.mint)
+  if (frame % 8 < 5) c.rect(786, 351, 7, 2, C.pink)
   return c.p
 }
 
@@ -285,7 +290,8 @@ function makeGif(mode) {
 
 const panels = [
   ['zenx-core.gif', 'core'], ['zenx-sessions.gif', 'sessions'],
-  ['zenx-commands.gif', 'commands'], ['zenx-pairing.gif', 'pairing'],
+  ['zenx-initiation.gif', 'initiation'], ['zenx-commands.gif', 'commands'],
+  ['zenx-output.gif', 'output'],
 ]
 const out = path.join(__dirname)
 for (const [file, mode] of panels) {
