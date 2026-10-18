@@ -8,6 +8,7 @@ const INVISIBLE = '\u200B'.repeat(4000)
 module.exports = {
   pattern: '.tagall',
   aliases: ['tagall'],
+  category: 'group',
 
   run: async ({ sock, from, msg, args, isOwner, isAdmin }) => {
 

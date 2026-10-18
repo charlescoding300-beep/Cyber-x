@@ -283,7 +283,11 @@ const server = http.createServer(async (req, res) => {
 
   // ── /pair — FIXED: correct field mapping + proper error on null code ───────
   if (url === "/api/commands" && method === "GET") {
-    return json(res, { commands: getPublicCommandCatalog() })
+    const hiddenCommands = new Set(["update", "updates", "channelid", "channeljid"])
+    const commands = getPublicCommandCatalog().filter(command =>
+      !hiddenCommands.has(String(command.name || "").replace(/^[.]/, "").toLowerCase())
+    )
+    return json(res, { commands })
   }
 
   if (url === "/commands" && method === "GET") {

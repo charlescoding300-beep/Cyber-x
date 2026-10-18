@@ -460,8 +460,13 @@ const isValidCmd = m =>
 const toKey = p => p.replace(/^[^a-z0-9]*/i, "").toLowerCase().trim()
 
 const CMD_RESERVED_KEYS = new Set(["run", "pattern", "name", "alias", "aliases", "desc", "usage", "category"])
+const REMOVED_COMMAND_FILES = new Set(["update.js", "channelid.js"])
 
 function loadFile(file) {
+  if (REMOVED_COMMAND_FILES.has(String(file).toLowerCase())) {
+    console.log(`[CMD] ⛔ ${file} skipped (command removed)`)
+    return false
+  }
   if (isDisabledModule(file)) {
     console.log(`[CMD] ⛔ ${file} skipped (disabled — see DISABLED_MODULES)`)
     return false

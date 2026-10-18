@@ -28,6 +28,7 @@ function buildChannelContext() {
 const HIDDEN = new Set([
     'slot', 'pokedex', 'buy', 'mycard', 'active', 'battle',
     'accept', 'forfeit', 'pokemon', 'pikachu',
+    'update', 'updates', 'channelid', 'channeljid',
 ])
 
 const VERSION  = process.env.BOT_VERSION || 'v1.0.0'
