@@ -1,22 +1,31 @@
 'use strict'
+// ════════════════════════════════════════════════════════════════════
+//  commands/8ball.js — .8ball <question>   (category: fun)
+//  Each answer is drawn without repeats until the whole list has been used.
+// ════════════════════════════════════════════════════════════════════
+const { ANSWERS } = require('../core/funpools')
+const { createBag, cleanLine } = require('../core/funkit')
 
-const ANSWERS = [
-  'Yes - go for it.', 'It looks promising.', 'Most likely.', 'Ask again in a little while.',
-  'I cannot tell yet.', 'The signs are mixed.', 'Probably not.', 'It does not look likely.',
-  'No - trust your judgment.'
-]
+const bag = createBag(ANSWERS)
 
 module.exports = {
-  pattern: '8ball',
-  alias: ['magic8ball'],
-  category: 'fun',
+  name: '8ball',
+  aliases: ['eightball'],
   desc: 'Ask the magic 8-ball a question',
-  usage: '.8ball <question>',
-  run: async ({ sock, from, msg, text }) => {
-    if (!String(text || '').trim()) {
-      return sock.sendMessage(from, { text: 'Ask a question first. Example: .8ball Will we win?', quoted: msg })
+  usage: '.8ball <your question>',
+  category: 'fun',
+
+  run: async ({ sock, from, msg, args, text }) => {
+    const question = cleanLine(text || (Array.isArray(args) ? args.join(' ') : ''))
+    if (!question) {
+      return sock.sendMessage(from, { text: 'Usage: *.8ball <your question>*' }, { quoted: msg })
     }
-    const answer = ANSWERS[Math.floor(Math.random() * ANSWERS.length)]
-    return sock.sendMessage(from, { text: 'The 8-ball says: ' + answer, quoted: msg })
-  }
+    const answer = bag.next()
+    const body =
+      '╭───「 8BALL 」───╮\n' +
+      `│ 🎱 Question: ${question}\n` +
+      `│ 🔮 Answer: ${answer}.\n` +
+      '╰─────────────────╯'
+    return sock.sendMessage(from, { text: body }, { quoted: msg })
+  },
 }

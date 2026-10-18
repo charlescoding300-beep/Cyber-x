@@ -1,93 +1,187 @@
 'use strict'
 
 const axios = require('axios')
-const yts   = require('yt-search')
+const playCommand = require('./play')
 
+const { getVideo, downloadVideoViaYtDlp } = playCommand.youtubeHelpers
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
+const MAX_VIDEO_BYTES = 64 * 1024 * 1024
+const API_TIMEOUT_MS = 25_000
 
 const AXIOS_DEFAULTS = {
-  timeout: 60000,
+  timeout: API_TIMEOUT_MS,
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
+    Accept: 'application/json, video/mp4, */*',
   },
 }
 
-async function tryRequest(getter, attempts = 3) {
-  let lastError
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      return await getter()
-    } catch (err) {
-      lastError = err
-      if (attempt < attempts) await new Promise(r => setTimeout(r, 1000 * attempt))
-    }
+function isYouTubeUrl(value) {
+  try {
+    const host = new URL(value).hostname.toLowerCase()
+    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com')
+  } catch {
+    return false
   }
-  throw lastError
 }
 
-// ── API #1 — EliteProTech ─────────────────────────────────────────
-async function getEliteProTechVideoByUrl(youtubeUrl) {
+function isMp4(buffer) {
+  return Buffer.isBuffer(buffer) && buffer.length >= 2048 && buffer.slice(4, 8).toString('latin1') === 'ftyp'
+}
+
+async function getEliteProTechVideoByUrl(youtubeUrl, signal) {
   const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
+  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
   if (res?.data?.success && res?.data?.downloadURL) {
     return { download: res.data.downloadURL, title: res.data.title }
   }
-  throw new Error('EliteProTech ytdown returned no download')
+  throw new Error('EliteProTech returned no video link')
 }
 
-// ── API #2 — Yupra ─────────────────────────────────────────────────
-async function getYupraVideoByUrl(youtubeUrl) {
+async function getYupraVideoByUrl(youtubeUrl, signal) {
   const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
+  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
   if (res?.data?.success && res?.data?.data?.download_url) {
-    return {
-      download: res.data.data.download_url,
-      title: res.data.data.title,
-      thumbnail: res.data.data.thumbnail,
-    }
+    return { download: res.data.data.download_url, title: res.data.data.title }
   }
-  throw new Error('Yupra returned no download')
+  throw new Error('Yupra returned no video link')
 }
 
-// ── API #3 — Okatsu ────────────────────────────────────────────────
-async function getOkatsuVideoByUrl(youtubeUrl) {
+async function getOkatsuVideoByUrl(youtubeUrl, signal) {
   const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
-  // shape: { status, creator, url, result: { status, title, mp4 } }
+  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
   if (res?.data?.result?.mp4) {
     return { download: res.data.result.mp4, title: res.data.result.title }
   }
-  throw new Error('Okatsu ytmp4 returned no mp4')
+  throw new Error('Okatsu returned no video link')
 }
 
-// ── API #4 — Keith ─────────────────────────────────────────────────
-async function getKeithVideoByUrl(youtubeUrl) {
+async function getKeithVideoByUrl(youtubeUrl, signal) {
   const apiUrl = `https://apis-keith.vercel.app/download/dlmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
+  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
   if (res?.data?.status && res?.data?.result?.downloadUrl) {
     return { download: res.data.result.downloadUrl, title: res.data.result.title }
   }
-  throw new Error('Keith returned no download')
+  throw new Error('Keith returned no video link')
 }
 
-function fmtViews(n) {
-  if (!n) return 'N/A'
+async function fetchMp4(url, signal) {
+  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) {
+    throw new Error('video source returned an invalid download URL')
+  }
+
+  const response = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 120_000,
+    maxContentLength: MAX_VIDEO_BYTES,
+    maxBodyLength: MAX_VIDEO_BYTES,
+    signal,
+    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'video/mp4, application/octet-stream, */*' },
+  })
+  const buffer = Buffer.from(response.data)
+  if (buffer.length > MAX_VIDEO_BYTES) throw new Error('video exceeds the 64 MB upload limit')
+  if (!isMp4(buffer)) throw new Error('download URL did not return a valid MP4 video')
+  return buffer
+}
+
+async function downloadFromApis(youtubeUrl) {
+  const sources = [
+    { name: 'EliteProTech', get: getEliteProTechVideoByUrl },
+    { name: 'Yupra', get: getYupraVideoByUrl },
+    { name: 'Okatsu', get: getOkatsuVideoByUrl },
+    { name: 'Keith', get: getKeithVideoByUrl },
+  ]
+  const controller = new AbortController()
+  const pending = new Map()
+  const failures = []
+
+  sources.forEach((source, index) => {
+    pending.set(index, source.get(youtubeUrl, controller.signal).then(
+      data => ({ index, data }),
+      error => ({ index, error }),
+    ))
+  })
+
+  try {
+    while (pending.size) {
+      const result = await Promise.race(pending.values())
+      pending.delete(result.index)
+      const source = sources[result.index]
+
+      if (result.error) {
+        failures.push(`${source.name}: ${result.error.message}`)
+        console.log(`[VIDEO] ${source.name} failed: ${result.error.message}`)
+        continue
+      }
+
+      try {
+        const buffer = await fetchMp4(result.data.download, controller.signal)
+        console.log(`[VIDEO] ${source.name} returned a valid MP4 (${(buffer.length / 1e6).toFixed(1)} MB)`)
+        return { buffer, title: result.data.title, via: source.name }
+      } catch (error) {
+        failures.push(`${source.name}: ${error.message}`)
+        console.log(`[VIDEO] ${source.name} video failed: ${error.message}`)
+      }
+    }
+  } finally {
+    controller.abort()
+  }
+
+  throw new Error(failures.join(' | ') || 'video APIs returned no result')
+}
+
+async function downloadVideo(youtubeUrl) {
+  let apiError
+  try {
+    return await downloadFromApis(youtubeUrl)
+  } catch (error) {
+    apiError = error
+    console.log(`[VIDEO] MP4 APIs failed; trying the same yt-dlp setup as .play: ${error.message}`)
+  }
+
+  try {
+    const result = await downloadVideoViaYtDlp(youtubeUrl)
+    return { buffer: result.buf, title: result.title, via: result.via || 'yt-dlp' }
+  } catch (error) {
+    throw new Error(`Video APIs failed (${apiError.message}); yt-dlp failed (${error.message})`)
+  }
+}
+
+function fmtViews(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return 'N/A'
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B 🔥`
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M 🔥`
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
-  return n.toLocaleString()
+  return n.toLocaleString('en-US')
+}
+
+async function sendVideoInfo(sock, from, msg, video, youtubeUrl) {
+  const title = String(video.title || 'YouTube video').replace(/[\r\n]+/g, ' ').slice(0, 180)
+  const thumbnail = video.thumbnail || null
+  const card = `🎬 *${title}*\n\n📺 *Channel:* ${video.author?.name || video.author || 'Unknown'}\n⏱️ *Duration:* ${video.timestamp || 'N/A'}\n👁️ *Views:* ${fmtViews(video.views)}\n🔗 ${youtubeUrl}\n\n⬇️ Downloading video…\n\n${CREDIT}`
+
+  if (thumbnail) {
+    try {
+      return await sock.sendMessage(from, { image: { url: thumbnail }, caption: card }, { quoted: msg })
+    } catch (error) {
+      console.log(`[VIDEO] thumbnail send failed: ${error.message}`)
+    }
+  }
+  return sock.sendMessage(from, { text: card }, { quoted: msg })
 }
 
 module.exports = {
   pattern: 'video',
   alias: ['ytv', 'ytmp4', 'ytvideo', 'ytvid'],
   category: 'download',
-  desc: 'Download video from YouTube',
-  usage: '.video <video name or URL>',
+  desc: 'Download a YouTube video',
+  usage: '.video <video name or YouTube URL>',
 
-  run: async ({ sock, from, msg, args }) => {
-    sock.sendMessage(from, { react: { text: '📺', key: msg.key } }).catch(() => {})
+  run: async ({ sock, from, msg, args = [] }) => {
+    if (msg?.key) {
+      void sock.sendMessage(from, { react: { text: '📺', key: msg.key } }).catch(() => {})
+    }
 
     const query = args.join(' ').trim()
     if (!query) {
@@ -96,127 +190,45 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    const searchMsg = await sock.sendMessage(from, {
-      text: `🔎 *Searching:* ${query}...`,
-    }, { quoted: msg })
-
+    let searchMsg
     try {
-      // ── 1. Resolve a YouTube video (link or search) ──────────────
-      let v
-      if (query.includes('youtube.com') || query.includes('youtu.be')) {
-        v = { url: query, title: query, thumbnail: '', timestamp: '', views: 0, author: { name: '' }, ago: '' }
-      } else {
-        const search = await yts(query)
-        if (!search?.videos?.length) {
-          sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-          return sock.sendMessage(from, {
-            text: `❌ No results found for *${query}*\n\n${CREDIT}`,
-          }, { quoted: msg })
-        }
-        v = search.videos[0]
+      searchMsg = await sock.sendMessage(from, { text: `🔎 *Searching YouTube:* ${query}` }, { quoted: msg })
+      const video = await getVideo(query)
+      if (!video?.url) {
+        if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+        return sock.sendMessage(from, { text: `❌ No YouTube results found for *${query}*.\n\n${CREDIT}` }, { quoted: msg })
       }
 
-      const ytUrl = v.url
-      const ytId  = (ytUrl.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/) || [])[1]
-      const thumb = v.thumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : null)
+      const youtubeUrl = video.url
+      if (!isYouTubeUrl(youtubeUrl)) throw new Error('The search result was not a valid YouTube video link')
 
-      const card =
-`┏━━━━━━━━━━━━━━━━━━━━━━━┓
-   🎬 *𝘾𝙔𝘽𝙀𝙍 𝙓  𝙑𝙄𝘿𝙀𝙊* 🎬
-┗━━━━━━━━━━━━━━━━━━━━━━━┛
+      // Start downloading as soon as the search returns, while the info card is sent.
+      const downloadPromise = downloadVideo(youtubeUrl).then(
+        result => ({ result }),
+        error => ({ error }),
+      )
+      const infoMsg = await sendVideoInfo(sock, from, msg, video, youtubeUrl)
+      if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
 
-🎞 *Title*    » ${v.title}
-📺 *Channel*  » ${v.author?.name || 'Unknown'}
-⏱️ *Duration* » ${v.timestamp || 'N/A'}
-👁️ *Views*    » ${fmtViews(v.views)}
-📅 *Uploaded* » ${v.ago || 'N/A'}
-🔗 *Link*     » ${ytUrl}
+      const outcome = await downloadPromise
+      if (outcome.error) throw outcome.error
+      const result = outcome.result
+      const title = String(result.title || video.title || 'video').replace(/[\r\n]+/g, ' ').slice(0, 180)
+      const safeName = title.replace(/[^\w\s-]/g, '').trim().slice(0, 100) || 'video'
 
-▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-⬇️ *Downloading video...*
-▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-${CREDIT}`
-
-      // ── 2. Send thumbnail + card immediately ──────────────────────
-      const infoMsg = await (async () => {
-        try {
-          if (thumb) {
-            return await sock.sendMessage(from, {
-              image: { url: thumb }, caption: card,
-            }, { quoted: msg })
-          }
-        } catch {}
-        return sock.sendMessage(from, { text: card }, { quoted: msg })
-      })()
-
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-
-      // ── 3. Validate it's actually a YouTube URL ───────────────────
-      const urlCheck = ytUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi)
-      if (!urlCheck) {
-        throw new Error('This is not a valid YouTube link!')
-      }
-
-      // ── 4. Try each API in order: EliteProTech → Yupra → Okatsu → Keith ──
-      const apiMethods = [
-        { name: 'EliteProTech', method: () => getEliteProTechVideoByUrl(ytUrl) },
-        { name: 'Yupra', method: () => getYupraVideoByUrl(ytUrl) },
-        { name: 'Okatsu', method: () => getOkatsuVideoByUrl(ytUrl) },
-        { name: 'Keith', method: () => getKeithVideoByUrl(ytUrl) },
-      ]
-
-      let videoData, downloadSuccess = false
-
-      for (const api of apiMethods) {
-        try {
-          videoData = await api.method()
-          const check = videoData.download || videoData.dl || videoData.url
-          if (!check) {
-            console.log(`[VIDEO] ${api.name} returned no download URL, trying next...`)
-            continue
-          }
-          console.log(`[VIDEO] ✅ ${api.name} resolved`)
-          downloadSuccess = true
-          break
-        } catch (apiErr) {
-          console.log(`[VIDEO] ❌ ${api.name}: ${apiErr.message}`)
-        }
-      }
-
-      if (!downloadSuccess || !videoData) {
-        throw new Error('All download sources failed. The content may be unavailable or blocked in your region.')
-      }
-
-      // ── 5. Send video directly using the resolved URL (no buffer
-      //      download — matches Knight Bot MD's pattern: WhatsApp
-      //      streams it straight from the source CDN) ───────────────
-      const finalUrl = videoData.download || videoData.dl || videoData.url
-      const safeName = (videoData.title || v.title || 'video').replace(/[^\w\s-]/g, '')
-
-      await sock.sendMessage(from, {
-        video: { url: finalUrl },
+      // Send the downloaded MP4 buffer immediately; WhatsApp no longer has to
+      // fetch a third-party URL itself after the command finishes.
+      return await sock.sendMessage(from, {
+        video: result.buffer,
         mimetype: 'video/mp4',
         fileName: `${safeName}.mp4`,
-        caption: `🎬 *${videoData.title || v.title || 'Video'}*\n\n${CREDIT}`,
-      }, { quoted: infoMsg })
-
-    } catch (e) {
-      sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      console.error('[VIDEO]', e.message)
-
-      let errorMessage = `❌ Failed to download video.`
-      if (e.message?.includes('blocked')) {
-        errorMessage = '❌ Download blocked. The content may be unavailable in your region or due to legal restrictions.'
-      } else if (e.response?.status === 451 || e.status === 451) {
-        errorMessage = '❌ Content unavailable (451). This may be due to legal restrictions or regional blocking.'
-      } else if (e.message?.includes('All download sources failed')) {
-        errorMessage = '❌ All download sources failed. The content may be unavailable or blocked.'
-      } else if (e.message) {
-        errorMessage = `❌ Download failed: ${e.message}`
-      }
-
-      await sock.sendMessage(from, {
-        text: `${errorMessage}\n\n${CREDIT}`,
+        caption: `🎬 *${title}*\n\n${CREDIT}`,
+      }, { quoted: infoMsg || msg })
+    } catch (error) {
+      if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
+      console.error('[VIDEO]', error.message)
+      return sock.sendMessage(from, {
+        text: `❌ Couldn't download that YouTube video.\n${error.message}\n\n${CREDIT}`,
       }, { quoted: msg })
     }
   },

@@ -144,7 +144,7 @@ function discoverCommands() {
 
             for (const cmd of candidates) {
                 const pat = String(cmd.pattern || cmd.name || '').replace(/^\./, '').toLowerCase()
-                if (!pat) continue
+                if (!pat || typeof cmd.run !== 'function') continue
                 found.push({ pattern: pat, category: cmd.category || 'general' })
             }
         } catch (e) {
@@ -201,17 +201,18 @@ module.exports = {
                 combinedCommands.set(name, { pattern: name, category: cmd.category || 'general' })
             }
         }
-        if (!Array.isArray(cmdDetails)) {
-            for (const cmd of discoverCommands()) combinedCommands.set(cmd.pattern, cmd)
-        }
+        // Always scan the directory too: this fills in newly added files even
+        // when the registry array exists but is stale or incomplete.
+        for (const cmd of discoverCommands()) combinedCommands.set(cmd.pattern, cmd)
 
         const grouped = new Map()
         for (const { pattern: name, category } of combinedCommands.values()) {
-            if (!name || HIDDEN.has(name)) continue
+            const primary = String(name || '').replace(/^\./, '').trim().toLowerCase()
+            if (!primary || HIDDEN.has(primary)) continue
             let cat = category.toLowerCase()
             if (cat === 'group') cat = 'group/admin'
             if (!grouped.has(cat)) grouped.set(cat, [])
-            grouped.get(cat).push(name)
+            if (!grouped.get(cat).includes(primary)) grouped.get(cat).push(primary)
         }
         for (const [, cmds] of grouped) cmds.sort()
 

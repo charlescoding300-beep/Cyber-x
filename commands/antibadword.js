@@ -364,7 +364,7 @@ Please promote me to admin to enforce this filter.`,
 
 👤 @${tag}
 🔤 Word: \`${wordLabel}\`
-⚠️ Warnings: *\( {count}/ \){maxW}*
+⚠️ Warnings: *${count}/${maxW}*
 📌 Too many bad-word warnings.
 
 > © zen X`,
@@ -375,12 +375,12 @@ Please promote me to admin to enforce this filter.`,
       await sock.sendMessage(from, {
         text:
 `╔══════════════════════╗
-║  ⚠️  WARNING \( {count}/ \){maxW}      ║
+║  ⚠️  WARNING (${count}/${maxW})      ║
 ╚══════════════════════╝
 
 👤 @${tag}
 🔤 Word: \`${wordLabel}\`
-⏳ *\( {left}* more warning \){left === 1 ? '' : 's'} → removal
+⏳ *${left}* more warning${left === 1 ? '' : 's'} → removal
 
 > © zenX`,
         mentions: [sender],

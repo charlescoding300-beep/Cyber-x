@@ -144,17 +144,33 @@ ${CREDIT}`,
       muteTimers.delete(from)
       try {
         await sock.groupSettingUpdate(from, "not_announcement")
-        await sock.sendMessage(from, {
-          text:
-`> 🔊 *AUTO UNMUTED*
->
-> ✅ Mute timer expired
-> 🔊 Group is now *open*
-> 💬 Everyone can send messages
->
+      } catch (e) {
+        console.error(`[MUTE] auto-unmute failed for ${from}:`, e.message)
+        try {
+          await sock.sendMessage(from, {
+            text: `╭───「 GROUP MUTE EXPIRED 」───╮
+│ ⚠️ The mute timer expired, but I couldn't reopen the group.
+│ 👮 Please check that I am still a group admin.
+╰──────────────────────────────╯
+
 ${CREDIT}`
-        })
-      } catch {}
+          }, { quoted: msg })
+        } catch {}
+        return
+      }
+
+      try {
+        await sock.sendMessage(from, {
+          text: `╭───「 GROUP MUTE EXPIRED 」───╮
+│ ⏱️ The mute timer has expired.
+│ 🔓 Members can send messages again.
+╰──────────────────────────────╯
+
+${CREDIT}`
+        }, { quoted: msg })
+      } catch (e) {
+        console.error(`[MUTE] expiry notice failed for ${from}:`, e.message)
+      }
     }, duration)
 
     muteTimers.set(from, { timeoutId, endsAt, label })

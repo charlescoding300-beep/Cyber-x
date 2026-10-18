@@ -27,6 +27,8 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
+const charAi = require("./core/characterai")
+const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,33 +623,63 @@ function checkIsOwner(state, sender, senderAlt, fromMe) {
   return false
 }
 
-async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner) {
-  if (isOwner) return { isAdmin: true, isBotAdmin: true }
-  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fromMe = false, verifyOwnerRole = false) {
+  const candidates = [sender, senderAlt]
+  // For an outgoing command, the group message may omit its participant JID.
+  // In that case use the connected account's own WhatsApp identities.
+  if (fromMe) candidates.push(sock?.user?.id, sock?.user?.lid)
+  const candidateNums = candidates.filter(Boolean).map(normalizeNum).filter(Boolean)
 
-  // ULTRA SPEED: same checks as before, but the group metadata no longer blocks
-  // the command. A cached group answers instantly (refreshed in the background
-  // when stale); only a COLD cache waits for the network, once.
-  let meta = state.groupCache[from]
-  if (!meta || !Array.isArray(meta.participants)) {
-    try { meta = await refreshGroupMeta(state, sock, from) } catch {}
-  } else if (Date.now() - (meta._cachedAt || 0) > 5 * 60 * 1000) {
-    refreshGroupMeta(state, sock, from).catch(() => {})
+  let meta = null
+  if (isOwner && verifyOwnerRole) {
+    // This is the one path that needs a current WhatsApp role before deciding
+    // whether to show the owner-specific notice.
+    try { meta = await getGroupMetaForCommand(sock, state.phone, from) } catch {}
+  } else {
+    // Keep ordinary admin checks fast: use the existing cache and refresh stale
+    // data in the background. A cold cache still gets one awaited lookup.
+    meta = state.groupCache[from]
+    if (!meta || !Array.isArray(meta.participants)) {
+      try { meta = await refreshGroupMeta(state, sock, from) } catch {}
+    } else if (Date.now() - (meta._cachedAt || 0) > 5 * 60 * 1000) {
+      refreshGroupMeta(state, sock, from).catch(() => {})
+    }
+  }
+  const hasParticipants = Array.isArray(meta?.participants) && meta.participants.length > 0
+  let isActualGroupAdmin = null
+  if (hasParticipants) {
+    const actualAdminSet = new Set(
+      meta.participants
+        .filter(p => p.admin === "admin" || p.admin === "superadmin")
+        .flatMap(p => [p.id, p.lid, p.phoneNumber, p.jid])
+        .filter(Boolean)
+        .map(normalizeNum)
+        .filter(Boolean)
+    )
+    isActualGroupAdmin = candidateNums.some(n => actualAdminSet.has(n))
+  }
+
+  // Keep the existing bot-owner override for command execution. The separate
+  // actual-role result lets admin-required group commands explain when
+  // WhatsApp itself does not list the owner as a group admin.
+  if (isOwner) return { isAdmin: true, isBotAdmin: true, isActualGroupAdmin }
+  if (!Array.isArray(meta?.participants) || !meta.participants.length) {
+    return { isAdmin: false, isBotAdmin: false, isActualGroupAdmin }
   }
 
   let isBotAdmin = false
   try { isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock) } catch {}
-  if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n)))
-    return { isAdmin: true, isBotAdmin }
+  if (SUDO_NUMBERS.length && candidateNums.some(n => SUDO_NUMBERS.includes(n)))
+    return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
   let isAdmin = false
   try { isAdmin = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt) } catch {}
   if (!isAdmin && meta?.participants) {
     const adminSet = new Set(
       meta.participants.filter(p => p.admin === "admin" || p.admin === "superadmin").map(p => normalizeNum(p.id))
     )
-    isAdmin = candidates.some(n => adminSet.has(n))
+    isAdmin = candidateNums.some(n => adminSet.has(n))
   }
-  return { isAdmin, isBotAdmin }
+  return { isAdmin, isBotAdmin, isActualGroupAdmin }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -820,6 +852,21 @@ async function getGroupMetaCached(sock, phone, jid) {
     if (Date.now() - (hit._cachedAt || 0) > 60000) refreshGroupMeta(state, sock, jid).catch(() => {})
     return hit
   }
+  if (state) return refreshGroupMeta(state, sock, jid)
+  return sock.groupMetadata(jid)
+}
+
+// Command metadata requests share the session cache and one in-flight fetch.
+// A recently refreshed group answers immediately; missing or stale metadata
+// must load successfully before a metadata-dependent command can continue.
+async function getGroupMetaForCommand(sock, phone, jid) {
+  const state = sessions.get(phone)
+  const hit = state?.groupCache?.[jid]
+  const cachedAt = Number(hit?._cachedAt) || 0
+  if (
+    hit && Array.isArray(hit.participants) && hit.participants.length &&
+    cachedAt > 0 && Date.now() - cachedAt <= 60_000
+  ) return hit
   if (state) return refreshGroupMeta(state, sock, jid)
   return sock.groupMetadata(jid)
 }
@@ -2286,6 +2333,22 @@ const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
   "unmute", "vmute", "vunmute", "warn",
 ])
 
+// These commands require the person invoking them to be a group admin.
+// Bot ownership alone does not grant that WhatsApp group role.
+const COMMANDS_REQUIRING_SENDER_GROUP_ADMIN = new Set([
+  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker",
+  "demote", "hidetag", "kick", "mute", "promote", "tagall", "unban",
+  "unmute", "vmute", "vunmute", "warn",
+])
+
+const GROUP_ADMIN_REQUIRED_NOTICE =
+  '╭───「 GROUP ADMIN REQUIRED 」───╮\n' +
+  '│ ⚠️ Bot owner is not a group admin here.\n' +
+  '│ This command needs group-admin permission.\n' +
+  '│ Ask a group admin to promote you, then retry.\n' +
+  '╰───────────────────────────────────╯\n\n' +
+  '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
@@ -2360,18 +2423,33 @@ async function handleMessage(state, sock, msg) {
     return
   }
 
-  let isAdmin = false, isBotAdmin = false
+  let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null
   const needsGroupAdminContext =
     command.adminOnly === true || command.botAdmin === true ||
     command.requiresAdmin === true || command.requiresGroupAdmin === true ||
-    COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical)
+    COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical) ||
+    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
   if (isGroup && needsGroupAdminContext) {
-    ;({ isAdmin, isBotAdmin } = await checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner))
+    ;({ isAdmin, isBotAdmin, isActualGroupAdmin } = await checkGroupAdmin(
+      state, sock, from, sender, senderAlt, isOwner, fromMe,
+      isOwner && COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+    ))
+  }
+
+  if (
+    isGroup && isOwner && isActualGroupAdmin === false &&
+    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+  ) {
+    await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
+    return
   }
 
   console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
 
-  const commandSock = createQuotedCommandSocket(sock, msg, from)
+  const commandSock = createQuotedCommandSocket(
+    sock, msg, from,
+    jid => getGroupMetaForCommand(sock, state.phone, jid)
+  )
   const runOnce = () => command.run({
     sock: commandSock, from, msg, message: msg, sender, args,
     text: rest, full: body,
@@ -2380,7 +2458,10 @@ async function handleMessage(state, sock, msg) {
     isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
     extractBody, groupCache: state.groupCache,
     checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
-    checkGroupAdmin: (f, s, a) => checkGroupAdmin(state, sock, f, s, a, isOwner),
+    checkGroupAdmin: (f, s, a) => checkGroupAdmin(
+      state, sock, f, s, a, isOwner, fromMe,
+      isOwner && COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+    ),
     antideleteGetEnabled: () => antideleteGetEnabled(state.phone),
     antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
@@ -2479,6 +2560,8 @@ async function startBot(phone) {
   ultraExec.attachSession(state, sock)
 
   autoTag.autoTagAttach(state, sock)
+  charAi.attach(state, sock)
+  vmuteCore.attach(state, sock)
 
   if (state.presenceTimer) clearInterval(state.presenceTimer)
   state.presenceTimer = setInterval(() => {
@@ -3091,23 +3174,19 @@ async function init() {
   try {
     const settingsUsersDir = path.join(__dirname, "data", "users")
     await settingsBackup.restoreAllSettings(settingsUsersDir)
-
-    // Start the global per-session settings safety net.
-    // Any command that changes data/users/<PHONE>.json is automatically
-    // synchronized to Redis settings:<PHONE>.
-    settingsBackup.watchAndSync(settingsUsersDir)
-
-    console.log("[SETTINGS-BACKUP] 🛡 Per-session settings protection ACTIVE")
+    console.log("[SETTINGS] 🛡 Per-session settings are stored in local SQLite")
   } catch (e) {
-    console.error("[SETTINGS-BACKUP] ✗ Restore/watch setup failed:", e.message)
+    console.error("[SETTINGS] ✗ SQLite settings setup failed:", e.message)
   }
 
-  console.log("[INIT] 🔄 Restoring user/group settings from backup...")
-  const dbRestoredCount = await lib.userDb?.restoreAllFromRedis?.().catch(e => {
-    console.error("[INIT] ✗ User DB restore failed:", e.message)
-    return 0
-  })
-  if (dbRestoredCount > 0) console.log(`[INIT] ✔ Restored ${dbRestoredCount} user record(s) from backup`)
+  console.log("[INIT] 🔄 Loading user/group settings from SQLite...")
+  let dbRestoredCount = 0
+  try {
+    dbRestoredCount = lib.userDb?.restoreAll?.() || 0
+  } catch (e) {
+    console.error("[INIT] ✗ User DB load failed:", e.message)
+  }
+  if (dbRestoredCount > 0) console.log(`[INIT] ✔ Loaded ${dbRestoredCount} user record(s) from SQLite`)
 
   // ── Collect every known phone from ALL reliable sources ──────────────────
   // This is the auto-load path: on every restart we rebuild the full list of
@@ -3117,7 +3196,8 @@ async function init() {
   //   2. sessions/_meta.json                  (last known list)
   //   3. data/slots.json                      (slot assignments)
   //   4. data/settings/*.json                 (per-session settings files)
-  //   5. data/users/*.json                    (userDb / settings backup)
+  //   5. data/users/*.json                    (legacy settings mirror)
+  //   6. database/zenx.db                     (SQLite settings and user data)
   // After restoreAll() above, any missing creds are already written back to disk.
   // We NEVER wipe a session here — only a real WhatsApp loggedOut does that.
 
@@ -3155,12 +3235,15 @@ async function init() {
     return phones
   })()
 
+  const fromSettingsDb = settingsBackup.listSettingsUsers?.() || []
+
   let allPhones = [...new Set([
     ...onDisk,
     ...fromMeta,
     ...fromSlots,
     ...fromSettingsFiles,
     ...fromUsersDir,
+    ...fromSettingsDb,
   ].map(p => String(p).replace(/\D/g, "")).filter(Boolean))]
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -3288,6 +3371,11 @@ async function removeSession(phone) {
   antistatusCache.delete(clean)
   customCmdCache.delete(clean)
 
+  // Mute records are tied to this WhatsApp login and are cleared on removal/logout.
+  try { vmuteCore.wipe(clean) } catch {}
+
+  try { charAi.wipe(clean) } catch {}
+
   // Wipe auth folder
   try {
     const sessDir = path.join(SESS_ROOT, clean)
@@ -3364,17 +3452,23 @@ global.__executorStats = () => sessionExecutor.statsAll(sessions)
 global.__heavyPoolStats = () => sessionExecutor.heavyStats()
 
 function getPublicCommandCatalog() {
-  const hidden = new Set(['broadcast', 'exec', 'restart', 'update', 'owner', 'block', 'unblock', 'ban', 'unban', 'hijack', 'gccrash'])
+  const hidden = new Set(['broadcast', 'exec', 'restart', 'update', 'owner', 'sudo', 'block', 'unblock', 'ban', 'unban', 'hijack', 'gccrash'])
   return [...registry.map.values()]
     .filter(command => {
       const category = String(command.category || 'general').toLowerCase()
       const name = String(command.pattern || command.name || '').replace(/^\./, '').toLowerCase()
-      return name && !hidden.has(name) && !['owner', 'system', 'settings'].includes(category)
+      return name && !hidden.has(name) && category !== 'system'
     })
     .map(command => ({
       name: String(command.pattern || command.name).replace(/^\./, ''),
-      aliases: Array.isArray(command.alias) ? command.alias : [],
-      category: command.category || 'general',
+      aliases: (() => {
+        const values = command.aliases ?? command.alias ?? []
+        return [...new Set((Array.isArray(values) ? values : [values])
+          .map(alias => String(alias || '').replace(/^\./, '').trim())
+          .filter(Boolean))]
+      })(),
+      category: String(command.category || 'general').toLowerCase(),
+      access: ['owner', 'settings'].includes(String(command.category || '').toLowerCase()) ? 'owner' : 'public',
       description: command.desc || 'Zen X WhatsApp command',
       usage: command.usage || '.' + String(command.pattern || command.name).replace(/^\./, '')
     }))

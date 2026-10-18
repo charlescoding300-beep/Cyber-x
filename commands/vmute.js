@@ -1,155 +1,140 @@
 'use strict'
 
-let db
-try { db = require('../lib/userDb') } catch { db = null }
+// ════════════════════════════════════════════════════════════════════
+//  commands/vmute.js — ZEN X | .vmute  (group owner / admins)
+//
+//  .vmute                      reply to a member's message (or @mention them) → mute
+//  .vmute 2348xxxxxxxxx        mute by number (country code, no +)
+//  .vmute off                  unmute (reply / @mention / number also work)
+//  .vmute list                 show muted members in this group
+//  .vmute check                diagnostics: is the bot an admin, is enforcement on?
+//
+//  A muted member's messages are deleted for everyone until unmuted.
+//  The bot must be a group admin.
+// ════════════════════════════════════════════════════════════════════
 
-const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
+const vm = require('../core/vmute')
 
-function getMuted(phone, jid) {
-  if (!db) return []
-  const s = db.getSection(phone, 'vmute') || { groups: {} }
-  return s.groups?.[jid] || []
-}
+const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
-function setMuted(phone, jid, list) {
-  if (!db) return
-  const s = db.getSection(phone, 'vmute') || { groups: {} }
-  s.groups = s.groups || {}
-  s.groups[jid] = list
-  db.setSection(phone, 'vmute', s)
-}
-
-function parseTime(str) {
-  if (!str) return null
-  const match = str.toLowerCase().match(/^(\d+)(s|m|h|d)$/)
-  if (!match) return null
-  const num = parseInt(match[1])
-  const unit = match[2]
-  if (unit === 's') return num * 1000
-  if (unit === 'm') return num * 60 * 1000
-  if (unit === 'h') return num * 60 * 60 * 1000
-  if (unit === 'd') return num * 24 * 60 * 60 * 1000
+function contextOf(msg) {
+  let m = msg?.message
+  for (let i = 0; i < 3 && m; i++) {
+    const next = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.documentWithCaptionMessage?.message
+    if (!next) break
+    m = next
+  }
+  if (!m) return null
+  for (const k of Object.keys(m)) {
+    const ci = m[k]?.contextInfo
+    if (ci) return ci
+  }
   return null
 }
 
-function formatTime(ms) {
-  const sec = Math.floor(ms / 1000)
-  if (sec < 60) return `${sec}s`
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h`
-  const day = Math.floor(hr / 24)
-  return `${day}d`
+// who is the command aimed at? reply → @mention → typed number
+function targetOf(msg, words) {
+  const ctx = contextOf(msg)
+  if (ctx?.participant) return vm.bare(ctx.participant)
+  if (Array.isArray(ctx?.mentionedJid) && ctx.mentionedJid.length) return vm.bare(ctx.mentionedJid[0])
+  const typed = words.map(w => w.replace(/\D/g, '')).find(w => w.length >= 5 && w.length <= 15)
+  return typed ? `${typed}@s.whatsapp.net` : null
+}
+
+async function freshMeta(sock, groupJid, cache) {
+  const cached = cache?.[groupJid]
+  const cachedAt = Number(cached?._cachedAt) || 0
+  if (
+    Array.isArray(cached?.participants) && cached.participants.length &&
+    cachedAt > 0 && Date.now() - cachedAt <= 60_000
+  ) return cached
+
+  try {
+    const meta = await sock.groupMetadata(groupJid)
+    if (!Array.isArray(meta?.participants) || !meta.participants.length) return null
+    if (cache) cache[groupJid] = { ...meta, _cachedAt: Date.now() }
+    return cache?.[groupJid] || meta
+  } catch {
+    return null
+  }
 }
 
 module.exports = {
-  pattern: 'vmute',
-  alias: ['voicemute', 'smute'],
-  desc: 'Mute a member — bot will delete all their messages',
-  usage: '.vmute [time] (reply to user) | .vmute list',
+  name: 'vmute',
+  aliases: [],
+  desc: 'Mute a group member: the bot deletes everything they send until unmuted',
+  usage: '.vmute (reply / @mention / number) | .vmute off | .vmute list | .vmute check',
   category: 'group',
 
-  async run({ sock, from, msg, args, isGroup, isAdmin, isBotAdmin, isOwner }) {
-    if (!isGroup) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *This command only works in groups.*\n>\n${CREDIT}`,
-        quoted: msg
-      })
-    }
-    if (!isBotAdmin) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *I need to be admin to mute members.*\n>\n${CREDIT}`,
-        quoted: msg
-      })
-    }
-    if (!isAdmin && !isOwner) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *Only group admins can use this command.*\n>\n${CREDIT}`,
-        quoted: msg
-      })
-    }
+  run: async ({ sock, from, msg, args, text, isOwner, isGroup, isAdmin, groupCache }) => {
+    const reply = (t, extra = {}) => sock.sendMessage(from, { text: `${t}\n\n${CREDIT}`, ...extra }, { quoted: msg })
 
-    const phone = sock.user?.id?.split(':')[0]?.split('@')[0] || 'default'
-    const sub = (args[0] || '').toLowerCase()
+    if (!isGroup) return reply('❌ This command only works in groups.')
+    if (!isOwner && !isAdmin) return reply('❌ Only group admins can use this command.')
 
-    // .vmute list
+    const phone = sock.__zenxVmutePhone || vm.digits(sock.user?.id)
+    const words = (Array.isArray(args) ? args : String(text || '').split(/\s+/)).filter(Boolean)
+    const sub = (words[0] || '').toLowerCase()
+    const rest = words.slice(1)
+
+    // ── list ────────────────────────────────────────────────────────────────
     if (sub === 'list') {
-      let muted = getMuted(phone, from)
-      const now = Date.now()
-      muted = muted.filter(u => !u.until || u.until > now)
-      setMuted(phone, from, muted)
-
-      if (!muted.length) {
-        return sock.sendMessage(from, {
-          text: `> 📋 *No one is currently muted.*\n>\n${CREDIT}`,
-          quoted: msg
-        })
-      }
-
-      const text = muted.map((u, i) => {
-        const jid = u.jid
-        const left = u.until ? ` (${formatTime(u.until - now)} left)` : ' (permanent)'
-        return `\( {i + 1}. @ \){jid.split('@')[0]}${left}`
-      }).join('\n')
-
-      return sock.sendMessage(from, {
-        text: `> 🔇 *Muted Members*\n>\n\( {text}\n>\n \){CREDIT}`,
-        mentions: muted.map(u => u.jid),
-        quoted: msg
-      })
+      const muted = vm.listMuted(phone, from)
+      if (!muted.length) return reply('🔈 Nobody is muted in this group.')
+      const lines = muted.map((u, i) => `${i + 1}. @${vm.digits(u.jid)}`)
+      return reply(`🔇 *Muted members (${muted.length})*\n\n${lines.join('\n')}`, { mentions: muted.map(u => u.jid) })
     }
 
-    // Must reply to someone
-    const quoted = msg.message?.extendedTextMessage?.contextInfo
-    const target = quoted?.participant || quoted?.remoteJid
-
-    if (!target) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *Reply to a user*\n>\nExamples:\n> *.vmute*\n> *.vmute 30m*\n> *.vmute 1h*\n>\n${CREDIT}`,
-        quoted: msg
-      })
+    // ── check ───────────────────────────────────────────────────────────────
+    if (sub === 'check') {
+      const meta = await freshMeta(sock, from, groupCache)
+      if (!meta) return reply('⚠️ I could not load the current group information. Please try again.')
+      const botP = vm.findParticipant(meta, [sock.user?.id, sock.user?.lid])
+      const botAdmin = vm.isAdminP(botP)
+      return reply(
+        `🔎 *Mute check*\n\n` +
+        `• Bot is group admin: ${botAdmin ? '✅ yes' : '❌ no — make the bot an admin'}\n` +
+        `• Enforcement active: ${sock.__zenxVmutePhone ? '✅ yes' : '❌ no — restart the bot'}\n` +
+        `• Muted in this group: ${vm.listMuted(phone, from).length}`
+      )
     }
 
-    if (target === sock.user.id) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *I can't mute myself.*\n>\n${CREDIT}`,
-        quoted: msg
-      })
+    // ── resolve the member ──────────────────────────────────────────────────
+    const jid = targetOf(msg, sub === 'off' ? rest : words)
+    if (!jid) {
+      return reply('ℹ️ Reply to the member\'s message with *.vmute* (or *.vunmute* to unmute).\nYou can also @mention them, type their number, or use *.vmute list*.')
     }
 
-    let muted = getMuted(phone, from)
-    const now = Date.now()
+    const meta = await freshMeta(sock, from, groupCache)
+    if (!meta) return reply('⚠️ I could not load the current group information. Please try again.')
+    const memberP = vm.findParticipant(meta, [jid])
+    const ids = [...new Set([vm.bare(jid), ...(memberP ? vm.participantIds(memberP) : [])])]
+    const mentionJid = ids.find(i => i.endsWith('@s.whatsapp.net')) || vm.bare(jid)
+    const label = `@${vm.digits(mentionJid)}`
 
-    // Remove expired + same target
-    muted = muted.filter(u => u.jid !== target && (!u.until || u.until > now))
-
-    // Parse time
-    let duration = null
-    let timeText = 'permanently'
-
-    if (sub && sub !== 'list') {
-      duration = parseTime(sub)
-      if (!duration) {
-        return sock.sendMessage(from, {
-          text: `> ❌ *Invalid time*\n>\nExamples: \`30s\` \`10m\` \`1h\` \`2h\` \`1d\`\n>\n${CREDIT}`,
-          quoted: msg
-        })
-      }
-      timeText = `for ${formatTime(duration)}`
+    // ── unmute ──────────────────────────────────────────────────────────────
+    if (sub === 'off' || sub === 'unmute' || sub === 'remove') {
+      const done = vm.unmute(phone, from, ids)
+      return reply(done ? `🔊 ${label} has been unmuted.` : `ℹ️ ${label} isn't muted.`, { mentions: [mentionJid] })
     }
 
-    const muteData = duration
-      ? { jid: target, until: now + duration }
-      : { jid: target }
+    // ── mute ────────────────────────────────────────────────────────────────
+    const botIds = [sock.user?.id, sock.user?.lid].filter(Boolean).map(vm.bare)
+    if (ids.some(i => botIds.includes(i))) return reply('😅 I can\'t mute myself.')
+    if (msg.key?.participant && ids.includes(vm.bare(msg.key.participant))) return reply('😅 You can\'t mute yourself.')
+    if (vm.isAdminP(memberP)) return reply('I can\'t mute an admin 😕')
 
-    muted.push(muteData)
-    setMuted(phone, from, muted)
+    const botP = vm.findParticipant(meta, botIds)
+    if (botP && !vm.isAdminP(botP)) {
+      return reply('⚠️ I need to be a group admin to delete messages. Make me admin, then run *.vmute* again.')
+    }
 
-    return sock.sendMessage(from, {
-      text: `> 🔇 *MEMBER MUTED*\n>\n> 👤 @\( {target.split('@')[0]}\n> ⏱️ Duration: * \){timeText}*\n> 🗑️ All messages will be deleted\n>\n${CREDIT}`,
-      mentions: [target],
-      quoted: msg
-    })
-  }
+    const added = vm.mute(phone, from, ids, msg.key?.participant || '')
+    if (!added) return reply(`ℹ️ ${label} is already muted.`, { mentions: [mentionJid] })
+
+    return reply(
+      `🔇 ${label} has been muted.\nEverything they send in this group will be deleted until they are unmuted.`,
+      { mentions: [mentionJid] }
+    )
+  },
 }

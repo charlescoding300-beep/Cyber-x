@@ -290,6 +290,36 @@ async function downloadViaYtDlp(url) {
   }
 }
 
+// Keep video downloads on the same configured yt-dlp path as .play: shared
+// cookies, extra options, temporary-file handling, and server-side download.
+async function downloadVideoViaYtDlp(url) {
+  const workDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'zenx-video-'))
+  const out = path.join(workDir, 'video.%(ext)s')
+  const opts = { maxBuffer: 10 * 1024 * 1024, timeout: 150000 }
+  try {
+    await execFileAsync('yt-dlp', [
+      ...ytdlpArgs(),
+      '-f', 'best[ext=mp4][height<=720]/best[ext=mp4]',
+      '--max-filesize', '64M',
+      '-o', out,
+      url,
+    ], opts)
+
+    const files = await fs.promises.readdir(workDir)
+    const file = files.find(name => /\.mp4$/i.test(name))
+    if (!file) throw new Error('yt-dlp produced no MP4 video')
+
+    const buf = await fs.promises.readFile(path.join(workDir, file))
+    if (buf.length < 2048 || buf.slice(4, 8).toString('latin1') !== 'ftyp') {
+      throw new Error('yt-dlp output is not a valid MP4 video')
+    }
+    if (buf.length > 64 * 1024 * 1024) throw new Error('video exceeds the 64 MB upload limit')
+    return { buf, ext: 'mp4', mime: 'video/mp4', via: 'yt-dlp' }
+  } finally {
+    await fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 // ── STEP 3: @vreden/youtube_scraper (optional package) ───────────────────────
 async function downloadViaVredenPkg(url) {
   let yt
@@ -480,6 +510,7 @@ module.exports = {
   desc: 'Download a song from YouTube (name or link)',
   usage: '.play <song name or YouTube link>',
   category: 'download',
+  youtubeHelpers: Object.freeze({ getVideo, downloadVideoViaYtDlp }),
 
   run: async ({ sock, from, msg, args, isOwner }) => {
     const query = (Array.isArray(args) ? args.join(' ') : String(args || '')).trim()
