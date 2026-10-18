@@ -1,41 +1,32 @@
 <div align="center">
   <h1>ZEN X</h1>
-  <p><strong>A coordinated multi-session WhatsApp system</strong><br />One shared core. Connected sessions. Signals moving end to end.</p>
-  <img src="assets/readme/ocean/zenx-ocean-core.gif" width="100%" alt="Pink sonar pulses travel through an open underwater-style network from incoming messages to the shared Zen X core and connected sessions" />
+  <p><strong>WhatsApp traffic, in motion</strong><br />A request crosses the network, reaches the shared core and data store, then returns to a connected phone.</p>
 </div>
 
-## Connected network
+## 01 · Global signal path
 
-Sessions connect to one shared core, with signals moving across the network as messages arrive and responses travel back out.
+Messages enter from the online world, pass through the Zen X core, and reach the screen or phone connected to that session. The return path carries the response back out.
 
 <div align="center">
-  <img src="assets/readme/ocean/zenx-ocean-sessions.gif" width="100%" alt="A sonar sweep and luminous signal packets move between the Zen X core and six connected WhatsApp sessions" />
+  <img src="assets/readme/flow/01-world-to-device.gif" width="100%" alt="World-to-device signal path showing input, processor routing, display output and phone delivery" />
 </div>
 
-## Session flow
+## 02 · Database traffic
 
-The connection path moves from session request through socket and event flow into the core.
+The data layer shows writes moving down into persistent storage and reads streaming back up through the server racks.
 
 <div align="center">
-  <img src="assets/readme/ocean/zenx-ocean-initiation.gif" width="100%" alt="An animated signal travels through session, socket and event-flow nodes toward the Zen X core" />
+  <img src="assets/readme/flow/02-database-flow.gif" width="100%" alt="Vertical data packets move down through database storage and back up between two server racks" />
 </div>
 
-## Command routing
+## 03 · WhatsApp bot ecosystem
 
-Incoming messages travel through dispatch to the relevant command path, including group and media handling.
-
-<div align="center">
-  <img src="assets/readme/ocean/zenx-ocean-commands.gif" width="100%" alt="Animated message signals move through dispatch and command handling, branching toward group and media actions" />
-</div>
-
-## Response delivery
-
-After command handling, the response moves through formatting and the connected session toward its destination.
+At the center is the WhatsApp bot ping: sessions, groups, commands, media, users, and replies orbit one connected message flow.
 
 <div align="center">
-  <img src="assets/readme/ocean/zenx-ocean-output.gif" width="100%" alt="A response signal travels from command handling through formatting and a connected session to its destination" />
+  <img src="assets/readme/flow/03-whatsapp-ecosystem.gif" width="100%" alt="A dark WhatsApp bot ecosystem with a bright central ping sending animated signals to sessions, groups, commands, media, users and replies" />
 </div>
 
 <div align="center">
-  <strong>ZEN X · SIGNAL IN · ROUTE · RESPONSE OUT</strong>
+  <strong>ZEN X · REQUEST IN · ROUTE THROUGH · RESPONSE OUT</strong>
 </div>
