@@ -125,6 +125,7 @@ function bar(pct, len = 10) {
 
 module.exports = {
   pattern:  'detective',
+  media:    true,
   desc:     'Pull up a secret file on any user',
   usage:    '.detective @user  OR  reply + .detective',
   category: 'fun',

@@ -340,6 +340,7 @@ async function renderWasted(inputBuf, mode) {
 
 module.exports = {
   pattern: 'wasted',
+  media: true,
   alias: ['waste', 'gta', 'gtawasted'],
   category: 'fun',
   desc: 'GTA wasted effect on someone\'s profile pic',

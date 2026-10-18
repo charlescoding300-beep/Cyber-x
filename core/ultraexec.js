@@ -45,9 +45,11 @@ function ensure(state) {
 
 const TIMED_OUT = Symbol("timed-out")
 
-async function guardCommand(state, sock, from, msg, rawCmd, run) {
+async function guardCommand(state, sock, from, msg, rawCmd, run, timeoutOverride) {
   const w = ensure(state)
   const c = cfg()
+  const override = Number(timeoutOverride)
+  const commandTimeoutMs = Number.isFinite(override) && override > 0 ? override : c.cmdTimeout
   const t0 = Date.now()
 
   w.cmds++
@@ -60,9 +62,9 @@ async function guardCommand(state, sock, from, msg, rawCmd, run) {
   let result
 
   try {
-    if (c.cmdTimeout > 0) {
+    if (commandTimeoutMs > 0) {
       const timeout = new Promise(resolve => {
-        timer = setTimeout(() => resolve(TIMED_OUT), c.cmdTimeout)
+        timer = setTimeout(() => resolve(TIMED_OUT), commandTimeoutMs)
       })
 
       result = await Promise.race([p, timeout])
@@ -91,7 +93,7 @@ async function guardCommand(state, sock, from, msg, rawCmd, run) {
 
     console.error(
       `[WATCHDOG:${state.phone}] ⏱ .${rawCmd} still running after ` +
-      `${c.cmdTimeout}ms — released (not retried)`
+      `${commandTimeoutMs}ms — released (not retried)`
     )
 
     try {

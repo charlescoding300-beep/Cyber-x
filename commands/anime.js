@@ -508,6 +508,7 @@ ${all}`
 module.exports = {
     name: 'anime',
     heavy: true,
+    media: true,
     aliases: ['anime', 'reaction'],
     category: 'fun',
     desc: 'Send anime reaction GIFs',

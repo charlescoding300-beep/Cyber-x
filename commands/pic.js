@@ -99,7 +99,7 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    await sock.sendMessage(from, { react: { text: '🧑', key: msg.key } }).catch(() => {})
+    void sock.sendMessage(from, { react: { text: '🧑', key: msg.key } }).catch(() => {})
 
     const displayName = toTitleCase(input)
     const natCode = resolveNat(input)
@@ -112,7 +112,7 @@ module.exports = {
     }
 
     if (!user) {
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      void sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
       return sock.sendMessage(from, {
         text: `╔════════════════════════════╗\n║   🧑  *C Y B E R  X  PIC*  ║\n╚════════════════════════════╝\n\n❌ *Could not fetch a profile right now.*\n\n💡 Try again in a moment\n\n${CREDIT}`,
       }, { quoted: msg })
@@ -148,9 +148,9 @@ module.exports = {
         caption,
         mimetype: 'image/jpeg',
       }, { quoted: msg })
-      await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+      void sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
     } else {
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      void sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
       await sock.sendMessage(from, {
         text: `${caption}\n\n❌ _(photo download failed, showing data only)_`,
       }, { quoted: msg })

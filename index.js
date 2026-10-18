@@ -82,6 +82,12 @@ const TEMP_DIR   = path.join(__dirname, "temp")
 const SESS_ROOT  = path.join(__dirname, "sessions")
 const META_FILE  = path.join(SESS_ROOT, "_meta.json")
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
+const MEDIA_COMMAND_TIMEOUT_MS = (() => {
+  const value = Number(process.env.MEDIA_COMMAND_TIMEOUT_MS)
+  return Number.isFinite(value) && value > 0 ? value : 300000
+})()
+// Future media commands should use a media/download category or declare media: true.
+const MEDIA_COMMAND_CATEGORIES = new Set(['media', 'download', 'sticker', 'soundeffect', 'ai', 'image', 'audio', 'video'])
 
 const SETTINGS_ROOT = path.join(__dirname, "data", "settings")
 if (!fs.existsSync(SETTINGS_ROOT)) fs.mkdirSync(SETTINGS_ROOT, { recursive: true })
@@ -2423,6 +2429,16 @@ async function handleMessage(state, sock, msg) {
     return
   }
 
+  const category = String(command.category || '').toLowerCase()
+  const declaredTimeout = Number(command.timeoutMs)
+  const isMediaCommand = command.media === true ||
+    MEDIA_COMMAND_CATEGORIES.has(category) ||
+    command.heavy === true || command.resourceIntensive === true ||
+    sessionExecutor.HEAVY?.has(canonical)
+  const commandTimeoutMs = Number.isFinite(declaredTimeout) && declaredTimeout > 0
+    ? declaredTimeout
+    : isMediaCommand ? MEDIA_COMMAND_TIMEOUT_MS : undefined
+
   let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null
   const needsGroupAdminContext =
     command.adminOnly === true || command.botAdmin === true ||
@@ -2478,11 +2494,12 @@ async function handleMessage(state, sock, msg) {
     sessionExecutor.forState(state).submit({
       name:         rawCmd,
       heavy:        command.heavy === true || command.resourceIntensive === true,
+      timeoutMs:    commandTimeoutMs ? commandTimeoutMs + 5000 : undefined,
       chat:         from,
       sender:       normalizeNum(sender || from),
       isOwner:      !!(isOwner || fromMe),
       skipCooldown: ZERO_DELAY,
-      fn:           () => ultraExec.guardCommand(state, sock, from, msg, rawCmd, runOnce),
+      fn:           () => ultraExec.guardCommand(state, sock, from, msg, rawCmd, runOnce, commandTimeoutMs),
       onDrop: (reason) => {
         console.warn(`[${state.phone}] command ${rawCmd} dropped: ${reason}`)
         let note = null

@@ -995,6 +995,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
 module.exports = {
   name: "gcstatus",
   heavy: true,
+  media: true,
   aliases: ["groupstatus"],
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",

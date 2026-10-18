@@ -13,6 +13,7 @@ const IMG_URL = 'https://i.ibb.co/spf35QYC/file-00000000a30c71f48bb49e183e1d43cb
 
 module.exports = {
   pattern:  'info',
+  media:    true,
   desc:     'Official ZENX information',
   usage:    '.info',
   category: 'general',

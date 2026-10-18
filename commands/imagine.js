@@ -137,7 +137,7 @@ ${CREDIT}`,
         })
     }
 
-    await sock.sendMessage(from, {
+    void sock.sendMessage(from, {
         react: { text: '🎨', key: message.key }
     }).catch(() => {})
 

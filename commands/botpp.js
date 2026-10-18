@@ -31,6 +31,7 @@ async function saveBotPP(phone, data) {
 
 module.exports = {
     pattern:  'botpp',
+    media:    true,
     desc:     'Set this session\'s menu picture (reply to an image)',
     usage:    '.botpp — reply to image | .botpp remove — clear',
     category: 'owner',

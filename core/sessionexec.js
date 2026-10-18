@@ -162,7 +162,10 @@ class SessionExecutor {
   _run(lane, job) {
     lane.active++
     const t0        = Date.now()
-    const timeoutMs = job.heavy ? CFG.heavyTimeoutMs : CFG.timeoutMs
+    const taskTimeoutMs = Number(job.task.timeoutMs)
+    const timeoutMs = Number.isFinite(taskTimeoutMs) && taskTimeoutMs > 0
+      ? taskTimeoutMs
+      : job.heavy ? CFG.heavyTimeoutMs : CFG.timeoutMs
     let settled     = false
     let timer       = null
 

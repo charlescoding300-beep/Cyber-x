@@ -86,6 +86,7 @@ function getOwnJid(sock) {
 
 module.exports = {
   name:     "save",
+  media:    true,
   heavy:    true,
   aliases:  ["sv"],
   desc:     "Reply to a status/VN/image/video/sticker/document/view-once with .save — it's re-sent privately to your own DM in full quality.",

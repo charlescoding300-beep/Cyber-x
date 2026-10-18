@@ -5,6 +5,7 @@
 
 module.exports = {
   pattern: "getpp",
+  media: true,
   alias: ["pp", "profilepic", "profile"],
   category: "utility",
   desc: "Get the profile picture of a replied user",

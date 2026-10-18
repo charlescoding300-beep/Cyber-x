@@ -156,6 +156,7 @@ function discoverCommands() {
 
 module.exports = {
     pattern:  'menu',
+    media:    true,
     alias:    ['help'],
     category: 'general',
     desc:     'Zen X command menu',

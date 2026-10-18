@@ -78,13 +78,13 @@ module.exports = {
     }
 
     // ── React instantly ────────────────────────────────────────
-    await sock.sendMessage(from, { react: { text: '🩸', key: msg.key } }).catch(() => {})
+    void sock.sendMessage(from, { react: { text: '🩸', key: msg.key } }).catch(() => {})
 
     const imageUrl = await getPinterestImage(query)
     const caption  = `🩸 *Pinterest* — _${query}_\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
 
     if (!imageUrl) {
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+      void sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
       return sock.sendMessage(from, {
         text: `╔══════════════════════════════╗
 ║  🩸  *PINTEREST SEARCH*       ║
@@ -121,13 +121,13 @@ module.exports = {
           mimetype: 'image/jpeg'
         }, { quoted: msg })
       } catch {
-        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
+        void sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {})
         return sock.sendMessage(from, {
           text: `❌ *Could not load image*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
         }, { quoted: msg })
       }
     }
 
-    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
+    void sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {})
   }
 }

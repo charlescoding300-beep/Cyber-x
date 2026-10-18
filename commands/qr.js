@@ -7,6 +7,7 @@
 
 module.exports = {
     pattern:  'qr',
+    media:    true,
     alias:    ['qrcode'],
     category: 'utility',
     desc:     'Generate a QR code from any text or link',

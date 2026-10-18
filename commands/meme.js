@@ -141,6 +141,7 @@ const run = async ({ sock, from, message, msg, args = [] }) => {
 module.exports = {
     name: 'meme',
     aliases: ['meme', 'dankmeme'],
+    media: true,
     category: 'fun',
     desc: 'Get a random meme from Reddit',
     usage: '.meme [subreddit]',
