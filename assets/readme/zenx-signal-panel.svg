@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-labelledby="title desc">
+  <title id="title">Zen X signal network</title>
+  <desc id="desc">A static dark control-panel illustration with a vivid pink echolocation signal passing through the Zen X command core and branching to multiple WhatsApp sessions.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#100d18"/>
+      <stop offset="0.55" stop-color="#090910"/>
+      <stop offset="1" stop-color="#170a19"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff4fc9" stop-opacity=".17"/>
+      <stop offset="1" stop-color="#ff4fc9" stop-opacity=".025"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff70d8" stop-opacity=".18"/>
+      <stop offset=".34" stop-color="#ff55cd"/>
+      <stop offset=".72" stop-color="#ff9be7"/>
+      <stop offset="1" stop-color="#ff57c8" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#201725" stop-opacity=".96"/>
+      <stop offset="1" stop-color="#100e16" stop-opacity=".96"/>
+    </linearGradient>
+    <radialGradient id="radarGlow">
+      <stop offset="0" stop-color="#ff57ca" stop-opacity=".20"/>
+      <stop offset="1" stop-color="#ff57ca" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#f4b9e7" stroke-opacity=".055" stroke-width="1"/>
+    </pattern>
+    <filter id="pinkGlow" x="-30%" y="-200%" width="160%" height="500%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="1" y="1" width="1278" height="558" rx="26" fill="url(#bg)" stroke="#ff76d6" stroke-opacity=".44" stroke-width="2"/>
+  <rect x="2" y="2" width="1276" height="556" rx="25" fill="url(#grid)"/>
+  <path d="M26 158H1254" stroke="#ff83dc" stroke-opacity=".16"/>
+  <path d="M26 421H1254" stroke="#ff83dc" stroke-opacity=".16"/>
+  <path d="M756 158V421" stroke="#ff83dc" stroke-opacity=".13"/>
+  <path d="M26 26H390L428 2H26Z" fill="url(#panel)"/>
+
+  <!-- Brand header -->
+  <g font-family="Arial, Helvetica, sans-serif">
+    <rect x="48" y="42" width="54" height="54" rx="15" fill="#ff4fc9" fill-opacity=".12" stroke="#ff72d5" stroke-opacity=".55"/>
+    <circle cx="75" cy="69" r="16" fill="none" stroke="#ff8bdd" stroke-width="1.5" stroke-opacity=".9"/>
+    <circle cx="75" cy="69" r="8" fill="none" stroke="#ff8bdd" stroke-width="1.5" stroke-opacity=".72"/>
+    <path d="M55 69H67L71 60L77 78L82 66L86 69H95" fill="none" stroke="#ffd0f2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="118" y="62" fill="#fff4fd" font-size="21" font-weight="700" letter-spacing="3">ZEN X</text>
+    <text x="119" y="84" fill="#d8c4d7" font-size="11" letter-spacing="2.2">WHATSAPP AUTOMATION</text>
+    <rect x="900" y="48" width="330" height="38" rx="19" fill="#ff4fc9" fill-opacity=".09" stroke="#ff72d5" stroke-opacity=".40"/>
+    <path d="M922 68l5 5 10-12" fill="none" stroke="#ff9ce4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="949" y="72" fill="#ffe2f6" font-size="11" font-weight="700" letter-spacing="1.8">OFFICIAL PROJECT PROFILE</text>
+  </g>
+
+  <!-- Main billboard copy -->
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="58" y="204" fill="#ff82dc" font-size="12" font-weight="700" letter-spacing="3.2">SIGNAL ROUTING · MULTI-SESSION CORE</text>
+    <text x="54" y="273" fill="#fff8fd" font-size="57" font-weight="700" letter-spacing="-2.2">One core.</text>
+    <text x="54" y="336" fill="#fff8fd" font-size="57" font-weight="700" letter-spacing="-2.2">Every session.</text>
+    <text x="58" y="378" fill="#d4c4d5" font-size="16">Modular WhatsApp automation, built around a shared command dispatcher.</text>
+    <rect x="58" y="393" width="224" height="2" rx="1" fill="#ff5bcf" fill-opacity=".72"/>
+  </g>
+
+  <!-- Static echo / signal map -->
+  <circle cx="1002" cy="289" r="190" fill="url(#radarGlow)"/>
+  <g fill="none" stroke="#ff7cda" stroke-opacity=".20">
+    <circle cx="1002" cy="289" r="54"/>
+    <circle cx="1002" cy="289" r="94"/>
+    <circle cx="1002" cy="289" r="134"/>
+    <circle cx="1002" cy="289" r="174" stroke-dasharray="3 9"/>
+    <path d="M828 289H1176M1002 115V463M879 166L1125 412M879 412L1125 166"/>
+  </g>
+  <path d="M1002 289L1110 177A154 154 0 0 1 1150 289Z" fill="#ff53c8" fill-opacity=".055"/>
+  <g fill="none" stroke="#ff73d7" stroke-opacity=".38" stroke-width="1.4">
+    <path d="M816 278H864L875 260L885 315L896 270L907 289H948"/>
+    <path d="M1057 289H1094L1106 267L1117 309L1128 279L1140 289H1193"/>
+    <path d="M1002 235V208L986 198L1017 186L992 174L1002 163V126"/>
+  </g>
+  <path d="M815 289H875L884 268L894 313L906 281L916 289H1002L1014 279L1025 301L1037 289H1194" fill="none" stroke="url(#signal)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#pinkGlow)"/>
+  <circle cx="1002" cy="289" r="37" fill="#160e19" stroke="#ff77d7" stroke-opacity=".75" stroke-width="1.5"/>
+  <circle cx="1002" cy="289" r="27" fill="#ff55c9" fill-opacity=".12"/>
+  <path d="M984 289H995L1000 278L1007 301L1013 286L1018 289" fill="none" stroke="#ffe5f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#ffd7f4" stroke="#ff55c9" stroke-width="2">
+    <circle cx="920" cy="179" r="5"/>
+    <circle cx="1088" cy="174" r="5"/>
+    <circle cx="1140" cy="352" r="5"/>
+    <circle cx="875" cy="363" r="5"/>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" letter-spacing="1.4" fill="#efc9e7">
+    <text x="840" y="166">SESSION ROUTE A</text>
+    <text x="1098" y="160">SESSION ROUTE B</text>
+    <text x="1082" y="375">COMMAND FLOW</text>
+    <text x="820" y="386">EVENT SIGNAL</text>
+  </g>
+
+  <!-- Feature strip -->
+  <g font-family="Arial, Helvetica, sans-serif">
+    <rect x="48" y="444" width="365" height="79" rx="14" fill="url(#card)" stroke="#f780d7" stroke-opacity=".24"/>
+    <rect x="427" y="444" width="365" height="79" rx="14" fill="url(#card)" stroke="#f780d7" stroke-opacity=".24"/>
+    <rect x="806" y="444" width="426" height="79" rx="14" fill="url(#card)" stroke="#f780d7" stroke-opacity=".24"/>
+    <circle cx="77" cy="483" r="12" fill="#ff4fc9" fill-opacity=".16" stroke="#ff8bdd" stroke-opacity=".7"/>
+    <path d="M71 483h12M77 477v12" stroke="#ffd8f3" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="101" y="478" fill="#fff1fb" font-size="12" font-weight="700" letter-spacing="1.4">MULTI-SESSION</text>
+    <text x="101" y="499" fill="#cbb9cb" font-size="11">Session lifecycle and routing</text>
+    <circle cx="456" cy="483" r="12" fill="#ff4fc9" fill-opacity=".16" stroke="#ff8bdd" stroke-opacity=".7"/>
+    <path d="M450 479h12M450 483h12M450 487h8" stroke="#ffd8f3" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="480" y="478" fill="#fff1fb" font-size="12" font-weight="700" letter-spacing="1.4">MODULAR COMMANDS</text>
+    <text x="480" y="499" fill="#cbb9cb" font-size="11">Independent feature handlers</text>
+    <circle cx="835" cy="483" r="12" fill="#ff4fc9" fill-opacity=".16" stroke="#ff8bdd" stroke-opacity=".7"/>
+    <path d="M829 486l4-7 4 7 4-7" fill="none" stroke="#ffd8f3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="859" y="478" fill="#fff1fb" font-size="12" font-weight="700" letter-spacing="1.4">NODE.JS RUNTIME</text>
+    <text x="859" y="499" fill="#cbb9cb" font-size="11">Built for a maintained, extensible codebase</text>
+  </g>
+</svg>

@@ -1,33 +1,26 @@
 <div align="center">
-  <h1>⚡ ZenX WhatsApp Bot</h1>
-  <p><strong>Multi-session automation · modular commands · Node.js</strong></p>
-  <img src="assets/readme/zenx-core.gif" width="900" alt="Animated ZenX control panel with a moving network map, command flow and event stream" />
-  <p><em>Purpose-built looping artwork for this README; it is not live server telemetry.</em></p>
+  <img src="assets/readme/zenx-signal-panel.svg" width="100%" alt="Static Zen X signal-network billboard showing a pink echolocation pulse routed through the command core to multiple WhatsApp sessions" />
+  <p><strong>Multi-session WhatsApp automation · modular commands · Node.js</strong></p>
 </div>
 
-ZenX is a Baileys-based WhatsApp automation project with session management and a modular command system. The repository groups bot features into small handlers so commands and connection code can be maintained separately.
+ZenX is a Baileys-based WhatsApp automation project with session management and a modular command system. Its command handlers and connection code are organized into separate modules so features can be maintained independently.
 
-## Architecture and sessions
+> The panel is a static project illustration. It does not show live sessions or server status.
 
-<div align="center">
-  <img src="assets/readme/zenx-sessions.gif" width="900" alt="Animated network mesh connecting multiple ZenX session nodes" />
-</div>
+## System layout
 
-The project includes session lifecycle management, a shared command dispatcher, and separate modules for WhatsApp events and bot features. The animation is a visual overview of those moving parts, not a live view of connected accounts.
+| Component | Purpose |
+| --- | --- |
+| Session manager | Handles WhatsApp session lifecycle and reconnects. |
+| Command dispatcher | Routes prefixed messages to matching command handlers. |
+| Modular commands | Keeps bot features in separate files under [`commands/`](commands/). |
+| Runtime | Uses Node.js 18 or newer. |
 
 ## Command categories
 
-<div align="center">
-  <img src="assets/readme/zenx-commands.gif" width="900" alt="Animated command pipeline routing messages through handlers and work lanes" />
-</div>
-
-Command modules are kept in [`commands/`](commands/). The bot menu organizes them into general, owner, group administration, downloads, fun, AI, utility, media, settings, and system categories. See [`COMMAND_PERFORMANCE.md`](COMMAND_PERFORMANCE.md) for the handler conventions and guidance for keeping expensive media work from blocking ordinary commands.
+The bot menu groups commands into general, owner, group administration, downloads, fun, AI, utility, media, settings, and system categories. See [`COMMAND_PERFORMANCE.md`](COMMAND_PERFORMANCE.md) for handler conventions and guidance on keeping resource-intensive media work from blocking ordinary commands.
 
 ## Run ZenX
-
-<div align="center">
-  <img src="assets/readme/zenx-pairing.gif" width="900" alt="Animated abstract pairing handshake linking a phone to a bot session" />
-</div>
 
 1. Install Node.js 18 or newer.
 2. Clone this repository and enter its folder.
