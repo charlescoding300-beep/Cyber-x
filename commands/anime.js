@@ -48,7 +48,7 @@ const NO_GIF_AVAILABLE = new Set([
     'baka'
 ])
 
-async function getGifUrl(action, sock, from, msg) {
+async function getGifUrl(action, sock, from, quotedMsg) {
     if (NO_GIF_AVAILABLE.has(action)) return null
 
     const apiAction = ACTION_MAP[action] || action
@@ -82,7 +82,7 @@ async function getGifUrl(action, sock, from, msg) {
         )
     }
 
-    if (sock && from && message) {
+    if (sock && from && quotedMsg) {
         try {
             await sock.sendMessage(
                 from,
@@ -90,7 +90,7 @@ async function getGifUrl(action, sock, from, msg) {
                     text: `🐛 *DEBUG*\n${debugLines.join('\n')}`
                 },
                 {
-                    quoted: message
+                    quoted: quotedMsg
                 }
             )
         } catch (_) {}
@@ -248,15 +248,19 @@ function getQuotedContext(message) {
 const run = async ({
     sock,
     from,
+    msg,
     message,
     args
 }) => {
+    const commandMsg = msg || message
+    if (!commandMsg?.key) throw new Error('Original command message is missing')
+
     console.log(
         '[ANIME] command triggered, node version:',
         process.version
     )
 
-    const action = (args[0] || '')
+    const action = String(Array.isArray(args) ? args[0] || '' : '')
         .toLowerCase()
         .trim()
 
@@ -282,7 +286,7 @@ ${cmds}
 > © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
             },
             {
-                quoted: message
+                quoted: commandMsg
             }
         )
     }
@@ -299,7 +303,7 @@ ${cmds}
 ${all}`
             },
             {
-                quoted: message
+                quoted: commandMsg
             }
         )
     }
@@ -312,8 +316,8 @@ ${all}`
      * is the person who sent ".anime slap".
      */
     const senderJid =
-        msg.key.participant ||
-        msg.key.remoteJid
+        commandMsg.key.participant ||
+        commandMsg.key.remoteJid
 
     const senderTag =
         `@${senderJid.split('@')[0]}`
@@ -325,7 +329,7 @@ ${all}`
      * use the participant of the quoted message.
      */
     const quotedContext =
-        getQuotedContext(message)
+        getQuotedContext(commandMsg)
 
     const targetJid =
         quotedContext?.participant ||
@@ -367,16 +371,15 @@ ${all}`
     /*
      * React to the command message.
      */
-    const reactPromise =
-        sock.sendMessage(
-            from,
-            {
-                react: {
-                    text: reaction.emoji,
-                    key: msg.key
-                }
+    void sock.sendMessage(
+        from,
+        {
+            react: {
+                text: reaction.emoji,
+                key: commandMsg.key
             }
-        ).catch(() => {})
+        }
+    ).catch(() => {})
 
     /*
      * Get reaction GIF.
@@ -386,10 +389,8 @@ ${all}`
             action,
             sock,
             from,
-            message
+            commandMsg
         )
-
-    await reactPromise
 
     /*
      * No GIF available.
@@ -405,7 +406,7 @@ ${all}`
                 mentions
             },
             {
-                quoted: message
+                quoted: commandMsg
             }
         )
     }
@@ -431,7 +432,7 @@ ${all}`
                 mentions
             },
             {
-                quoted: message
+                quoted: commandMsg
             }
         ).catch(async () => {
             await sock.sendMessage(
@@ -441,7 +442,7 @@ ${all}`
                     mentions
                 },
                 {
-                    quoted: message
+                    quoted: commandMsg
                 }
             )
         })
@@ -464,7 +465,7 @@ ${all}`
                 mentions
             },
             {
-                quoted: message
+                quoted: commandMsg
             }
         )
     } catch (err) {
@@ -482,7 +483,7 @@ ${all}`
                     mentions
                 },
                 {
-                    quoted: message
+                    quoted: commandMsg
                 }
             )
         } catch (err2) {
@@ -498,7 +499,7 @@ ${all}`
                     mentions
                 },
                 {
-                    quoted: message
+                    quoted: commandMsg
                 }
             )
         }
