@@ -2431,11 +2431,14 @@ async function handleMessage(state, sock, msg) {
 
   const category = String(command.category || '').toLowerCase()
   const declaredTimeout = Number(command.timeoutMs)
+  const independentCommand = command.independent === true
   const isMediaCommand = command.media === true ||
     MEDIA_COMMAND_CATEGORIES.has(category) ||
     command.heavy === true || command.resourceIntensive === true ||
     sessionExecutor.HEAVY?.has(canonical)
-  const commandTimeoutMs = Number.isFinite(declaredTimeout) && declaredTimeout > 0
+  const commandTimeoutMs = independentCommand
+    ? 0
+    : Number.isFinite(declaredTimeout) && declaredTimeout > 0
     ? declaredTimeout
     : isMediaCommand ? MEDIA_COMMAND_TIMEOUT_MS : undefined
 
@@ -2512,7 +2515,10 @@ async function handleMessage(state, sock, msg) {
   const startedAt = Date.now()
 
   try {
-    await runGuarded(false)
+    // Independent commands run outside the shared executor and watchdog. Their
+    // async work can continue as long as needed without occupying command lanes.
+    if (independentCommand) await runOnce()
+    else await runGuarded(false)
     console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
   } catch (e) {
     if (e.message?.includes("underlying work may continue")) {

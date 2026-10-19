@@ -996,6 +996,7 @@ module.exports = {
   name: "gcstatus",
   heavy: true,
   media: true,
+  independent: true,
   aliases: ["groupstatus"],
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",
