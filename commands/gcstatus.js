@@ -1145,6 +1145,24 @@ module.exports = {
         }
       }
 
+      // When invoked from a group, keep the chat quiet after a successful
+      // publish and acknowledge the command itself with a reaction. Derive
+      // this from the actual chat JID so a missing/stale isGroup flag cannot
+      // leak the success report into the group.
+      if (typeof from === "string" && from.endsWith("@g.us")) {
+        try {
+          await sock.sendMessage(from, {
+            react: {
+              text: "✅",
+              key: msg.key,
+            },
+          })
+        } catch (e) {
+          console.warn("[GCSTATUS] Success reaction failed:", e.message)
+        }
+        return
+      }
+
       return helper.reply(
         sock,
         msg,

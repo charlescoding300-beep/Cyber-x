@@ -20,7 +20,8 @@ module.exports = {
       return
     }
 
-    // OWNER OR ADMIN ONLY
+    // Bot owner or group admin only. The bot owner may run it even when
+    // they are not an admin in this group.
     if (!isOwner && !isAdmin) {
       await sock.sendMessage(from, {
         text: '> *Only bot Owner and Admin are allowed to use this command*'

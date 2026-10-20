@@ -350,7 +350,6 @@ Please promote me to admin to enforce this filter.`,
     const count = incrementWarning(ownerPhone, from, sender)
     const maxW = 3
     if (count >= maxW) {
-      resetWarning(ownerPhone, from, sender)
       try {
         await sock.groupParticipantsUpdate(from, [sender], 'remove')
       } catch (e) {

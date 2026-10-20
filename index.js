@@ -27,7 +27,7 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
-const { attachResponseTextStyle } = require("./core/responseTextStyle")
+const { attachResponseTextStyle, sendMessageUnstyled } = require("./core/responseTextStyle")
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
@@ -1543,10 +1543,12 @@ async function antideleteReport(sock, phone, proto, deleterKey) {
     when:      new Date(cached.timestamp * 1000).toLocaleString(),
   }
   const ownerJid = `${phone}@s.whatsapp.net`
+  const sendRecovered = (jid, content, ...options) =>
+    sendMessageUnstyled(sock, jid, content, ...options)
 
   try {
     if (cached.type === "text") {
-      await sock.sendMessage(ownerJid, { text: adTextBox(info, cached.text || "(empty)"), mentions })
+      await sendRecovered(ownerJid, { text: adTextBox(info, cached.text || "(empty)"), mentions })
 
     } else if (cached.mediaBuffer && ["image", "video", "gif", "document"].includes(cached.type)) {
       const typeLabel =
@@ -1556,27 +1558,27 @@ async function antideleteReport(sock, phone, proto, deleterKey) {
         `Document${cached.fileName ? ` (${cached.fileName})` : ""}`
       const box = adMediaBox(info, typeLabel, cached.caption || "No Caption")
       if (cached.type === "image") {
-        await sock.sendMessage(ownerJid, { image: cached.mediaBuffer, caption: box, mentions })
+        await sendRecovered(ownerJid, { image: cached.mediaBuffer, caption: box, mentions })
       } else if (cached.type === "document") {
-        await sock.sendMessage(ownerJid, { document: cached.mediaBuffer, mimetype: cached.mimetype, fileName: cached.fileName || "file", caption: box, mentions })
+        await sendRecovered(ownerJid, { document: cached.mediaBuffer, mimetype: cached.mimetype, fileName: cached.fileName || "file", caption: box, mentions })
       } else {
-        await sock.sendMessage(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: box, mentions })
+        await sendRecovered(ownerJid, { video: cached.mediaBuffer, gifPlayback: cached.gifPlayback, caption: box, mentions })
       }
 
     } else if (cached.mediaBuffer && cached.type === "sticker") {
       const detail = cached.isAnimatedSticker ? "Animated Sticker" : "Sticker Content"
-      await sock.sendMessage(ownerJid, { text: adStickerBox(info, detail), mentions })
-      await sock.sendMessage(ownerJid, { sticker: cached.mediaBuffer })
+      await sendRecovered(ownerJid, { text: adStickerBox(info, detail), mentions })
+      await sendRecovered(ownerJid, { sticker: cached.mediaBuffer })
 
     } else if (cached.mediaBuffer && (cached.type === "voice" || cached.type === "audio")) {
       const typeLabel = cached.type === "voice" ? "Voice Note 🎙️" : "Audio 🎵"
       const dur = fmtDuration(cached.seconds)
       const detail = dur ? `Duration: ${dur}` : (cached.type === "voice" ? "[Voice Note]" : "[Audio]")
-      await sock.sendMessage(ownerJid, { text: adAudioBox(info, typeLabel, detail), mentions })
-      await sock.sendMessage(ownerJid, { audio: cached.mediaBuffer, ptt: cached.ptt, mimetype: cached.mimetype || "audio/ogg" })
+      await sendRecovered(ownerJid, { text: adAudioBox(info, typeLabel, detail), mentions })
+      await sendRecovered(ownerJid, { audio: cached.mediaBuffer, ptt: cached.ptt, mimetype: cached.mimetype || "audio/ogg" })
 
     } else {
-      await sock.sendMessage(ownerJid, { text: `🛡️ *ANTI-DELETE* — ${cached.type} deleted but its content could not be recovered.\n📍 *Where:* ${info.where}\n🗑️ *Deleted by:* ${info.deletedBy}\n👤 *Sender by:* ${info.senderBy}`, mentions })
+      await sendRecovered(ownerJid, { text: `🛡️ *ANTI-DELETE* — ${cached.type} deleted but its content could not be recovered.\n📍 *Where:* ${info.where}\n🗑️ *Deleted by:* ${info.deletedBy}\n👤 *Sender by:* ${info.senderBy}`, mentions })
     }
   } catch (e) {
     console.error("[ANTIDELETE] failed to report deletion to owner:", e.message)
@@ -1952,7 +1954,6 @@ async function handleAntilinkInline(sock, msg, phone) {
       const warns = antilinkAddWarning(phone, groupId, sender)
       const maxWarns = 3
       if (warns >= maxWarns) {
-        antilinkResetWarnings(phone, groupId, sender)
         await sock.sendMessage(groupId, {
           text: `╔════════════════════╗\n║  👢 *USER KICKED!*  ║\n╚════════════════════╝\n\n┌─────〔 🚫 *ACTION TAKEN* 〕─────\n│ 👤 *User:* @${tag}\n│ ⚠️ *Warnings:* ${warns}/${maxWarns}\n│ 🔗 *Reason:* Sending links repeatedly${ocrNote}\n│ 👢 *Status:* Removed from group\n└──────────────────────────\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
           mentions: [sender]
@@ -2178,15 +2179,21 @@ function antistatusGetMode(phone, groupId) {
 function antistatusAddWarning(phone, groupId, sender) {
   const data = antistatusLoad(phone)
   if (!data.warnings[groupId]) data.warnings[groupId] = {}
-  if (!data.warnings[groupId][sender]) data.warnings[groupId][sender] = 0
-  data.warnings[groupId][sender]++
+  const key = String(sender || '').replace(/:\d+(?=@)/, '')
+  const warnings = data.warnings[groupId]
+  const stored = Object.keys(warnings).find(id => String(id).replace(/:\d+(?=@)/, '') === key) || key
+  warnings[stored] = (Number(warnings[stored]) || 0) + 1
   antistatusSave(phone, data)
-  return data.warnings[groupId][sender]
+  return warnings[stored]
 }
 function antistatusResetWarnings(phone, groupId, sender) {
   const data = antistatusLoad(phone)
-  if (data.warnings[groupId]?.[sender] !== undefined) {
-    data.warnings[groupId][sender] = 0
+  const warnings = data.warnings[groupId]
+  const key = String(sender || '').replace(/:\d+(?=@)/, '')
+  if (warnings) {
+    for (const stored of Object.keys(warnings)) {
+      if (String(stored).replace(/:\d+(?=@)/, '') === key) delete warnings[stored]
+    }
     antistatusSave(phone, data)
   }
 }
@@ -2258,7 +2265,6 @@ async function handleAntistatusInline(sock, msg, phone) {
         const warns = antistatusAddWarning(phone, groupId, sender)
         const maxWarns = 3
         if (warns >= maxWarns) {
-          antistatusResetWarnings(phone, groupId, sender)
           try {
             await sock.groupParticipantsUpdate(groupId, [sender], "remove")
             await sock.sendMessage(groupId, {
@@ -2335,8 +2341,8 @@ function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
 // Keep this list conservative: only these and commands declaring permission
 // metadata need a synchronous metadata lookup before execution.
 const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
-  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker",
-  "del", "demote", "hidetag", "mute", "promote", "tagall", "unban",
+  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker", "resetwarn",
+  "del", "demote", "hidetag", "mute", "promote", "tagadmin", "tagall", "unban",
   "unmute", "vmute", "vunmute", "warn",
 ])
 
@@ -2344,7 +2350,7 @@ const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
 // Bot ownership alone does not grant that WhatsApp group role.
 const COMMANDS_REQUIRING_SENDER_GROUP_ADMIN = new Set([
   "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker",
-  "demote", "hidetag", "kick", "mute", "promote", "tagall", "unban",
+  "demote", "hidetag", "kick", "mute", "promote", "unban",
   "unmute", "vmute", "vunmute", "warn",
 ])
 
@@ -3038,8 +3044,17 @@ async function startBot(phone) {
       ;(lib.handleAntilinkInline || handleAntilinkInline)(sock, m, phone).catch(e => console.error("[" + phone + "] ANTILINK ERR:", e.message))
       handleAntitagInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTITAG ERR:", e.message))
       if (typeof lib.handleAntistatusGroup === "function") lib.handleAntistatusGroup(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS-GC ERR:", e.message))
-      if (typeof lib.handleBadword  === "function") lib.handleBadword(sock, m, extractBody).catch(() => {})
+      try {
+        const badwordCommand = require(path.join(CMD_DIR, "antibadword.js"))
+        if (typeof badwordCommand.handleBadword === "function") {
+          badwordCommand.handleBadword(sock, m, extractBody).catch(e => console.error("[" + phone + "] ANTIBADWORD ERR:", e.message))
+        }
+      } catch (e) {
+        console.error("[" + phone + "] ANTIBADWORD LOAD ERR:", e.message)
+      }
+      if (typeof lib.handleAntistickerInline === "function") lib.handleAntistickerInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTICKER ERR:", e.message))
       if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
+      if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
     }
 
     // AUTO-VV: authorized chats first — media-only View Once messages may have no text body.
@@ -3430,18 +3445,14 @@ async function removeSession(phone) {
     if (fs.existsSync(usersFile)) fs.unlinkSync(usersFile)
   } catch (e) { console.error(`[REMOVE] users wipe ✗ ${clean}:`, e.message) }
   settingsLib.clearUserCache?.(clean)
-  try {
-    const antilinkFile = path.join(__dirname, "data", "antilink", `${clean}.json`)
-    if (fs.existsSync(antilinkFile)) fs.unlinkSync(antilinkFile)
-  } catch {}
+  // Keep legacy anti-link records too: moderation warnings are cleared only
+  // through .resetwarn, including when a WhatsApp session is removed.
   try {
     const antitagFile = path.join(__dirname, "data", "antitag", `${clean}.json`)
     if (fs.existsSync(antitagFile)) fs.unlinkSync(antitagFile)
   } catch {}
-  try {
-    const antistatusFile = path.join(__dirname, "data", "antistatus", `${clean}.json`)
-    if (fs.existsSync(antistatusFile)) fs.unlinkSync(antistatusFile)
-  } catch {}
+  // Keep moderation warning history through account logout/relink. Explicit
+  // warning resets are handled by .resetwarn; AI memory cleanup is separate.
   try {
     const customCmdFile = path.join(__dirname, "data", "customcmds", `${clean}.json`)
     if (fs.existsSync(customCmdFile)) fs.unlinkSync(customCmdFile)

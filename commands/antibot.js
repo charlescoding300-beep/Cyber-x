@@ -13,13 +13,11 @@
 //   .antibot exempt <jid>   → add a JID to the "known ZENX bot" exempt list
 //   .antibot unexempt <jid> → remove a JID from the exempt list
 //
-// DETECTION SCOPE — per your requirement:
-//   Antibot now acts on ANY detected bot message regardless of whether the
-//   sender is a regular member, group admin, super admin, OR the group
-//   owner. Admin status no longer grants automatic protection.
-//   The ONLY exemption is a maintained per-group JID list (exemptJids) —
-//   these represent YOUR OWN ZENX-issued admin bots deployed in that
-//   group, which must never be touched even though they're also bots.
+// DETECTION SCOPE:
+//   WhatsApp message IDs do not identify automated accounts. The shared
+//   engine uses observable behavior as a heuristic and exempts group admins
+//   to reduce false positives. A maintained per-group list can exempt known
+//   ZENX bots as well.
 //
 // STORAGE — per-group state lives inside lib.userDb's "antibot" section,
 // keyed by groupJid inside that section's `groups` object — same pattern
@@ -27,7 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BRAND = "> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦"
-const MAX_WARNINGS = 3
+const antibotEngine = require('../lib/antibot')
 
 function normalizeJid(id) {
   if (!id) return null
@@ -61,79 +59,10 @@ function setGroupState(lib, phone, groupJid, patch) {
   }
 }
 
-function isBaileysMessageId(messageId) {
-  if (!messageId) return false
-  const patterns = [
-    /^3EB[0-9A-F]+/i,
-    /^BAE[0-9A-F]+/i,
-    /^3A[0-9A-F]+/i,
-  ]
-  return patterns.some(p => p.test(messageId))
-}
-
-/**
- * Pure local check, zero network calls — kept fast for the hot path.
- * Returns true if this message looks like it came from a foreign
- * (non-ZENX) automated bot account, based on Baileys' own message-ID
- * fingerprinting patterns.
- */
-function detectBotFromMessage(m, sock) {
-  try {
-    if (m.key?.fromMe === true) return false
-    if (m.sender && m.sender.endsWith('@g.us')) return false
-
-    const messageId = m.key?.id
-    if (!messageId) return false
-
-    if (!isBaileysMessageId(messageId)) return false
-
-    // Own bot's messages carry a CYBERX suffix — never flag ourselves
-    if (messageId.endsWith('CYBERX')) return false
-
-    return true
-  } catch {
-    return false
-  }
-}
-
-function isExempt(groupState, userJid) {
-  const normalized = normalizeJid(userJid)
-  return (groupState.exemptJids || []).some(j => normalizeJid(j) === normalized)
-}
-
-async function deleteOffendingMessage(sock, groupJid, m) {
-  try {
-    if (!m?.key) return false
-    await sock.sendMessage(groupJid, { delete: m.key })
-    return true
-  } catch (e) {
-    console.error(`[ANTIBOT] delete failed:`, e.message)
-    return false
-  }
-}
-
-async function kickUser(sock, groupJid, userJid, reasonText) {
-  try {
-    await sock.groupParticipantsUpdate(groupJid, [userJid], "remove")
-    await sock.sendMessage(groupJid, {
-      text: `✅ *Bot Removed*\n\n👤 User: @${userJid.split('@')[0]}\n📋 Reason: ${reasonText}\n\n${BRAND}`,
-      mentions: [userJid]
-    }).catch(() => {})
-    return true
-  } catch (e) {
-    console.error(`[ANTIBOT] kick failed:`, e.message)
-    await sock.sendMessage(groupJid, {
-      text: `⚠️ *Failed to remove bot* @${userJid.split('@')[0]} — ${e.message}\n\n${BRAND}`,
-      mentions: [userJid]
-    }).catch(() => {})
-    return false
-  }
-}
-
 module.exports = {
   pattern:  'antibot',
   alias:    [],
-  desc:     'Detect and act on foreign WhatsApp bots in this group (admins/owner not exempt, only known ZENX bots)',
+  desc:     'Detect suspicious automated message behavior in this group',
   usage:    '.antibot kick|delete|warn|off|status|exempt <jid>|unexempt <jid>',
   category: 'group',
 
@@ -211,62 +140,9 @@ module.exports = {
     }, { quoted: msg })
   },
 
-  /**
-   * Called from index.js's message hot path as:
-   *   lib.handleAntibot(sock, m, extractBody, lib)
-   * Fast local detection first (zero network), only touches group state/network
-   * once a bot-shaped message is actually found.
-   */
-  async handleAntibot(sock, m, extractBody, lib) {
-    try {
-      if (!lib) return
-      if (!m?.key?.remoteJid?.endsWith('@g.us')) return
-      const groupJid = m.key.remoteJid
-      const senderJid = m.key.participant || m.key.remoteJid
-
-      if (!detectBotFromMessage({ key: m.key, sender: senderJid }, sock)) return
-
-      const phone = sock.user?.id?.split('@')[0]?.split(':')[0]
-
-      const state = getGroupState(lib, phone, groupJid)
-      if (!state.mode || state.mode === 'off') return
-
-      // The ONLY exemption: a maintained list of known ZENX bot JIDs.
-      // Admin status, super admin status, and owner status grant NO
-      // protection here — that's the explicit requirement.
-      if (isExempt(state, senderJid)) return
-
-      await deleteOffendingMessage(sock, groupJid, m)
-
-      if (state.mode === 'delete') return
-
-      if (state.mode === 'kick') {
-        await kickUser(sock, groupJid, senderJid, 'Detected as unauthorized bot account')
-        return
-      }
-
-      if (state.mode === 'warn') {
-        const warnings = { ...(state.warnings || {}) }
-        warnings[senderJid] = (warnings[senderJid] || 0) + 1
-        const count = warnings[senderJid]
-
-        if (count >= MAX_WARNINGS) {
-          await sock.sendMessage(groupJid, {
-            text: `⚠️ *Final Warning Reached (${count}/${MAX_WARNINGS})* — @${senderJid.split('@')[0]} being removed automatically.\n\n${BRAND}`,
-            mentions: [senderJid]
-          }).catch(() => {})
-          await kickUser(sock, groupJid, senderJid, `Reached ${MAX_WARNINGS}/${MAX_WARNINGS} warnings`)
-          delete warnings[senderJid]
-        } else {
-          await sock.sendMessage(groupJid, {
-            text: `⚠️ *Bot Warning (${count}/${MAX_WARNINGS})* — @${senderJid.split('@')[0]}\n\n${BRAND}`,
-            mentions: [senderJid]
-          }).catch(() => {})
-        }
-        setGroupState(lib, phone, groupJid, { warnings })
-      }
-    } catch (e) {
-      console.error('[ANTIBOT] handleAntibot error:', e.message)
-    }
+  // Use the shared behavior-based engine. WhatsApp message-ID prefixes are
+  // common across clients and cannot identify a bot reliably.
+  async handleAntibot(sock, m, extractBody) {
+    return antibotEngine.handleAntibot(sock, m, extractBody)
   }
 }

@@ -18,6 +18,76 @@ if (!TELEGRAM_TOKEN) {
 
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
+// Telegram API transport failures must not take down the update receiver.
+// Keep secrets out of logs because Telegraf network errors can include request URLs.
+function telegramErrorText(error) {
+  const message = String(error?.response?.description || error?.message || error);
+  return message.split(TELEGRAM_TOKEN).join("[redacted]");
+}
+
+bot.catch((error, ctx) => {
+  const updateId = Number.isInteger(ctx?.update?.update_id)
+    ? ctx.update.update_id
+    : "unknown";
+  console.error(`[TELEGRAM] Update ${updateId} failed: ${telegramErrorText(error)}`);
+});
+
+let telegramStopping = false;
+let launchAttempts = 0;
+let launchRetryTimer = null;
+
+function isRetryableLaunchError(error) {
+  const apiCode = Number(error?.response?.error_code);
+  if (apiCode === 429 || apiCode >= 500) return true;
+
+  const networkCodes = new Set([
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+    "ENOTFOUND",
+    "EHOSTUNREACH",
+    "UND_ERR_CONNECT_TIMEOUT",
+    "UND_ERR_SOCKET",
+  ]);
+  return [error?.code, error?.cause?.code].some(code => networkCodes.has(code)) ||
+    error?.name === "FetchError";
+}
+
+function launchTelegram() {
+  if (telegramStopping) return;
+
+  bot.launch().catch(error => {
+    if (telegramStopping) return;
+
+    const apiCode = Number(error?.response?.error_code);
+    const message = telegramErrorText(error);
+    if (apiCode === 401) {
+      console.error(`[TELEGRAM] Startup stopped: token rejected by Telegram (${message})`);
+      return;
+    }
+    if (apiCode === 409 || /409\s*:\s*Conflict/i.test(message)) {
+      console.error(
+        "[TELEGRAM] Polling conflict: another process is already receiving updates for this token. " +
+        "Stop the duplicate bot instance before starting this one. The .tgsticker command does not poll for updates."
+      );
+      return;
+    }
+    if (!isRetryableLaunchError(error)) {
+      console.error(`[TELEGRAM] Startup stopped: ${message}`);
+      return;
+    }
+
+    const retryAfter = Number(error?.response?.parameters?.retry_after);
+    const backoff = Math.min(1000 * (2 ** Math.min(launchAttempts, 6)), 60_000);
+    launchAttempts += 1;
+    const delay = retryAfter > 0 ? retryAfter * 1000 : backoff;
+    console.error(`[TELEGRAM] Startup network error; retrying in ${Math.ceil(delay / 1000)}s: ${message}`);
+    launchRetryTimer = setTimeout(launchTelegram, delay);
+    launchRetryTimer.unref?.();
+  });
+}
+
 // ── Shared header used on every message — one line, always consistent ──
 const HEADER = "⚡ <b>ZEN X</b> — WhatsApp Pairing";
 const FOOTER = "⚡ <i>Zen X</i>";
@@ -548,7 +618,7 @@ ${FOOTER}`,
 |--------------------------------------------------------------------------
 */
 
-bot.launch();
+launchTelegram();
 
 console.log(`
 ⚡ ZEN X — Telegram Pairing System
@@ -564,6 +634,12 @@ console.log(`
 |--------------------------------------------------------------------------
 */
 
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+function stopTelegram(signal) {
+  telegramStopping = true;
+  if (launchRetryTimer) clearTimeout(launchRetryTimer);
+  bot.stop(signal);
+}
+
+process.once("SIGINT", () => stopTelegram("SIGINT"));
+process.once("SIGTERM", () => stopTelegram("SIGTERM"));
 

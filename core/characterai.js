@@ -13,12 +13,16 @@
 //    • Each chat keeps a short memory on disk, so it survives restarts.
 //    • Chat history and expired runtime caches are cleaned weekly; AI settings stay.
 //    • If the person asks for a picture, the bot searches Pinterest and sends one.
-//    • It shows "typing…" for CHARAI_TYPING_SECONDS (default 3) before each reply.
+//    • It shows "typing…" for at least 3 seconds before each reply is sent.
 //
 //  Keys (in .env, as many as you like — rotated automatically when one hits its limit):
 //    GEMINI_API_KEY=...            one key
 //    GEMINI_API_KEYS=k1,k2,k3      or a comma-separated list
 //    GEMINI_API_KEY_1=... GEMINI_API_KEY_2=...   or numbered lines
+//    ELEVENLABS_API_KEYS=k1,k2,k3   voice keys (or ELEVENLABS_API_KEY_1, etc.)
+//    CHARAI_VOICE_CHANCE=0.6        60% voice / 40% text when voice is configured
+//    CHARAI_FEMALE_VOICE_ID=...     optional female library voice override
+//    CHARAI_MALE_VOICE_ID=...       optional male library voice override
 //  Optional: CHARAI_MODEL (default gemini-3.5-flash-lite), BOT_PREFIX (default .)
 //
 //  Nothing here runs unless the AI is ON, and the work happens in the background, so
@@ -27,6 +31,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const elevenLabs = require('./elevenlabs')
 
 const DIR = path.join(__dirname, '..', 'data', 'characterai')
 const MAINTENANCE_FILE = path.join(DIR, 'maintenance.json')
@@ -34,7 +39,11 @@ const MODEL = process.env.CHARAI_MODEL || 'gemini-3.5-flash-lite'
 const PREFIX = process.env.BOT_PREFIX || '.'
 const MEMORY_TURNS = 12                          // last 12 exchanges per chat (user + bot)
 const MAX_CHATS = 300                            // oldest chats are forgotten beyond this
-const TYPING_MS = Math.max(0, Number(process.env.CHARAI_TYPING_SECONDS ?? 3)) * 1000
+const TYPING_MS = 3_000
+const configuredVoiceChance = Number(process.env.CHARAI_VOICE_CHANCE ?? 0.6)
+const VOICE_CHANCE = Number.isFinite(configuredVoiceChance)
+  ? Math.max(0, Math.min(1, configuredVoiceChance))
+  : 0.6
 const SEEN_TTL_MS = 10 * 60 * 1000
 const WEEKLY_CLEANUP_MS = 7 * 24 * 60 * 60 * 1000
 const CLEANUP_CHECK_MS = 6 * 60 * 60 * 1000
@@ -51,6 +60,7 @@ const MOOD_EMOJIS = {
   neutral: ['🙂', '👀', '😌'],
 }
 const MOODS = Object.keys(MOOD_EMOJIS)
+const VOICE_CUES = new Set(['laughs', 'chuckles', 'sighs', 'curious', 'excited', 'sad', 'angry', 'whispers'])
 
 // ── identity helpers ─────────────────────────────────────────────────────────
 const bare = jid => String(jid || '').replace(/:\d+(?=@)/, '')
@@ -232,12 +242,14 @@ async function cleanupWeeklyMemory(now = Date.now()) {
 // ── the persona ──────────────────────────────────────────────────────────────
 function persona(character) {
   return [
-    `You are ${character}. Roleplay this character naturally in a WhatsApp chat, the way ${character} would really talk.`,
+    `Roleplay ${character} naturally in a WhatsApp chat. Use an original performance inspired by the fictional character's traits; do not claim to reproduce a specific actor's voice.`,
     'Rules:',
     '- Stay in character. Keep replies short (1-3 sentences), casual, like real chat messages.',
     '- Answer what the person actually said, and use the earlier messages you remember.',
     '- Read the mood of the person\'s latest message (angry, happy, sad, emotional, playful or neutral) and answer with a matching mood. Angry: respond to the anger in character, calm it down or fire back with a playful jab. Sad: be gentle. Happy: match the excitement. Emotional: be supportive.',
     '- Put your own mood for this reply in "mood" (one word from: angry, happy, sad, emotional, playful, neutral).',
+    '- Set "voice_gender" to the fictional character’s gender (male or female); if genuinely uncertain, use female. This selects a generic stock voice, not an actor imitation.',
+    '- Set "voice_cue" to one context-appropriate audio direction from: none, laughs, chuckles, sighs, curious, excited, sad, angry, whispers. Use laughter only when it naturally fits; otherwise use none.',
     '- Use 2 to 4 emojis in every reply, chosen to fit the mood.',
     '- If the person asks you to send a picture or image of something, set "image_query" to a short search phrase for it (for example "cat" or "gojo wallpaper") and keep "reply" as a short line about sending it.',
     '- Otherwise set "image_query" to null.',
@@ -246,8 +258,15 @@ function persona(character) {
     character === DEFAULT_CHARACTER
       ? '- Your default style is rage-bait: tease the person, poke fun at their last message, and provoke a playful reaction with cheeky, witty comebacks. Keep it funny, never cruel, never hateful, never aimed at real people\'s private lives.'
       : '',
-    'Respond ONLY with JSON in this exact shape: {"mood": "neutral", "reply": "your message", "image_query": null}',
+    'Respond ONLY with JSON in this exact shape: {"mood": "neutral", "reply": "your message", "image_query": null, "voice_gender": "female", "voice_cue": "none"}',
   ].filter(Boolean).join('\n')
+}
+
+function characterVoiceGender(character) {
+  const name = String(character || '').toLowerCase().replace(/[_-]+/g, ' ')
+  if (/\b(female|woman|girl|she|her|queen|princess|heroine|spider gwen|spider girl|supergirl|wonder woman|black widow|captain marvel|storm|wanda|scarlet witch|catwoman|barbie)\b/.test(name)) return 'female'
+  if (/\b(male|man|boy|he|him|king|prince|hero|spider man|spiderman|superman|batman|iron man|captain america|thor|hulk|wolverine|deadpool|aquaman)\b/.test(name)) return 'male'
+  return 'female'
 }
 
 // makes sure a reply always carries emojis, picked from the mood
@@ -258,17 +277,37 @@ function ensureEmojis(reply, mood) {
   return `${reply} ${pool.slice(0, MIN_EMOJIS - count).join(' ')}`.trim()
 }
 
-function parseReply(raw) {
+function parseReply(raw, character = '') {
   const cleaned = String(raw || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
   try {
     const j = JSON.parse(cleaned)
     const reply = typeof j.reply === 'string' ? j.reply.trim() : ''
     const mood = MOODS.includes(j.mood) ? j.mood : 'neutral'
     const imageQuery = typeof j.image_query === 'string' && j.image_query.trim() ? j.image_query.trim().slice(0, 80) : null
-    if (reply) return { reply: ensureEmojis(reply, mood), imageQuery, mood }
+    const voiceGender = j.voice_gender === 'male' || j.voice_gender === 'female'
+      ? j.voice_gender
+      : characterVoiceGender(character)
+    const cue = String(j.voice_cue || '').toLowerCase()
+    const voiceCue = VOICE_CUES.has(cue) ? cue : 'none'
+    if (reply) return { reply: ensureEmojis(reply, mood), imageQuery, mood, voiceGender, voiceCue }
   } catch {}
   const fallback = cleaned.slice(0, 500)
-  return { reply: ensureEmojis(fallback, 'neutral'), imageQuery: null, mood: 'neutral' }
+  return { reply: ensureEmojis(fallback, 'neutral'), imageQuery: null, mood: 'neutral', voiceGender: characterVoiceGender(character), voiceCue: 'none' }
+}
+
+function voiceTextFor(result) {
+  const tags = {
+    laughs: '[laughs]',
+    chuckles: '[chuckles]',
+    sighs: '[sighs]',
+    curious: '[curious]',
+    excited: '[excited]',
+    sad: '[sad]',
+    angry: '[angry]',
+    whispers: '[whispers]',
+  }
+  const tag = tags[result.voiceCue] || (result.mood === 'happy' ? '[happy]' : result.mood === 'sad' ? '[sad]' : result.mood === 'angry' ? '[angry]' : '')
+  return tag ? `${tag} ${result.reply}` : result.reply
 }
 
 // ── Gemini (rotates through every key you have) ──────────────────────────────
@@ -305,7 +344,7 @@ async function callGemini(character, history, userText) {
       const data = await res.json()
       const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('')
       if (!text.trim()) throw new Error('Gemini sent an empty answer')
-      return parseReply(text)
+      return parseReply(text, character)
     } catch (e) {
       lastErr = e
       if (/bad request/.test(e.message)) break
@@ -383,29 +422,45 @@ async function respond(sock, phone, character, m, jid, userText, isGroup) {
   const userTurn = isGroup ? `${who}: ${userText}` : userText
   const history = (getMemory(phone).chats[jid] || []).slice(-MEMORY_TURNS * 2)
 
-  // generate the answer while the typing indicator runs; send when both are done
+  // Prepare the complete reply (including optional image/voice work) while
+  // typing is shown. The reply is sent as soon as both preparation and the
+  // three-second minimum are complete. This is isolated to the AI queue, so
+  // command handlers continue independently.
   sock.sendPresenceUpdate?.('composing', jid)?.catch?.(() => {})
-  const answer = callGemini(character, history, userTurn).catch(e => ({ error: e.message }))
-  await Promise.all([answer, sleep(TYPING_MS)])
+  const prepared = (async () => {
+    const result = await callGemini(character, history, userTurn)
+    remember(phone, jid, 'user', userTurn)
+    remember(phone, jid, 'assistant', result.reply)
+
+    if (result.imageQuery) {
+      const img = await imageFor(result.imageQuery)
+      if (img?.buffer) {
+        return { image: img.buffer, caption: result.reply, mimetype: 'image/jpeg' }
+      }
+      return { text: `${result.reply}\n\n(I couldn't find a picture for that just now.)` }
+    }
+
+    // Voice synthesis is included in preparation, so typing stays active
+    // through the complete audio reply. If it fails, fall back to quoted text.
+    if (elevenLabs.loadKeys().length && Math.random() < VOICE_CHANCE) {
+      try {
+        const audio = await elevenLabs.synthesizeWhatsAppVoice(voiceTextFor(result), result.voiceGender)
+        return { audio, mimetype: 'audio/ogg; codecs=opus', ptt: true }
+      } catch (error) {
+        console.warn(`[CHARAI] voice reply failed; using text: ${error.message}`)
+      }
+    }
+    return { text: result.reply }
+  })().catch(error => ({ error }))
+
+  const [payload] = await Promise.all([prepared, sleep(TYPING_MS)])
   sock.sendPresenceUpdate?.('paused', jid)?.catch?.(() => {})
 
-  const result = await answer
-  if (result.error) {
-    console.error(`[CHARAI] ${phone}: ${result.error}`)
+  if (payload.error) {
+    console.error(`[CHARAI] ${phone}: ${payload.error.message}`)
     return sock.sendMessage(jid, { text: FAILED_REPLY }, { quoted: m }).catch(() => {})
   }
-
-  remember(phone, jid, 'user', userTurn)
-  remember(phone, jid, 'assistant', result.reply)
-
-  if (result.imageQuery) {
-    const img = await imageFor(result.imageQuery)
-    if (img?.buffer) {
-      return sock.sendMessage(jid, { image: img.buffer, caption: result.reply, mimetype: 'image/jpeg' }, { quoted: m }).catch(() => {})
-    }
-    return sock.sendMessage(jid, { text: `${result.reply}\n\n(I couldn't find a picture for that just now.)` }, { quoted: m }).catch(() => {})
-  }
-  return sock.sendMessage(jid, { text: result.reply }, { quoted: m }).catch(() => {})
+  return sock.sendMessage(jid, payload, { quoted: m }).catch(() => {})
 }
 
 // ── decides, for each incoming message, whether to answer ────────────────────
@@ -481,4 +536,5 @@ module.exports = {
   loadKeys, persona, parseReply, ensureEmojis, handle,
   DEFAULT_CHARACTER, MOOD_EMOJIS, MIN_EMOJIS,
   TYPING_MS, MODEL, WEEKLY_CLEANUP_MS,
+  VOICE_CHANCE, voiceKeyCount: () => elevenLabs.loadKeys().length,
 }

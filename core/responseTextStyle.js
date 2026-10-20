@@ -4,6 +4,7 @@
 // so current and future commands get the same text styling automatically.
 const MONOSPACE_CAPITAL_A = 0x1D670
 const PROTECTED_TEXT = /```[\s\S]*?```|`[^`\r\n]*`|(?:https?:\/\/|www\.)[^\s<>{}]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:[A-Z0-9-]+\.)+[A-Z]{2,}(?:\/[^\s<>{}]*)?|@[A-Z0-9._+-]+|[.!/#?][A-Z][A-Z0-9_-]*/giu
+const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
 
 function stylizeSegment(text) {
   return Array.from(text, character => {
@@ -63,10 +64,29 @@ function attachResponseTextStyle(sock) {
   if (!sock || typeof sock.sendMessage !== 'function' || sock.__responseTextStyleAttached) return sock
 
   const sendMessage = sock.sendMessage.bind(sock)
-  sock.sendMessage = (jid, content, ...args) =>
-    sendMessage(jid, stylizeContent(content), ...args)
+  sock.sendMessage = (jid, content, ...args) => {
+    const options = args[0]
+    if (options && typeof options === 'object' && options[RESPONSE_STYLE_BYPASS]) {
+      const forwardedOptions = { ...options }
+      delete forwardedOptions[RESPONSE_STYLE_BYPASS]
+      args[0] = forwardedOptions
+      return sendMessage(jid, content, ...args)
+    }
+    return sendMessage(jid, stylizeContent(content), ...args)
+  }
   Object.defineProperty(sock, '__responseTextStyleAttached', { value: true })
   return sock
 }
 
-module.exports = { attachResponseTextStyle, stylizeText, stylizeContent }
+function sendMessageUnstyled(sock, jid, content, ...args) {
+  if (!sock || typeof sock.sendMessage !== 'function') {
+    throw new TypeError('sendMessageUnstyled requires a socket with sendMessage')
+  }
+  if (!sock.__responseTextStyleAttached) return sock.sendMessage(jid, content, ...args)
+
+  const options = args[0] && typeof args[0] === 'object' ? { ...args[0] } : {}
+  options[RESPONSE_STYLE_BYPASS] = true
+  return sock.sendMessage(jid, content, options, ...args.slice(1))
+}
+
+module.exports = { attachResponseTextStyle, sendMessageUnstyled, stylizeText, stylizeContent }

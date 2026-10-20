@@ -48,7 +48,8 @@ module.exports = {
         `🟢 *Character AI is ON*\n` +
         `🎭 Character: *${chosen}*${chosen === engine.DEFAULT_CHARACTER ? ' (default)' : ''}\n` +
         `⌨️ Typing before each reply: ${engine.TYPING_MS / 1000}s\n` +
-        `🔑 Keys loaded: ${engine.loadKeys().length}`
+        `🔑 Gemini keys loaded: ${engine.loadKeys().length}\n` +
+        `🎙️ Voice replies: ${Math.round(engine.VOICE_CHANCE * 100)}% when configured (${engine.voiceKeyCount()} ElevenLabs keys)`
       )
     }
 
@@ -62,7 +63,8 @@ module.exports = {
         `🟢 *Character AI is ON*\n` +
         `🎭 Character: *${character}*\n` +
         `⌨️ Typing before each reply: ${seconds}s\n` +
-        `🔑 Keys loaded: ${engine.loadKeys().length}\n\n` +
+        `🔑 Gemini keys loaded: ${engine.loadKeys().length}\n` +
+        `🎙️ Voice replies: ${Math.round(engine.VOICE_CHANCE * 100)}% when configured (${engine.voiceKeyCount()} ElevenLabs keys)\n\n` +
         `Direct messages always get a reply. In groups, the bot answers only when someone mentions it or replies to it.`
       )
     }
@@ -85,7 +87,8 @@ module.exports = {
         `📊 *Character AI:* 🟢 ON\n` +
         `🎭 Character: *${cfg.character}*\n` +
         `🧠 Model: ${engine.MODEL}\n` +
-        `🔑 Keys loaded: ${engine.loadKeys().length}`
+        `🔑 Gemini keys loaded: ${engine.loadKeys().length}\n` +
+        `🎙️ Voice replies: ${Math.round(engine.VOICE_CHANCE * 100)}% when configured (${engine.voiceKeyCount()} ElevenLabs keys)`
       )
     }
 
