@@ -27,6 +27,7 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
+const { attachResponseTextStyle } = require("./core/responseTextStyle")
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
@@ -2577,6 +2578,7 @@ async function startBot(phone) {
     msgRetryCounterCache: state.msgRetryCounterCache,   // lives on the session, not the socket
   })
 
+  attachResponseTextStyle(sock)
   state.sock = sock
 
   // ULTRA EXECUTOR — attach metrics/watchdog hooks to this live socket.

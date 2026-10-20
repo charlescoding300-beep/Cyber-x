@@ -1,0 +1,72 @@
+'use strict'
+
+// Apply the bot's monospace display font at the shared WhatsApp send boundary,
+// so current and future commands get the same text styling automatically.
+const MONOSPACE_CAPITAL_A = 0x1D670
+const PROTECTED_TEXT = /```[\s\S]*?```|`[^`\r\n]*`|(?:https?:\/\/|www\.)[^\s<>{}]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:[A-Z0-9-]+\.)+[A-Z]{2,}(?:\/[^\s<>{}]*)?|@[A-Z0-9._+-]+|[.!/#?][A-Z][A-Z0-9_-]*/giu
+
+function stylizeSegment(text) {
+  return Array.from(text, character => {
+    const upper = character.toUpperCase()
+    if (upper.length === 1 && upper >= 'A' && upper <= 'Z') {
+      return String.fromCodePoint(MONOSPACE_CAPITAL_A + upper.charCodeAt(0) - 65)
+    }
+    return character
+  }).join('')
+}
+
+function stylizeText(text) {
+  if (typeof text !== 'string' || !text) return text
+
+  let output = ''
+  let cursor = 0
+  for (const match of text.matchAll(PROTECTED_TEXT)) {
+    output += stylizeSegment(text.slice(cursor, match.index))
+    output += match[0]
+    cursor = match.index + match[0].length
+  }
+  return output + stylizeSegment(text.slice(cursor))
+}
+
+function stylizeContent(content) {
+  if (!content || typeof content !== 'object' || Buffer.isBuffer(content)) return content
+
+  let result = content
+  for (const key of ['text', 'caption']) {
+    if (typeof content[key] === 'string') {
+      if (result === content) result = { ...content }
+      result[key] = stylizeText(content[key])
+    }
+  }
+
+  if (content.poll && typeof content.poll === 'object') {
+    const poll = { ...content.poll }
+    let changed = false
+    if (typeof poll.name === 'string') {
+      poll.name = stylizeText(poll.name)
+      changed = true
+    }
+    if (Array.isArray(poll.values)) {
+      poll.values = poll.values.map(value => stylizeText(value))
+      changed = true
+    }
+    if (changed) {
+      if (result === content) result = { ...content }
+      result.poll = poll
+    }
+  }
+
+  return result
+}
+
+function attachResponseTextStyle(sock) {
+  if (!sock || typeof sock.sendMessage !== 'function' || sock.__responseTextStyleAttached) return sock
+
+  const sendMessage = sock.sendMessage.bind(sock)
+  sock.sendMessage = (jid, content, ...args) =>
+    sendMessage(jid, stylizeContent(content), ...args)
+  Object.defineProperty(sock, '__responseTextStyleAttached', { value: true })
+  return sock
+}
+
+module.exports = { attachResponseTextStyle, stylizeText, stylizeContent }
