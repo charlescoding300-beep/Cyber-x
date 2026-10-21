@@ -60,20 +60,10 @@ module.exports = {
         }
 
         return reply(
-`╔════════════════════╗
-║  🔒 *PRIVATE MODE*  ║
-╚════════════════════╝
-
-┌─────〔 ✅ *SAVED* 〕─────
-│ 🔐 Only YOU can trigger commands
-│ 👥 Everyone else is ignored
-│ 💾 Setting is saved for this session
-│ 🔄 It survives VPS/PM2 restarts
-│
-│ 🌐 Use *.mode public* to reverse this
-└──────────────────────────
-
-> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
+`┏━━━━━━━「 PRIVATE MODE 」━━━━━━━┓
+┃ 🔒 Private mode is enabled.
+┃ 🤖 The bot will respond only to you.
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`
         )
       } catch (error) {
         console.error("[MODE] Failed to save private mode:", error)
@@ -100,20 +90,10 @@ module.exports = {
         }
 
         return reply(
-`╔════════════════════╗
-║  🌐 *PUBLIC MODE*   ║
-╚════════════════════╝
-
-┌─────〔 ✅ *SAVED* 〕─────
-│ 👥 Anyone can trigger commands
-│ 🔓 Session is publicly usable
-│ 💾 Setting is saved for this session
-│ 🔄 It survives VPS/PM2 restarts
-│
-│ 🔒 Use *.mode private* to restrict this
-└──────────────────────────
-
-> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
+`┏━━━━━━━「 PUBLIC MODE 」━━━━━━━┓
+┃ 🌐 Public mode is enabled.
+┃ 🤖 The bot can respond to everyone.
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`
         )
       } catch (error) {
         console.error("[MODE] Failed to save public mode:", error)
