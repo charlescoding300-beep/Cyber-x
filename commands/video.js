@@ -147,21 +147,16 @@ async function downloadVideo(youtubeUrl) {
   }
 }
 
-function fmtViews(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) return 'N/A'
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B 🔥`
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M 🔥`
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
-  return n.toLocaleString('en-US')
-}
-
 async function sendVideoInfo(sock, from, msg, video, youtubeUrl) {
   const title = String(video.title || 'YouTube video').replace(/[\r\n]+/g, ' ').slice(0, 180)
-  const thumbnail = video.thumbnail || null
-  const card = `🎬 *${title}*\n\n📺 *Channel:* ${video.author?.name || video.author || 'Unknown'}\n⏱️ *Duration:* ${video.timestamp || 'N/A'}\n👁️ *Views:* ${fmtViews(video.views)}\n🔗 ${youtubeUrl}\n\n⬇️ Downloading video…\n\n${CREDIT}`
+  const videoId = String(youtubeUrl).match(/(?:v=|youtu\.be\/|\/(?:shorts|embed)\/)([\w-]{11})/i)?.[1]
+  const thumbnails = [...new Set([
+    video.thumbnail,
+    videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null,
+  ].filter(value => typeof value === 'string' && /^https:\/\//i.test(value)))]
+  const card = `🎬 *${title}*\n🔗 ${youtubeUrl}\n\n${CREDIT}`
 
-  if (thumbnail) {
+  for (const thumbnail of thumbnails) {
     try {
       return await sock.sendMessage(from, { image: { url: thumbnail }, caption: card }, { quoted: msg })
     } catch (error) {
