@@ -45,7 +45,6 @@ const axios = require("axios")
 const baileys = require("@systemzero/baileys")
 const {
   downloadMediaMessage,
-  generateWAMessageFromContent,
   generateWAMessageContent,
 } = baileys
 
@@ -214,6 +213,37 @@ function buildStatusContext(statusSourceType) {
       canBeReshared: true,
       canReceiveMultiReact: true,
     },
+  }
+}
+
+// Keep the Group Status V2 wrapper out of generateWAMessageFromContent().
+// Baileys normalizes that wrapper as a future-proof message and unwraps it,
+// which can make WhatsApp receive the inner payload as ordinary chat content.
+function makeGroupStatusMessage(groupJid, inner, userJid, secret) {
+  const id = typeof baileys.generateMessageIDV2 === "function"
+    ? baileys.generateMessageIDV2(userJid)
+    : crypto.randomBytes(10).toString("hex").toUpperCase()
+
+  const content = {
+    messageContextInfo: { messageSecret: secret },
+    groupStatusMessageV2: {
+      message: {
+        ...inner,
+        messageContextInfo: {
+          ...(inner.messageContextInfo || {}),
+          messageSecret: secret,
+        },
+      },
+    },
+  }
+
+  const message = baileys.proto?.Message?.fromObject
+    ? baileys.proto.Message.fromObject(content)
+    : content
+
+  return {
+    key: { remoteJid: groupJid, fromMe: true, id, participant: userJid },
+    message,
   }
 }
 
@@ -503,15 +533,11 @@ async function buildTextStatus(sock, groupJid, text, userJid, preview) {
   // Use Baileys' content builder for linkPreview fields and thumbnail
   // serialization, then add the Group Status context and wrapper.
   const prepared = await generateWAMessageContent(
-    { text, linkPreview: linkPreview || null, groupStatus: true },
+    { text, linkPreview: linkPreview || null },
     { upload: sock.waUploadToServer, logger: Pino({ level: "silent" }) }
   )
 
-  const inner =
-    prepared?.groupStatusMessageV2?.message ||
-    prepared?.groupStatusMessage?.message ||
-    prepared?.message ||
-    prepared
+  const inner = prepared?.message || prepared
 
   if (!inner?.extendedTextMessage) {
     throw new Error(`Text status content was not generated (got: ${Object.keys(prepared || {}).join(", ") || "nothing"})`)
@@ -526,17 +552,7 @@ async function buildTextStatus(sock, groupJid, text, userJid, preview) {
     messageSecret: secret,
   }
 
-  return generateWAMessageFromContent(
-    groupJid,
-    {
-      messageContextInfo: { messageSecret: secret },
-
-      groupStatusMessageV2: {
-        message: inner,
-      },
-    },
-    { userJid }
-  )
+  return makeGroupStatusMessage(groupJid, inner, userJid, secret)
 }
 
 async function relayStatus(sock, group, status, type) {
@@ -632,7 +648,7 @@ async function sendWrappedMedia(sock, groupJid, content) {
   })
 
   const prepared = await generateWAMessageContent(
-    { ...input, groupStatus: true },
+    input,
     {
       upload: sock.waUploadToServer,
       logger: Pino({ level: "silent" }),
@@ -641,14 +657,7 @@ async function sendWrappedMedia(sock, groupJid, content) {
 
   if (!prepared) throw new Error("Media pipeline returned nothing")
 
-  const wrapperKey =
-    prepared.groupStatusMessageV2 ? "groupStatusMessageV2" :
-    prepared.groupStatusMessage   ? "groupStatusMessage"   : null
-
-  let inner
-  if (wrapperKey) inner = prepared[wrapperKey]?.message
-  else if (prepared[mediaKey]) inner = prepared
-  else if (prepared.message?.[mediaKey]) inner = prepared.message
+  const inner = prepared?.message || prepared
 
   const mediaMessage = inner?.[mediaKey]
   if (!mediaMessage) {
@@ -662,24 +671,18 @@ async function sendWrappedMedia(sock, groupJid, content) {
     ...buildStatusContext(STATUS_SOURCE[kind]),
   }
 
-  const secret = crypto.randomBytes(32)
-  inner.messageContextInfo = { ...(inner.messageContextInfo || {}), messageSecret: secret }
-
   console.log("[GCSTATUS] Media uploaded", {
-    wrapper: wrapperKey || "(added manually)",
     hasUrl: !!mediaMessage.url,
     hasDirectPath: !!mediaMessage.directPath,
     hasMediaKey: !!mediaMessage.mediaKey,
     fileLength: mediaMessage.fileLength ? String(mediaMessage.fileLength) : null,
   })
 
-  const status = await generateWAMessageFromContent(
+  const status = makeGroupStatusMessage(
     groupJid,
-    {
-      messageContextInfo: { messageSecret: secret },
-      groupStatusMessageV2: { message: inner },
-    },
-    { userJid: sock.user?.id }
+    inner,
+    sock.user?.id,
+    crypto.randomBytes(32)
   )
 
   await relayStatus(sock, { id: groupJid }, status, content.type)
@@ -795,19 +798,12 @@ async function prepareWrappedMedia(sock, content) {
   console.log("[GCSTATUS ALL] Uploading media once", { type: content.type, kind, bytes: content.buffer.length })
 
   const prepared = await generateWAMessageContent(
-    { ...input, groupStatus: true },
+    input,
     { upload: sock.waUploadToServer, logger: Pino({ level: "silent" }) }
   )
   if (!prepared) throw new Error("Media pipeline returned nothing")
 
-  const wrapperKey =
-    prepared.groupStatusMessageV2 ? "groupStatusMessageV2" :
-    prepared.groupStatusMessage   ? "groupStatusMessage"   : null
-
-  let inner
-  if (wrapperKey) inner = prepared[wrapperKey]?.message
-  else if (prepared[mediaKey]) inner = prepared
-  else if (prepared.message?.[mediaKey]) inner = prepared.message
+  const inner = prepared?.message || prepared
 
   const mediaMessage = inner?.[mediaKey]
   if (!mediaMessage) {
@@ -831,14 +827,7 @@ async function publishPrepared(sock, groupJid, prep) {
     messageContextInfo: { ...(prep.inner.messageContextInfo || {}), messageSecret: secret },
   }
 
-  const status = await generateWAMessageFromContent(
-    groupJid,
-    {
-      messageContextInfo: { messageSecret: secret },
-      groupStatusMessageV2: { message: inner },
-    },
-    { userJid: sock.user?.id }
-  )
+  const status = makeGroupStatusMessage(groupJid, inner, sock.user?.id, secret)
 
   await relayStatus(sock, { id: groupJid }, status, prep.type)
   return status
