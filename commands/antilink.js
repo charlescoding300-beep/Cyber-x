@@ -41,9 +41,9 @@ function getWarnLimit(cfg) {
 }
 
 function actionDescription(action, warnLimit) {
-  if (action === 'warn') return `Warn ${warnLimit} times, then remove`
+  if (action === 'warn') return `Warn + delete; remove after ${warnLimit} violations`
   if (action === 'kick') return 'Remove link sharers immediately'
-  return 'Delete link messages'
+  return `Delete + persistent warnings; remove after ${warnLimit} violations`
 }
 
 module.exports = {
@@ -84,22 +84,26 @@ module.exports = {
             `Mode: ${actionDescription(action, warnLimit)}`,
             `Admins: ${cfg.applyToAdmins ? 'included' : 'skipped'}`,
             `Image link scan: ${OCR ? 'Available' : 'Text only (OCR unavailable)'}`,
+            'Warning counts: saved across VPS restarts',
           ])}\n\n` +
           `*Settings*\n` +
-          `.antilink on — enable the saved mode\n` +
+          `.antilink on — default delete mode; persistent strikes, remove at ${warnLimit}\n` +
           `.antilink off — turn protection off\n` +
-          `.antilink delete — delete link messages\n` +
-          `.antilink warn — warn first, remove at ${warnLimit} warnings\n` +
-          `.antilink kick — remove a member immediately`,
+          `.antilink delete — delete + persistent warnings; remove at ${warnLimit}\n` +
+          `.antilink warn — warn + delete; remove at ${warnLimit} warnings\n` +
+          `.antilink kick — remove a member immediately\n` +
+          `.resetwarn antilink — reset a member's saved count (reply or mention)`,
       }, { quoted: msg })
     }
 
     if (sub === 'on') {
-      setCfg(phone, from, { enabled: true, action })
+      const defaultAction = 'delete'
+      setCfg(phone, from, { enabled: true, action: defaultAction })
       return sock.sendMessage(from, {
         text: panel('ANTI-LINK', [
           '✅ Protection is on',
-          `Mode: ${actionDescription(action, warnLimit)}`,
+          `Mode: ${actionDescription(defaultAction, warnLimit)}`,
+          'Warnings are saved across VPS restarts.',
         ]),
       }, { quoted: msg })
     }

@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Link your WhatsApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f5f1; --ink:#15161a; --muted:#62646d; --line:rgba(21,22,26,.1); --card:rgba(255,255,255,.78);
+  --btn:#15161a; --btn-ink:#fff; --focus:#7b61ff; --ok:#12a36b; --bad:#d6334a; --cell:#f1efe9;
+  --o1:#ff8a65; --o2:#8b6cff; --o3:#35d0c6; --orb-op:.8;
+  --serif:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --sans:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"Geist Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0c0d11; --ink:#f2f2f4; --muted:#9a9ca6; --line:rgba(255,255,255,.1); --card:rgba(24,25,31,.7);
+  --btn:#f2f2f4; --btn-ink:#0c0d11; --focus:#a08cff; --ok:#3ddc97; --bad:#ff7a8c; --cell:#16171d; --orb-op:.55}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;overflow-x:hidden;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);-webkit-font-smoothing:antialiased}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;mix-blend-mode:soft-light;z-index:5;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E")}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:10px}
+
+/* orb */
+.orb{position:absolute;left:50%;top:-90px;width:min(760px,130vw);aspect-ratio:1;transform:translateX(-50%);z-index:-1;pointer-events:none;
+  filter:blur(46px) saturate(1.35);opacity:var(--orb-op)}
+.orb i{position:absolute;border-radius:50%;mix-blend-mode:normal}
+.orb i:nth-child(1){inset:18% 30% 38% 12%;background:radial-gradient(circle,var(--o1),transparent 68%);animation:d1 14s ease-in-out infinite}
+.orb i:nth-child(2){inset:24% 8% 30% 34%;background:radial-gradient(circle,var(--o2),transparent 68%);animation:d2 17s ease-in-out infinite}
+.orb i:nth-child(3){inset:42% 24% 10% 24%;background:radial-gradient(circle,var(--o3),transparent 68%);animation:d3 12s ease-in-out infinite}
+@keyframes d1{50%{transform:translate(22%,12%) scale(1.15)}}
+@keyframes d2{50%{transform:translate(-20%,16%) scale(.9)}}
+@keyframes d3{50%{transform:translate(14%,-18%) scale(1.2)}}
+body.think .orb i{animation-duration:3.2s,3.6s,2.8s}
+body.think .orb{opacity:calc(var(--orb-op) + .15)}
+
+/* nav */
+nav{position:sticky;top:14px;z-index:20;display:flex;justify-content:center;padding:0 16px;margin-top:14px}
+.pill{display:flex;align-items:center;gap:22px;padding:8px 10px 8px 16px;border-radius:99px;border:1px solid var(--line);
+  background:var(--card);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+  box-shadow:0 8px 30px -12px rgba(20,20,40,.25),inset 0 0 0 .5px rgba(255,255,255,.5)}
+.logo{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em}
+.dot{width:18px;height:18px;border-radius:50%;background:conic-gradient(from 20deg,var(--o1),var(--o2),var(--o3),var(--o1));animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pill .links{display:flex;gap:18px;font-size:14px;color:var(--muted)}
+.pill .links a:hover{color:var(--ink)}
+.status{display:flex;align-items:center;gap:7px;font-size:13px;padding:6px 12px;border-radius:99px;background:var(--cell)}
+.status i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:ping 2s infinite}
+@keyframes ping{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+/* hero */
+header.hero{position:relative;text-align:center;padding:96px 18px 36px;max-width:860px;margin:0 auto}
+.badge{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(10px);margin-bottom:26px}
+.badge b{font-weight:600}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(44px,8.4vw,92px);line-height:.98;letter-spacing:-.02em;margin:0 0 20px}
+.lead{font-size:clamp(16px,2.2vw,19px);color:var(--muted);max-width:52ch;margin:0 auto 38px}
+
+/* prompt box */
+.prompt{position:relative;max-width:700px;margin:0 auto;border-radius:28px;background:var(--card);border:1px solid var(--line);
+  backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);padding:14px 14px 14px 22px;
+  box-shadow:0 24px 60px -24px rgba(60,40,140,.35),inset 0 0 0 .5px rgba(255,255,255,.55);text-align:left;transition:box-shadow .3s}
+.prompt::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1.5px;opacity:0;transition:opacity .3s;pointer-events:none;
+  background:conic-gradient(from var(--a,0deg),var(--o1),var(--o2),var(--o3),var(--o1));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rot 5s linear infinite}
+@property --a{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes rot{to{--a:360deg}}
+.prompt:focus-within::before{opacity:1}
+.prompt:focus-within{box-shadow:0 30px 70px -22px rgba(123,97,255,.45)}
+.prompt label{display:block;font-size:13px;color:var(--muted);margin-bottom:2px}
+.row{display:flex;align-items:center;gap:12px}
+.row .plus{font-size:24px;color:var(--muted)}
+.row input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:clamp(20px,3.6vw,26px);letter-spacing:.02em;padding:8px 0}
+.row input::placeholder{color:color-mix(in srgb,var(--muted) 55%,transparent)}
+.send{flex:none;width:52px;height:52px;border-radius:50%;border:0;cursor:pointer;background:var(--btn);color:var(--btn-ink);display:grid;place-items:center;transition:transform .2s}
+.send:hover:not(:disabled){transform:scale(1.07)}
+.send:disabled{opacity:.55;cursor:progress}
+.send svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.chips{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px;font-size:14px;color:var(--muted)}
+.chips span{padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:var(--card);backdrop-filter:blur(8px)}
+.err{min-height:22px;margin:10px 0 0;color:var(--bad);font-size:14px;text-align:center}
+
+/* response */
+main{max-width:700px;margin:0 auto;padding:0 18px}
+.resp{display:none;margin:8px auto 0;border-radius:24px;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(18px);padding:22px;
+  box-shadow:0 20px 50px -28px rgba(20,20,60,.4);text-align:left}
+.resp.show{display:block;animation:in .5s cubic-bezier(.2,.8,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(14px)}}
+.who{display:flex;align-items:center;gap:10px;font-weight:600;margin-bottom:14px}
+.who .dot{width:24px;height:24px}
+.who small{font-weight:400;color:var(--muted);margin-left:auto;font-size:13px}
+.think{list-style:none;margin:0 0 6px;padding:0;font-size:15px}
+.think li{display:flex;align-items:center;gap:10px;padding:3px 0;color:var(--muted);animation:in .35s}
+.think li.cur{background:linear-gradient(90deg,var(--muted) 20%,var(--ink) 50%,var(--muted) 80%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shim 1.3s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.think li svg{width:16px;height:16px;flex:none;stroke:var(--ok);fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.think li.cur svg{display:none}
+.think li.cur::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--focus);border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
+.ans{display:none}.ans.show{display:block}
+.ans p{margin:14px 0 14px}
+.code{display:flex;align-items:center;justify-content:center;gap:clamp(5px,1.6vw,10px);margin:16px 0}
+.cell{width:clamp(34px,10.5vw,62px);aspect-ratio:3/4;display:grid;place-items:center;border-radius:14px;background:var(--cell);border:1px solid var(--line);
+  font-family:var(--mono);font-weight:600;font-size:clamp(22px,6.4vw,36px)}
+.cell.on{animation:tok .3s cubic-bezier(.2,.9,.3,1.3);border-color:color-mix(in srgb,var(--focus) 60%,transparent);box-shadow:0 6px 22px -8px var(--focus)}
+.cell.next{border-color:var(--focus)}
+@keyframes tok{from{transform:translateY(8px) scale(.85);opacity:0}}
+.gap{width:clamp(6px,2vw,14px)}
+.life{height:4px;border-radius:4px;background:var(--line);overflow:hidden;margin:6px 0 10px}
+.life i{display:block;height:100%;width:100%;border-radius:4px;background:linear-gradient(90deg,var(--o1),var(--o2),var(--o3));transition:width 1s linear}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.copy{cursor:pointer;font:inherit;font-weight:500;font-size:14px;border:1px solid var(--line);background:transparent;color:var(--ink);padding:9px 18px;border-radius:99px;transition:.2s}
+.copy:hover:not(:disabled){background:var(--btn);color:var(--btn-ink)}
+.copy:disabled{opacity:.4;cursor:not-allowed}
+.next-steps{margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--line);font-size:14.5px;color:var(--muted)}
+.next-steps b{color:var(--ink);font-weight:500}
+
+/* sections */
+section{max-width:1040px;margin:0 auto;padding:84px 18px 0}
+h2{font-family:var(--serif);font-weight:400;font-size:clamp(32px,5vw,50px);line-height:1.05;margin:0 0 12px;letter-spacing:-.01em}
+.sub{color:var(--muted);max-width:54ch;margin:0 0 32px}
+.bento{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tile{padding:24px;border-radius:22px;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(12px);transition:transform .25s,box-shadow .25s}
+.tile:hover{transform:translateY(-3px);box-shadow:0 18px 40px -22px rgba(60,40,140,.4)}
+.tile .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--o1) 30%,transparent),color-mix(in srgb,var(--o2) 30%,transparent))}
+.tile .ic svg{width:21px;height:21px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tile h3{margin:0 0 6px;font-size:17px;font-weight:600}
+.tile p{margin:0;color:var(--muted);font-size:15px}
+.n{font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:12px}
+details{border-bottom:1px solid var(--line);padding:0}
+summary{list-style:none;cursor:pointer;padding:20px 0;font-weight:500;font-size:17px;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:22px;color:var(--muted);transition:transform .25s}
+details[open] summary::after{transform:rotate(45deg)}
+details p{margin:0 0 20px;color:var(--muted);max-width:64ch}
+footer{max-width:1040px;margin:90px auto 0;padding:26px 18px 40px;border-top:1px solid var(--line);color:var(--muted);font-size:14px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+@media (max-width:760px){.bento{grid-template-columns:1fr}.pill .links{display:none}header.hero{padding-top:70px}}
+@media (prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}}
+
+/* ── PLUS: motion, depth, exploring ── */
+#sp{position:fixed;top:0;left:0;height:3px;width:0;z-index:30;background:linear-gradient(90deg,var(--o1),var(--o2),var(--o3))}
+#spot{position:fixed;left:-260px;top:-260px;width:520px;height:520px;border-radius:50%;pointer-events:none;z-index:-1;
+  background:radial-gradient(circle,color-mix(in srgb,var(--o2) 24%,transparent),transparent 65%);transform:translate(50vw,30vh);transition:transform .25s ease-out}
+#net{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+#fx{position:fixed;inset:0;width:100%;height:100%;z-index:40;pointer-events:none}
+.orb{translate:calc(var(--px,0)*34px) calc(var(--py,0)*24px);transition:opacity .6s,filter .6s,translate .7s ease-out}
+body.flash .orb{opacity:1;filter:blur(34px) saturate(2.1)}
+header.hero>.badge,header.hero>.lead,header.hero>.prompt,header.hero>.chips{animation:in .9s cubic-bezier(.2,.8,.2,1) both}
+header.hero>.lead{animation-delay:.55s}header.hero>.prompt{animation-delay:.7s}header.hero>.chips{animation-delay:.85s}
+.w{display:inline-block;opacity:0;filter:blur(14px);transform:translateY(22px);animation:wi .9s cubic-bezier(.2,.8,.2,1) forwards;animation-delay:calc(var(--i)*90ms + 150ms)}
+@keyframes wi{to{opacity:1;filter:none;transform:none}}
+.marq{overflow:hidden;margin:44px 0 0;-webkit-mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.marq div{display:flex;gap:46px;width:max-content;animation:mq 34s linear infinite;color:var(--muted);font-size:15px;white-space:nowrap}
+.marq span::before{content:"✦";margin-right:46px;color:var(--o2)}
+@keyframes mq{to{transform:translateX(-50%)}}
+.rv{opacity:0;transform:translateY(28px);transition:opacity .9s var(--d,0s),transform .9s var(--d,0s) cubic-bezier(.2,.8,.2,1)}
+.rv.in{opacity:1;transform:none;transition-delay:0s}
+.tile.rv.in{transition:transform .25s,box-shadow .25s}
+.demo{display:grid;grid-template-columns:1fr auto;gap:48px;align-items:center}
+.dsteps{display:grid;gap:12px}
+.ds{text-align:left;cursor:pointer;border:1px solid var(--line);background:var(--card);border-radius:18px;padding:18px 20px;font:inherit;color:var(--ink);position:relative;overflow:hidden;transition:.3s}
+.ds b{display:block;font-weight:600;margin-bottom:2px}.ds span{color:var(--muted);font-size:14.5px}
+.ds:hover{transform:translateX(4px)}
+.ds.on{border-color:color-mix(in srgb,var(--focus) 55%,transparent);box-shadow:0 16px 36px -20px var(--focus)}
+.ds i{position:absolute;left:0;bottom:0;height:3px;width:0;background:linear-gradient(90deg,var(--o1),var(--o2),var(--o3))}
+.ds.on i{animation:fill 3.8s linear forwards}
+@keyframes fill{to{width:100%}}
+.phone{width:262px;height:520px;border-radius:40px;border:9px solid #1b1c22;background:#0f1115;position:relative;overflow:hidden;color:#eee;
+  box-shadow:0 44px 90px -30px rgba(70,50,170,.55),0 0 0 1px rgba(255,255,255,.06);transition:transform .2s}
+.phone::before{content:"";position:absolute;left:50%;top:8px;width:76px;height:20px;border-radius:12px;background:#000;transform:translateX(-50%);z-index:3}
+.scr{position:absolute;inset:0;padding:54px 18px 18px;opacity:0;transform:translateX(34px) scale(.98);transition:.55s cubic-bezier(.2,.8,.2,1);pointer-events:none}
+.scr.on{opacity:1;transform:none}
+.phone h4{margin:0 0 16px;font-size:21px;font-weight:600}
+.li{padding:13px 8px;border-bottom:1px solid #ffffff14;font-size:14.5px;color:#c9cbd3}
+.li.hl{color:#fff;font-weight:600;border-radius:12px;animation:glowrow 1.4s ease-in-out infinite}
+@keyframes glowrow{50%{background:rgba(53,208,198,.2)}}
+.ghost{margin:70px 0 34px;text-align:center;color:#8d90a0;font-size:14px}
+.pbtn,.lnk{text-align:center;font-weight:600;animation:tap 1.4s infinite}
+.pbtn{background:#25d366;color:#04200f;padding:13px;border-radius:99px}
+.lnk{color:#25d366;font-size:14px;padding:10px}
+@keyframes tap{50%{transform:scale(.95);box-shadow:0 0 0 10px rgba(37,211,102,.18)}}
+.qr{height:160px;border-radius:18px;border:2px dashed #ffffff30;margin:6px 0 24px;background:repeating-linear-gradient(45deg,#ffffff0a 0 8px,transparent 8px 16px)}
+.boxes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:22px}
+.boxes i{aspect-ratio:1;border-radius:11px;border:1.5px solid #ffffff30;animation:fillb 3s infinite;animation-delay:calc(var(--k)*.2s)}
+@keyframes fillb{0%,15%{background:transparent;border-color:#ffffff30}35%,85%{background:#25d366;border-color:#25d366}100%{background:transparent}}
+.final{text-align:center;padding-bottom:10px}
+.final h2{margin-bottom:22px}
+.final a{display:inline-block;padding:15px 30px;font-size:16px;background:var(--btn);color:var(--btn-ink);border-radius:99px;font-weight:500;transition:transform .2s,box-shadow .3s}
+.final a:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 18px 40px -14px var(--o2)}
+kbd{font-family:var(--mono);font-size:12px;padding:1px 7px;border:1px solid var(--line);border-radius:6px;background:var(--cell)}
+@media (max-width:860px){.demo{grid-template-columns:1fr}.phone{margin:0 auto}}
+@media (prefers-reduced-motion:reduce){.w,.rv{opacity:1!important;filter:none!important;transform:none!important}}
+
+/* ── NEXT-GEN: morphing terminal, robot, HUD ── */
+.prompt{transition:height .65s cubic-bezier(.2,.8,.2,1),box-shadow .3s}
+.prompt.run::before{opacity:1;animation-duration:2s}
+.view{display:none}
+.view.on{display:block;animation:vin .55s cubic-bezier(.2,.8,.2,1)}
+@keyframes vin{from{opacity:0;transform:scale(.97) translateY(10px);filter:blur(7px)}}
+.v-term{margin:-14px -14px -14px -22px;background:#05070c;color:#bff4ee;border-radius:27px;overflow:hidden;font-family:var(--mono);position:relative;--o3:#35d0c6}
+.v-term::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px)}
+.v-term::before{content:"";position:absolute;inset:9px;pointer-events:none;z-index:2;opacity:.85;
+  background:linear-gradient(var(--o3),var(--o3)) 0 0/16px 2px,linear-gradient(var(--o3),var(--o3)) 0 0/2px 16px,linear-gradient(var(--o3),var(--o3)) 100% 0/16px 2px,linear-gradient(var(--o3),var(--o3)) 100% 0/2px 16px,linear-gradient(var(--o3),var(--o3)) 0 100%/16px 2px,linear-gradient(var(--o3),var(--o3)) 0 100%/2px 16px,linear-gradient(var(--o3),var(--o3)) 100% 100%/16px 2px,linear-gradient(var(--o3),var(--o3)) 100% 100%/2px 16px;background-repeat:no-repeat}
+.tbar{display:flex;align-items:center;gap:7px;padding:15px 20px 12px;border-bottom:1px solid #ffffff14;font-size:12.5px;color:#7f93a0}
+.tbar i{width:10px;height:10px;border-radius:50%;background:#ff5f57}.tbar i:nth-child(2){background:#febc2e}.tbar i:nth-child(3){background:#28c840}
+.tbar span{margin-left:8px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbar em{font-style:normal;letter-spacing:.14em;font-size:11px;color:var(--o3);padding:3px 10px;border:1px solid #35d0c655;border-radius:99px;animation:blk 1.2s steps(2) infinite}
+@keyframes blk{50%{opacity:.45}}
+.tbody{display:flex;align-items:flex-start;gap:16px;padding:18px 20px 8px}
+.tlog{flex:1;min-width:0;height:205px;display:flex;flex-direction:column;justify-content:flex-end;font-size:13px;line-height:1.55}
+.tlog div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-tag{color:var(--o3)}.t-ok{color:#4ade80;font-weight:600}.t-e{color:#fb7185}.t-dim{color:#5f7380}
+.gauge{width:62px;height:62px;flex:none}.gauge text{fill:#bff4ee;font:600 12px var(--mono)}.gauge circle{transition:stroke-dashoffset .5s}
+.tfoot{padding:0 20px 18px}
+.diag{display:flex;gap:14px;font-size:10.5px;letter-spacing:.12em;color:#7f93a0;margin-bottom:10px}
+.diag span{flex:1}.diag b{display:block;height:3px;margin-top:4px;background:var(--o3);box-shadow:0 0 8px var(--o3);transform-origin:left;animation:dg 1.1s ease-in-out infinite alternate}
+.diag span:nth-child(2) b{animation-duration:.8s}.diag span:nth-child(3) b{animation-duration:1.5s}
+@keyframes dg{from{transform:scaleX(.2)}to{transform:scaleX(1)}}
+.tprog{height:4px;background:#ffffff14;border-radius:4px;overflow:hidden}.tprog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ff8a65,#8b6cff,#35d0c6);transition:width .5s}
+.bot{flex:none;position:relative}
+.rb{width:62px;height:62px;color:var(--o3,#35d0c6);animation:flt 3.2s ease-in-out infinite}
+@keyframes flt{50%{transform:translateY(-4px)}}
+.eye{fill:#35d0c6;filter:drop-shadow(0 0 5px #35d0c6);transform-box:fill-box;transform-origin:center;animation:eb 4.5s infinite}
+@keyframes eb{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
+.ant{fill:#ff8a65;filter:drop-shadow(0 0 5px #ff8a65);animation:blk .9s steps(2) infinite}
+.eyes{transform:translate(calc(var(--ex,0)*4px),calc(var(--ey,0)*3px));transition:transform .15s}
+.bot.scan .eyes{animation:scn 1.3s ease-in-out infinite}
+@keyframes scn{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+.bot.happy .eye{animation:none;transform:scaleY(.3)}
+.v-done .rb{width:54px;height:54px}
+.dhead{display:flex;align-items:center;gap:14px;margin-bottom:4px}
+.dhead b{display:block;font-size:19px;font-weight:600}.dhead span{color:var(--muted);font-size:14px}
+.btns{display:flex;gap:8px}
+.copy.pri{background:var(--btn);color:var(--btn-ink);padding:10px 22px}
+.copy.pri.pulse{animation:cp 1.5s infinite}
+@keyframes cp{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--o2) 28%,transparent)}}
+.hintdown{display:block;text-align:center;margin-top:16px;font-size:14px;color:var(--muted);animation:bob 1.8s ease-in-out infinite}
+.hintdown:hover{color:var(--ink)}
+@keyframes bob{50%{transform:translateY(4px)}}
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,30px);opacity:0;z-index:60;padding:12px 20px;border-radius:99px;background:var(--btn);color:var(--btn-ink);font-weight:500;font-size:14px;transition:.35s cubic-bezier(.2,.8,.2,1);pointer-events:none}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+.hudc{position:fixed;left:16px;bottom:14px;z-index:-1;display:flex;flex-direction:column;gap:2px;font:500 10.5px var(--mono);letter-spacing:.1em;color:var(--muted);opacity:.75;pointer-events:none}
+.boxes i{display:grid;place-items:center;font:600 15px var(--mono);color:#04200f}
+body.has-code .chips,body.has-code .err{display:none}
+body.has-code #demo{padding-top:26px}
+body.has-code #demo h2{font-size:clamp(26px,4vw,38px)}
+body.has-code #demo .sub{margin-bottom:22px}
+body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transparent),0 44px 90px -30px rgba(70,50,170,.55),0 0 50px -8px var(--o3)}
+@media (max-width:760px){.hudc{display:none}.gauge{display:none}.rb{width:46px;height:46px}.tlog{height:190px;font-size:12px}.tbody{gap:10px}}
+
+/* App launcher: three distinct views in one responsive workspace. */
+.app-dock{max-width:1040px;margin:24px auto 0;padding:0 18px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.app-shortcut{display:flex;align-items:center;gap:13px;min-width:0;padding:13px 15px;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);text-align:left;font:inherit;cursor:pointer;backdrop-filter:blur(16px);transition:transform .25s,border-color .25s,box-shadow .25s}
+.app-shortcut:hover{transform:translateY(-3px)}
+.app-shortcut[aria-selected="true"]{border-color:color-mix(in srgb,var(--focus) 55%,transparent);box-shadow:0 14px 34px -23px var(--focus)}
+.verified-badge{gap:8px;border-color:color-mix(in srgb,#2788ff 34%,var(--line));box-shadow:0 8px 28px -22px #2788ff}
+.verified-shield{width:21px;height:21px;display:grid;place-items:center;flex:none}
+.verified-shield svg{width:21px;height:21px;fill:#2788ff;stroke:#fff;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.verified-note{font-size:12px;color:var(--muted)}
+.app-glyph{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--o1) 35%,transparent),color-mix(in srgb,var(--o2) 36%,transparent));color:var(--ink)}
+.app-glyph svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.app-copy{display:grid;min-width:0}.app-copy b{font-size:14px}.app-copy small{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-screen{display:none;min-height:68vh}.app-screen.active{display:block;animation:app-open .48s cubic-bezier(.2,.8,.2,1)}
+@keyframes app-open{from{opacity:0;transform:translateY(14px) scale(.992);filter:blur(5px)}to{opacity:1;transform:none;filter:none}}
+.app-shell{max-width:1160px;margin:0 auto;padding:0 18px}
+.sound-button{border:1px solid var(--line);border-radius:99px;background:var(--cell);color:var(--ink);padding:7px 11px;font:500 12px var(--sans);cursor:pointer;white-space:nowrap}
+#screen-ai,#screen-bot{max-width:1040px;margin:0 auto;padding:72px 18px 0}
+.app-kicker{font:500 12px var(--mono);letter-spacing:.11em;color:var(--muted);margin-bottom:12px}
+.app-panel{border:1px solid var(--line);border-radius:26px;background:var(--card);backdrop-filter:blur(18px);box-shadow:0 24px 60px -38px rgba(35,25,70,.42);padding:clamp(18px,3vw,28px)}
+.chat-window{height:min(50vh,480px);min-height:280px;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:18px;background:color-mix(in srgb,var(--cell) 72%,transparent);scroll-behavior:smooth}
+.chat-bubble{max-width:min(88%,680px);padding:12px 15px;border:1px solid var(--line);border-radius:18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.55}
+.chat-bubble.bot{align-self:flex-start;background:var(--card);border-top-left-radius:6px}
+.chat-bubble.user{align-self:flex-end;background:color-mix(in srgb,var(--focus) 15%,var(--card));border-top-right-radius:6px}
+.chat-bubble.pending{color:var(--muted);animation:shim 1.4s linear infinite}
+.chat-composer{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:12px}
+.chat-composer textarea{width:100%;min-height:50px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:16px;padding:13px 15px;background:var(--cell);color:var(--ink);font:inherit}
+.chat-composer button{border:0;border-radius:15px;background:var(--btn);color:var(--btn-ink);padding:0 20px;font:600 14px var(--sans);cursor:pointer}
+.chat-composer button:disabled{opacity:.55;cursor:wait}
+.app-note{font-size:13px;color:var(--muted);margin:12px 0 0}
+.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
+.status-card{padding:17px;border:1px solid var(--line);border-radius:18px;background:color-mix(in srgb,var(--cell) 72%,transparent);min-width:0}
+.status-card small{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+.status-card b{display:block;font:600 clamp(16px,2.4vw,22px) var(--mono);overflow-wrap:anywhere}
+.status-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.status-refresh{border:1px solid var(--line);border-radius:99px;padding:9px 14px;background:transparent;color:var(--ink);font:500 13px var(--sans);cursor:pointer}
+.status-refresh:disabled{opacity:.5;cursor:wait}
+.live-dot{display:inline-block;width:9px;height:9px;margin-right:8px;border-radius:50%;background:var(--muted)}
+.live-dot.up{background:var(--ok);box-shadow:0 0 0 5px color-mix(in srgb,var(--ok) 15%,transparent)}
+.live-dot.down{background:var(--bad)}
+@media(max-width:680px){nav{top:8px;margin-top:8px}.pill{gap:8px;padding:7px 8px 7px 12px}.pill .status{display:none}.sound-button{font-size:11px;padding:6px 9px}.app-dock{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:0 12px}.app-shortcut{display:grid;justify-items:center;gap:7px;padding:11px 5px;text-align:center;border-radius:17px}.app-glyph{width:38px;height:38px;border-radius:12px}.app-copy b{font-size:12px}.app-copy small{display:none}.verified-badge{flex-wrap:wrap;justify-content:center;gap:6px}.verified-note{flex-basis:100%}.app-shell{padding:0 10px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-window{min-height:250px}}
+@media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}}
+</style>
+</head>
+<body>
+<div id="sp"></div><div id="spot"></div><canvas id="net" aria-hidden="true"></canvas><canvas id="fx" aria-hidden="true"></canvas>
+<div id="toast" role="status"></div><div class="hudc" aria-hidden="true"><span>NEURAL-LINK // ONLINE</span><span id="hudt"></span></div>
+<nav><div class="pill">
+  <a class="logo" href="#top"><span class="dot"></span><span id="brand">ZEN X</span></a>
+  <div class="links"><a href="#how">How it works</a><a href="#faq">FAQ</a></div>
+  <div class="status"><i></i>ZEN X workspace</div>
+  <button class="sound-button" id="musicToggle" type="button" aria-pressed="false" title="Ambient sound starts after your first scroll">Sound: Auto</button>
+</div></nav>
+
+<div class="app-dock" role="tablist" aria-label="ZEN X apps">
+  <button class="app-shortcut" type="button" role="tab" aria-selected="true" aria-controls="screen-pair" data-screen="screen-pair">
+    <span class="app-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></span><span class="app-copy"><b>Pairing</b><small>Link a WhatsApp device</small></span>
+  </button>
+  <button class="app-shortcut" type="button" role="tab" aria-selected="false" aria-controls="screen-ai" data-screen="screen-ai">
+    <span class="app-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v2M5.6 5.6 7 7M3 12h2m14 0h2m-3.4-6.4L17 7"/><path d="M7 15.5a6 6 0 1 1 10 0c-.8.8-1 1.4-1 2.5H8c0-1.1-.2-1.7-1-2.5ZM9 21h6"/></svg></span><span class="app-copy"><b>Zenny AI</b><small>Chat with the assistant</small></span>
+  </button>
+  <button class="app-shortcut" type="button" role="tab" aria-selected="false" aria-controls="screen-bot" data-screen="screen-bot">
+    <span class="app-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M8 3v3m8-3v3M7 11h10M8 15h.01M12 15h.01M16 15h.01"/></svg></span><span class="app-copy"><b>Bot status</b><small>Live backend overview</small></span>
+  </button>
+</div>
+
+<main class="app-shell" id="appShell">
+<div class="app-screen active" id="screen-pair" role="tabpanel" aria-label="Pairing app">
+<header class="hero" id="top">
+  <div class="orb" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="badge verified-badge" title="Original verification mark for the ZEN X website">
+    <span class="verified-shield" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.8 19.2 5v5.7c0 4.7-2.9 8.2-7.2 10.5-4.3-2.3-7.2-5.8-7.2-10.5V5L12 2.8Z"/><path d="m8.5 11.8 2.3 2.3 4.8-5"/></svg></span>
+    <b>ZEN X Verified</b><span class="verified-note">Official ZEN X website</span>
+  </div>
+  <h1>Link your WhatsApp to the future.</h1>
+  <p class="lead">Type your number and watch the pairing core wake up. You get a one-time code and a guided phone walkthrough, all in one place.</p>
+
+  <form class="prompt" id="form" novalidate>
+    <div class="view v-input on" id="vIn">
+      <label for="num">WhatsApp number with country code</label>
+      <div class="row"><span class="plus" aria-hidden="true">+</span>
+        <input id="num" type="tel" inputmode="numeric" autocomplete="tel" placeholder="2348012345678" aria-describedby="err" required>
+        <button class="send" id="go" type="submit" aria-label="Get pairing code"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+    </div>
+    <div class="view v-term" id="vTerm" aria-hidden="true">
+      <div class="tbar"><i></i><i></i><i></i><span><span id="who">ZEN X</span> · neural-link://pairing-core</span><em id="tstat">INITIALIZING</em></div>
+      <div class="tbody"><div class="bot"><svg class="rb" viewBox="0 0 64 64" aria-hidden="true"><line x1="32" y1="6" x2="32" y2="14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle class="ant" cx="32" cy="5" r="3.2"/><rect x="4" y="26" width="5" height="12" rx="2.5" fill="currentColor"/><rect x="55" y="26" width="5" height="12" rx="2.5" fill="currentColor"/><rect x="10" y="14" width="44" height="34" rx="13" fill="#0b0e15" stroke="currentColor" stroke-width="2.5"/><rect x="16" y="22" width="32" height="18" rx="9" fill="#04060a"/><g class="eyes"><ellipse class="eye" cx="25" cy="31" rx="4.2" ry="5"/><ellipse class="eye" cx="39" cy="31" rx="4.2" ry="5"/></g><rect x="22" y="52" width="20" height="6" rx="3" fill="currentColor" opacity=".5"/></svg></div><div class="tlog" id="tlog"></div>
+        <svg class="gauge" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="24" fill="none" stroke="#ffffff1f" stroke-width="5"/><circle id="gc" cx="30" cy="30" r="24" fill="none" stroke="var(--o3)" stroke-width="5" stroke-linecap="round" stroke-dasharray="150.8" stroke-dashoffset="150.8" transform="rotate(-90 30 30)"/><text id="gt" x="30" y="34" text-anchor="middle">0%</text></svg></div>
+      <div class="tfoot"><div class="diag"><span>LINK<b></b></span><span>CRYPTO<b></b></span><span>SYNC<b></b></span></div><div class="tprog"><i id="tprog"></i></div></div>
+    </div>
+    <div class="view v-done" id="vDone">
+      <div class="dhead"><div class="bot"><svg class="rb" viewBox="0 0 64 64" aria-hidden="true"><line x1="32" y1="6" x2="32" y2="14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle class="ant" cx="32" cy="5" r="3.2"/><rect x="4" y="26" width="5" height="12" rx="2.5" fill="currentColor"/><rect x="55" y="26" width="5" height="12" rx="2.5" fill="currentColor"/><rect x="10" y="14" width="44" height="34" rx="13" fill="#0b0e15" stroke="currentColor" stroke-width="2.5"/><rect x="16" y="22" width="32" height="18" rx="9" fill="#04060a"/><g class="eyes"><ellipse class="eye" cx="25" cy="31" rx="4.2" ry="5"/><ellipse class="eye" cx="39" cy="31" rx="4.2" ry="5"/></g><rect x="22" y="52" width="20" height="6" rx="3" fill="currentColor" opacity=".5"/></svg></div><div><b>Pairing code ready</b><span id="dsub">Enter it in WhatsApp before it expires</span></div></div>
+      <div class="code" id="code" aria-label="Pairing code"></div>
+      <div class="life"><i id="life"></i></div>
+      <div class="foot"><span id="timer">&nbsp;</span><div class="btns"><button class="copy pri" id="copy" type="button" disabled>Copy code</button><button class="copy" id="again2" type="button">New code</button></div></div>
+      <a class="hintdown" href="#demo">Next: follow along on your phone ↓</a>
+    </div>
+  </form>
+  <p class="err" id="err" role="alert"></p>
+  <div class="chips"><span>Under a minute</span><span>One-time code</span><span>Native WhatsApp linking</span></div>
+</header>
+<section id="demo">
+  <h2>Now, on your phone</h2>
+  <p class="sub">Follow along step by step. When your code is ready it appears right on this phone screen.</p>
+  <div class="demo">
+    <div class="dsteps">
+      <button class="ds on"><b>1 · Open Settings</b><span>Settings on iPhone, or the ⋮ menu on Android.</span><i></i></button>
+      <button class="ds"><b>2 · Linked devices</b><span>Choose Linked devices, then Link a device.</span><i></i></button>
+      <button class="ds"><b>3 · Use your number</b><span>Tap “Link with phone number instead”.</span><i></i></button>
+      <button class="ds"><b>4 · Type the code</b><span>Enter the 8 characters from this page.</span><i></i></button>
+    </div>
+    <div class="phone" aria-hidden="true">
+      <div class="scr on"><h4>Settings</h4><div class="li">Account</div><div class="li hl">Linked devices</div><div class="li">Privacy</div><div class="li">Chats</div><div class="li">Notifications</div></div>
+      <div class="scr"><h4>Linked devices</h4><div class="ghost">No devices linked yet</div><div class="pbtn">Link a device</div></div>
+      <div class="scr"><h4>Link a device</h4><div class="qr"></div><div class="lnk">Link with phone number instead</div></div>
+      <div class="scr"><h4>Enter code</h4><div class="ghost" style="margin:6px 0 0;text-align:left">Type the 8-character code</div><div class="boxes" id="bx"></div></div>
+    </div>
+  </div>
+</section>
+<div class="marq" aria-hidden="true"><div><span>No QR scan</span><span>One-time pairing code</span><span>Works on iPhone and Android</span><span>Uses WhatsApp’s Linked devices</span><span>Ready in under a minute</span><span>Press / to jump to the input</span><span>No QR scan</span><span>One-time pairing code</span><span>Works on iPhone and Android</span><span>Uses WhatsApp’s Linked devices</span><span>Ready in under a minute</span><span>Press / to jump to the input</span></div></div>
+
+
+
+<section id="how">
+  <h2>Three taps on your phone</h2>
+  <p class="sub">No scanning, no second device. Everything happens on the phone that owns the number.</p>
+  <div class="bento">
+    <div class="tile"><div class="n">01</div><div class="ic"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M11 18h2"/></svg></div><h3>Enter your number</h3><p>Use international format: country code first, no plus, no spaces, no leading zero.</p></div>
+    <div class="tile"><div class="n">02</div><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></div><h3>Receive your code</h3><p>A one-time 8-character code is generated and shown right here, with a live expiry bar.</p></div>
+    <div class="tile"><div class="n">03</div><div class="ic"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div><h3>Link in WhatsApp</h3><p>Open Linked devices, choose “Link with phone number instead”, and type the code.</p></div>
+  </div>
+</section>
+
+
+
+<section class="final"><h2>Ready when you are.</h2><a href="#top" id="again">Get my pairing code</a></section>
+
+<section id="faq">
+  <h2>Good to know</h2>
+  <p class="sub">Quick answers if something doesn’t work.</p>
+  <details><summary>My code didn’t work.</summary><p>Codes expire quickly. Request a fresh one, double-check the number matches your WhatsApp account, and type the characters exactly as shown.</p></details>
+  <details><summary>Which number do I enter?</summary><p>The number of the WhatsApp account you want to link, in international format with the country code first and no leading zero.</p></details>
+  <details><summary>Is it safe to share the code?</summary><p>No. Anyone with the code can link a device to your account. Only type it into WhatsApp on your own phone.</p></details>
+  <details><summary>Where is Linked devices?</summary><p>In WhatsApp, open Settings on iPhone or the three-dot menu on Android, then choose Linked devices.</p></details>
+</section>
+
+</div>
+
+<section class="app-screen" id="screen-ai" role="tabpanel" aria-labelledby="aiTitle">
+  <div class="app-kicker">ZEN X / AI STUDIO</div>
+  <h2 id="aiTitle">Talk with Zenny</h2>
+  <p class="sub">A live chat connected to the assistant backend on this website.</p>
+  <div class="app-panel">
+    <div class="chat-window" id="siteAiChat" role="log" aria-live="polite" aria-label="Chat with Zenny">
+      <div class="chat-bubble bot">👋 Hi, I’m Zenny. What would you like to talk about?</div>
+    </div>
+    <form class="chat-composer" id="siteAiForm">
+      <textarea id="siteAiInput" maxlength="3000" rows="2" placeholder="Write a message…" aria-label="Message Zenny" required></textarea>
+      <button id="siteAiSend" type="submit">Send</button>
+    </form>
+    <p class="app-note">Your chat is sent to the ZEN X assistant API. Don’t include passwords or private keys.</p>
+  </div>
+</section>
+
+<section class="app-screen" id="screen-bot" role="tabpanel" aria-labelledby="botTitle">
+  <div class="app-kicker">ZEN X / SYSTEM STATUS</div>
+  <div class="status-head"><div><h2 id="botTitle">Bot overview</h2><p class="sub">Live values read from the existing bot status endpoints.</p></div><button class="status-refresh" id="statusRefresh" type="button">Refresh status</button></div>
+  <div class="app-panel">
+    <div><span class="live-dot" id="botLiveDot" aria-hidden="true"></span><b id="botLiveState" aria-live="polite">Checking backend…</b><span class="app-note" id="botUpdated"></span></div>
+    <div class="status-grid">
+      <div class="status-card"><small>Connected bots</small><b id="botConnected">—</b></div>
+      <div class="status-card"><small>Registered bots</small><b id="botRegistered">—</b></div>
+      <div class="status-card"><small>Uptime</small><b id="botUptime">—</b></div>
+      <div class="status-card"><small>Memory</small><b id="botMemory">—</b></div>
+      <div class="status-card"><small>Pairing slots</small><b id="botSlots">—</b></div>
+      <div class="status-card"><small>Loaded commands</small><b id="botCommands">—</b></div>
+    </div>
+    <p class="app-note">This view shows aggregate status only; it does not list phone numbers or session credentials.</p>
+  </div>
+</section>
+
+<footer><span id="foot">© ZEN X</span><span>Terminal output is a visual simulation. Not affiliated with WhatsApp or Meta.</span></footer>
+</main>
+
+<script>
+/* ── EDIT THESE ───────────────────────────────────────────────────────────── */
+const CONFIG = {
+  botName: "ZEN X",
+  apiUrl: "/pair",           // GET /pair?phone=2348012345678  →  JSON { "code": "ABCD1234" }
+  codeLifetimeSeconds: 120
+};
+/* ─────────────────────────────────────────────────────────────────────────── */
+const $=id=>document.getElementById(id), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+$("brand").textContent=CONFIG.botName; $("who").textContent=CONFIG.botName;
+$("foot").textContent="© "+new Date().getFullYear()+" "+CONFIG.botName;
+document.title="Link your WhatsApp · "+CONFIG.botName;
+const CHECK='<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+let tick=null,current="",busy=false;
+
+async function step(text){
+  const ul=$("think"); const prev=ul.querySelector(".cur"); if(prev) prev.classList.remove("cur");
+  const li=document.createElement("li"); li.className="cur"; li.innerHTML=CHECK+"<span>"+text+"</span>"; ul.appendChild(li);
+}
+function buildCells(n){
+  const box=$("code"); box.innerHTML=""; const half=Math.ceil(n/2), cs=[];
+  for(let i=0;i<n;i++){ if(i===half){const g=document.createElement("div");g.className="gap";box.appendChild(g);}
+    const c=document.createElement("div");c.className="cell";c.textContent="";box.appendChild(c);cs.push(c);}
+  return cs;
+}
+async function typeCode(code){
+  const cs=buildCells(code.length);
+  for(let i=0;i<code.length;i++){ cs[i].classList.add("next"); await sleep(60);
+    cs[i].textContent=code[i]; cs[i].classList.remove("next"); cs[i].classList.add("on"); }
+}
+function countdown(){
+  clearInterval(tick); let left=CONFIG.codeLifetimeSeconds; const life=$("life"); life.style.transition="none"; life.style.width="100%"; void life.offsetWidth; life.style.transition="";
+  const draw=()=>{$("timer").textContent="Expires in "+Math.floor(left/60)+":"+String(left%60).padStart(2,"0");life.style.width=(left/CONFIG.codeLifetimeSeconds*100)+"%";};
+  draw();
+  tick=setInterval(()=>{left--; if(left<=0){clearInterval(tick);$("timer").textContent="Code expired. Request a new one.";$("copy").disabled=true;
+      document.querySelectorAll(".cell").forEach(c=>c.style.opacity=.35);life.style.width="0%";return;} draw();},1000);
+}
+
+/* ── next-gen flow: input → terminal → code ── */
+const form=$("form"), tlog=$("tlog"), CIRC=150.8;
+const SEQ=[
+ ["check","Phone number passed local format checks","VALIDATED"],
+ ["api","Pairing request sent to the ZEN X backend","REQUESTING"]
+];
+const setStat=t=>{$("tstat").textContent=t};
+const setPct=v=>{$("tprog").style.width=v+"%";$("gc").style.strokeDashoffset=CIRC*(1-v/100);$("gt").textContent=Math.round(v)+"%"};
+const botState=st=>document.querySelectorAll(".bot").forEach(b=>{b.classList.remove("scan","happy");if(st)b.classList.add(st)});
+const trim=()=>{while(tlog.children.length>9)tlog.firstChild.remove()};
+async function line(tag,text,ok,cls){
+  const d=document.createElement("div"); d.innerHTML=`<span class="t-tag">[${tag}]</span> <span class="tx ${cls||""}"></span>`; tlog.appendChild(d); trim();
+  const tx=d.querySelector(".tx"); for(const ch of text){tx.textContent+=ch; await sleep(2)}
+  if(ok) d.insertAdjacentHTML("beforeend",' <span class="t-ok">OK</span>');
+}
+function morph(to){
+  const h0=form.offsetHeight; form.style.overflow="hidden"; form.style.height=h0+"px";
+  form.querySelector(".view.on")?.classList.remove("on"); $(to).classList.add("on");
+  form.style.height="auto"; const h1=form.offsetHeight; form.style.height=h0+"px"; void form.offsetHeight; form.style.height=h1+"px";
+  return sleep(420).then(()=>{form.style.height="";form.style.overflow=""});
+}
+function setPhoneCode(code){[...$("bx").children].forEach((b,k)=>b.textContent=code[k]||"")}
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2000)}
+
+form.addEventListener("submit",async e=>{
+  e.preventDefault(); if(busy) return; $("err").textContent="";
+  const digits=$("num").value.replace(/\D/g,"").replace(/^00/,"");
+  if(digits.length<8||digits.length>15){$("err").textContent="Enter your full number with country code, 8 to 15 digits, no spaces or +.";return}
+  busy=true; clearInterval(tick); document.body.classList.add("think"); form.classList.add("run"); form.classList.remove("done");
+  tlog.innerHTML=""; setPct(0); setStat("INITIALIZING"); botState("scan"); $("copy").disabled=true; setPhoneCode("");
+  const req=(async()=>{
+    if(location.protocol==="file:") throw new Error("Open this page from the ZEN X website to request a real pairing code.");
+    const params=new URLSearchParams({phone:digits});
+    const pathSlot=location.pathname.match(/\/pair\/(\d+)\/?$/);
+    const slot=pathSlot?.[1]||new URLSearchParams(location.search).get("slot");
+    if(slot) params.set("slot",slot);
+    const res=await fetch(CONFIG.apiUrl+"?"+params.toString(),{cache:"no-store",headers:{Accept:"application/json"}});
+    if(!res.ok) throw new Error("server answered "+res.status);
+    const d=await res.json(); const c=String(d.code||d.pairingCode||"").replace(/[^a-z0-9]/gi,"").toUpperCase();
+    if(!c) throw new Error(d.error||"no code returned"); return c;
+  })();
+  req.catch(()=>{});
+  await morph("vTerm");
+  try{
+    for(let i=0;i<SEQ.length;i++){
+      const [tag,txt,stat]=SEQ[i];setStat(stat);await line(tag,txt,true);setPct((i+1)/SEQ.length*58);
+    }
+    setStat("WAITING FOR SERVER");let code=await req;
+    await line("ok","Pairing code received from the server",true);setPct(100);setStat("CODE READY");botState("happy");
+    await morph("vDone"); form.classList.remove("run"); form.classList.add("done"); document.body.classList.remove("think"); document.body.classList.add("has-code");
+    await typeCode(code); celebrate(); current=code; setPhoneCode(code);
+    $("copy").disabled=false; $("copy").textContent="Copy code"; $("copy").classList.add("pulse"); countdown(); dgo(3);
+    if(location.protocol==="file:") $("dsub").textContent="Preview: this is a sample code, not a real one";
+    scrollTo({top:Math.max(0,form.getBoundingClientRect().top+scrollY-92),behavior:"smooth"});
+  }catch(ex){
+    setStat("FAILED"); botState(""); await line("err",ex.message,false,"t-e"); await sleep(1700);
+    await morph("vIn"); form.classList.remove("run");
+    $("err").textContent="Couldn’t get a code ("+ex.message+"). Check the number and try again.";
+  }finally{document.body.classList.remove("think");busy=false}
+});
+$("again2").addEventListener("click",async()=>{clearInterval(tick);document.body.classList.remove("has-code");botState("");await morph("vIn");form.classList.remove("done");$("num").focus()});
+$("copy").addEventListener("click",async()=>{
+  try{await navigator.clipboard.writeText(current);$("copy").textContent="Copied";}catch{$("copy").textContent="Press and hold to copy";}
+  setTimeout(()=>{if(!$("copy").disabled)$("copy").textContent="Copy code";},1800);
+});
+
+/* ── PLUS: polish ── */
+const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+{ const h=document.querySelector("h1"); h.innerHTML=h.textContent.split(" ").map((w,i)=>`<span class="w" style="--i:${i}">${w}</span>`).join(" "); }
+
+/* scroll reveal */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}}),{threshold:.12});
+document.querySelectorAll("section>*,.marq,.tile").forEach((el,i)=>{el.classList.add("rv");
+  if(el.classList.contains("tile")) el.style.setProperty("--d",(i%3)*.12+"s"); io.observe(el)});
+
+/* cursor: spotlight, orb parallax, scroll bar */
+const orb=document.querySelector(".orb"), spot=$("spot"); let mx=innerWidth/2,my=innerHeight/3;
+addEventListener("pointermove",e=>{mx=e.clientX;my=e.clientY;spot.style.transform=`translate(${mx}px,${my}px)`;
+  orb.style.setProperty("--px",(mx/innerWidth-.5).toFixed(3));orb.style.setProperty("--py",(my/innerHeight-.5).toFixed(3))});
+addEventListener("scroll",()=>{$("sp").style.width=(scrollY/Math.max(1,document.documentElement.scrollHeight-innerHeight)*100)+"%"},{passive:true});
+
+/* 3D tilt */
+if(!reduce) document.querySelectorAll(".tile,.phone").forEach(el=>{
+  el.addEventListener("pointermove",e=>{const r=el.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
+    el.style.transform=`perspective(700px) rotateY(${x*11}deg) rotateX(${-y*11}deg) translateY(-3px)`});
+  el.addEventListener("pointerleave",()=>el.style.transform="")});
+
+/* living network background */
+const nc=$("net"),nx=nc.getContext("2d"); let nodes=[],col="20,20,30",fr=0,netFrame=0;
+function nsize(){nc.width=innerWidth;nc.height=innerHeight;nodes=Array.from({length:Math.min(46,Math.max(22,Math.floor(innerWidth/28)))},()=>({x:Math.random()*nc.width,y:Math.random()*nc.height,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.4}))}
+addEventListener("resize",nsize); nsize();
+function nloop(){
+  if(document.hidden){netFrame=0;return}
+  if(fr++%90===0) col=getComputedStyle(document.body).color.match(/\d+/g).slice(0,3).join(",");
+  nx.clearRect(0,0,nc.width,nc.height);
+  for(let i=0;i<nodes.length;i++){
+    const a=nodes[i];
+    a.x+=a.vx;a.y+=a.vy;if(a.x<0||a.x>nc.width)a.vx*=-1;if(a.y<0||a.y>nc.height)a.vy*=-1;
+    nx.fillStyle=`rgba(${col},.38)`;nx.beginPath();nx.arc(a.x,a.y,1.7,0,6.3);nx.fill();
+    for(let j=i+1;j<nodes.length;j++){const b=nodes[j],d=Math.hypot(a.x-b.x,a.y-b.y);if(d<125){nx.strokeStyle=`rgba(${col},${.13*(1-d/125)})`;nx.beginPath();nx.moveTo(a.x,a.y);nx.lineTo(b.x,b.y);nx.stroke()}}
+    const dm=Math.hypot(a.x-mx,a.y-my);if(dm<180){nx.strokeStyle=`rgba(${col},${.4*(1-dm/180)})`;nx.beginPath();nx.moveTo(a.x,a.y);nx.lineTo(mx,my);nx.stroke()}
+  }
+  netFrame=requestAnimationFrame(nloop);
+}
+if(!reduce) netFrame=requestAnimationFrame(nloop);
+document.addEventListener("visibilitychange",()=>{if(document.hidden){if(netFrame)cancelAnimationFrame(netFrame);netFrame=0}else if(!reduce&&!netFrame)netFrame=requestAnimationFrame(nloop)});
+
+/* confetti burst when the code lands */
+const fx=$("fx"),fc=fx.getContext("2d"); let parts=[],fon=false;
+function fsize(){fx.width=innerWidth;fx.height=innerHeight} addEventListener("resize",fsize); fsize();
+function floop(){
+  fc.clearRect(0,0,fx.width,fx.height); parts=parts.filter(p=>p.l>0);
+  for(const p of parts){p.vy+=.22;p.vx*=.99;p.x+=p.vx;p.y+=p.vy;p.l-=.011;fc.globalAlpha=Math.max(p.l,0);fc.fillStyle=p.c;fc.beginPath();fc.arc(p.x,p.y,p.r,0,6.3);fc.fill()}
+  fc.globalAlpha=1; if(parts.length) requestAnimationFrame(floop); else fon=false;
+}
+function celebrate(){
+  if(reduce) return;
+  const r=$("code").getBoundingClientRect(), cs=["#ff8a65","#8b6cff","#35d0c6","#ffd166","#ffffff"];
+  for(let i=0;i<100;i++){const a=Math.random()*6.283,s=3+Math.random()*8;parts.push({x:r.left+r.width/2,y:r.top+r.height/2,vx:Math.cos(a)*s,vy:Math.sin(a)*s-4,r:2+Math.random()*3,c:cs[i%5],l:1})}
+  if(!fon){fon=true;floop()}
+  document.body.classList.add("flash"); setTimeout(()=>document.body.classList.remove("flash"),1300);
+}
+
+/* phone walkthrough */
+const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".scr")]; let dt;
+$("bx").innerHTML=[...Array(8)].map((_,k)=>`<i style="--k:${k}"></i>`).join("");
+function dgo(n){
+  ds.forEach((b,k)=>{b.classList.toggle("on",k===n);const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
+  scr.forEach((s,k)=>s.classList.toggle("on",k===n));
+  clearTimeout(dt); dt=setTimeout(()=>dgo((n+1)%4),3800);
+}
+ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k))); dgo(0);
+
+/* small touches */
+addEventListener("keydown",e=>{if(e.key==="/"&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){e.preventDefault();scrollTo({top:0,behavior:"smooth"});$("num").focus({preventScroll:true})}});
+$("again").addEventListener("click",e=>{e.preventDefault();scrollTo({top:0,behavior:"smooth"});setTimeout(()=>$("num").focus({preventScroll:true}),550)});
+const T0=document.title; document.addEventListener("visibilitychange",()=>{document.title=document.hidden?"Your code is waiting ✨":T0});
+
+$("copy").addEventListener("click",()=>{ if(!$("copy").disabled){$("copy").classList.remove("pulse");toast("Code copied. Paste it into WhatsApp")} });
+addEventListener("pointermove",e=>{const x=(e.clientX/innerWidth-.5)*2,y=(e.clientY/innerHeight-.5)*2;
+  document.querySelectorAll(".bot").forEach(b=>{b.style.setProperty("--ex",x.toFixed(2));b.style.setProperty("--ey",y.toFixed(2))})});
+const updateHudClock=()=>{$("hudt").textContent="LOCAL TIME · "+new Date().toLocaleTimeString()};updateHudClock();setInterval(updateHudClock,1000);
+
+/* App switching: pairing, Zenny AI, and aggregate bot status. */
+const appButtons=[...document.querySelectorAll(".app-shortcut")];
+let botRefreshTimer=null;
+function showApp(screenId,{fromUser=false}={}){
+  const screen=$(screenId);
+  if(!screen)return;
+  document.querySelectorAll(".app-screen").forEach(s=>s.classList.toggle("active",s===screen));
+  appButtons.forEach(b=>b.setAttribute("aria-selected",String(b.dataset.screen===screenId)));
+  if(fromUser){
+    const hash={"screen-pair":"app-pair","screen-ai":"app-ai","screen-bot":"app-bot"}[screenId];
+    if(hash)history.replaceState(null,"",location.pathname+location.search+"#"+hash);
+    window.scrollTo({top:0,behavior:reduce?"auto":"smooth"});
+    startAmbient();
+  }
+  clearInterval(botRefreshTimer);botRefreshTimer=null;
+  if(screenId==="screen-bot"){
+    refreshBotStatus();
+    botRefreshTimer=setInterval(()=>{if($("screen-bot").classList.contains("active"))refreshBotStatus()},30000);
+  }
+}
+appButtons.forEach(button=>button.addEventListener("click",()=>showApp(button.dataset.screen,{fromUser:true})));
+const initialScreen=location.hash==="#app-ai"?"screen-ai":location.hash==="#app-bot"?"screen-bot":"screen-pair";
+document.querySelectorAll('.pill .links a[href="#how"],.pill .links a[href="#faq"]').forEach(link=>link.addEventListener("click",event=>{
+  event.preventDefault();showApp("screen-pair");requestAnimationFrame(()=>$(link.hash.slice(1))?.scrollIntoView({behavior:reduce?"auto":"smooth"}));
+}));
+
+/* Live Zenny chat; render all user/API content as text to avoid HTML injection. */
+const aiForm=$("siteAiForm"),aiInput=$("siteAiInput"),aiChat=$("siteAiChat"),aiSend=$("siteAiSend");
+const siteAiHistory=[];
+function addChatBubble(role,text,pending=false){
+  const bubble=document.createElement("div");bubble.className="chat-bubble "+role+(pending?" pending":"");bubble.textContent=text;aiChat.appendChild(bubble);aiChat.scrollTop=aiChat.scrollHeight;return bubble;
+}
+function getSiteBrowserId(){
+  try{let id=localStorage.getItem("zenx_browser_id");if(!id){id="web_"+(crypto.randomUUID?.()||Math.random().toString(36).slice(2)+Date.now().toString(36));localStorage.setItem("zenx_browser_id",id)}return id}
+  catch{return "web_"+Math.random().toString(36).slice(2)+Date.now().toString(36)}
+}
+aiForm.addEventListener("submit",async event=>{
+  event.preventDefault();const message=aiInput.value.trim();if(!message||aiSend.disabled)return;
+  if(message.length>3000){addChatBubble("bot","Please keep each message under 3,000 characters.");return}
+  addChatBubble("user",message);aiInput.value="";aiSend.disabled=true;
+  const pending=addChatBubble("bot","Zenny is thinking…",true);
+  try{
+    const response=await fetch("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({message,history:siteAiHistory.slice(-10),browserId:getSiteBrowserId()})});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||"The assistant request failed.");
+    const reply=String(data.reply||"Zenny couldn’t reply just now.");pending.classList.remove("pending");pending.textContent=reply;
+    siteAiHistory.push({role:"user",content:message},{role:"assistant",content:reply});if(siteAiHistory.length>20)siteAiHistory.splice(0,siteAiHistory.length-20);
+  }catch(error){pending.classList.remove("pending");pending.textContent="Zenny is unavailable right now. Please try again.";console.warn("[SITE AI]",error.message)}
+  finally{aiSend.disabled=false;aiInput.focus({preventScroll:true})}
+});
+
+/* Aggregate bot status only; do not expose account numbers or session credentials. */
+let botStatusBusy=false;
+const formatUptime=seconds=>{let s=Math.max(0,Number(seconds)||0),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`};
+async function statusJson(path){const response=await fetch(path,{cache:"no-store",headers:{Accept:"application/json"}});if(!response.ok)throw new Error(`${path} returned ${response.status}`);return response.json()}
+async function refreshBotStatus(){
+  if(botStatusBusy)return;botStatusBusy=true;$("statusRefresh").disabled=true;$("botLiveState").textContent="Refreshing…";
+  try{
+    const [ping,info,slots]=await Promise.all([statusJson("/ping"),statusJson("/api/bot/info"),statusJson("/api/slots")]);
+    const online=String(ping.status||"").toLowerCase()==="online";
+    $("botLiveDot").classList.toggle("up",online);$("botLiveDot").classList.toggle("down",!online);
+    $("botLiveState").textContent=online?"Backend reachable":"Backend unavailable";
+    $("botConnected").textContent=String(ping.connected??0);$("botRegistered").textContent=String(ping.bots??0);
+    $("botUptime").textContent=formatUptime(ping.uptime);$("botMemory").textContent=String(ping.memory||"—");
+    const slotCount=Number(slots.slotCount??slots.slots?.length??0),capacity=slots.capacity;
+    $("botSlots").textContent=slotCount?`${slotCount} slots${capacity?` · ${capacity} each`:""}`:"—";
+    $("botCommands").textContent=String(info.commandCount??"—");
+    $("botUpdated").textContent=" · Updated "+new Date().toLocaleTimeString();
+  }catch(error){
+    $("botLiveDot").classList.remove("up");$("botLiveDot").classList.add("down");$("botLiveState").textContent="Could not reach the status API";$("botUpdated").textContent=" · "+error.message;
+  }finally{botStatusBusy=false;$("statusRefresh").disabled=false}
+}
+$("statusRefresh").addEventListener("click",refreshBotStatus);
+
+/* Soft, original synthesized ambience loops after the visitor scrolls or taps an app.
+   Browsers require a user gesture before audio with sound can start. */
+let ambientEnabled=true,ambientStarted=false,ambientContext=null,ambientTimer=null,ambientNote=0;
+const ambientChords=[[220,164.81],[246.94,185],[196,146.83],[174.61,130.81],[196,146.83],[246.94,185]];
+try{ambientEnabled=localStorage.getItem("zenx_ambient_off")!=="1"}catch{}
+function updateMusicButton(){
+  const live=ambientEnabled&&ambientContext?.state==="running";
+  $("musicToggle").textContent=!ambientEnabled?"Sound: Off":live?"Sound: On":"Sound: Auto";
+  $("musicToggle").setAttribute("aria-pressed",String(!!live));
+}
+function startAmbientLoop(){
+  if(ambientTimer||!ambientContext?.__zenxTones)return;
+  const {upper,lower}=ambientContext.__zenxTones;
+  const setChord=()=>{if(!ambientContext||ambientContext.state==="closed")return;const [a,b]=ambientChords[ambientNote++%ambientChords.length],now=ambientContext.currentTime;upper.frequency.setTargetAtTime(a,now,.8);lower.frequency.setTargetAtTime(b,now,.9)};
+  setChord();ambientTimer=setInterval(setChord,2600);
+}
+async function startAmbient(){
+  if(!ambientEnabled)return;
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)throw new Error("Audio is not supported in this browser.");
+    if(!ambientContext){
+      ambientContext=new AudioCtx();const filter=ambientContext.createBiquadFilter(),master=ambientContext.createGain();
+      filter.type="lowpass";filter.frequency.value=620;master.gain.value=.075;filter.connect(master);master.connect(ambientContext.destination);
+      const upper=ambientContext.createOscillator(),lower=ambientContext.createOscillator(),upperGain=ambientContext.createGain(),lowerGain=ambientContext.createGain();
+      upper.type="triangle";lower.type="sine";upperGain.gain.value=.17;lowerGain.gain.value=.10;upper.connect(upperGain);lower.connect(lowerGain);upperGain.connect(filter);lowerGain.connect(filter);
+      upper.start();lower.start();ambientContext.__zenxTones={upper,lower};
+    }
+    await ambientContext.resume();ambientStarted=ambientContext.state==="running";if(ambientStarted)startAmbientLoop();updateMusicButton();
+  }catch(error){updateMusicButton();console.info("[AMBIENT]",error.message)}
+}
+function startAmbientOnScroll(){if(ambientEnabled&&!ambientStarted)startAmbient()}
+addEventListener("scroll",startAmbientOnScroll,{passive:true});addEventListener("wheel",startAmbientOnScroll,{passive:true});addEventListener("touchmove",startAmbientOnScroll,{passive:true});
+$("musicToggle").addEventListener("click",async()=>{
+  ambientEnabled=!ambientEnabled;try{localStorage.setItem("zenx_ambient_off",ambientEnabled?"0":"1")}catch{}
+  if(ambientEnabled)await startAmbient();else{clearInterval(ambientTimer);ambientTimer=null;if(ambientContext)await ambientContext.suspend();ambientStarted=false;updateMusicButton()}
+});
+document.addEventListener("visibilitychange",()=>{if(!ambientContext)return;if(document.hidden)ambientContext.suspend().finally(updateMusicButton);else if(ambientEnabled&&ambientStarted)ambientContext.resume().finally(updateMusicButton);else updateMusicButton()});
+updateMusicButton();
+showApp(initialScreen);
+</script>
+</body>
+</html>

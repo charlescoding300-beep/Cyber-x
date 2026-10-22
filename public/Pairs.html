@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8fc">
+  <meta name="description" content="Connect a WhatsApp device to ZEN X with a pairing code or QR code.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="ZEN X — WhatsApp pairing">
+  <meta property="og:description" content="Connect a WhatsApp device to ZEN X with a secure pairing code.">
+  <title>ZEN X — WhatsApp pairing</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172438;
+      --muted: #637187;
+      --line: #e2e8f1;
+      --paper: #ffffff;
+      --canvas: #f5f7fb;
+      --blue: #1769e0;
+      --blue-dark: #1056bf;
+      --blue-soft: #edf4ff;
+      --green: #13795b;
+      --green-soft: #eaf7f1;
+      --amber: #805a11;
+      --amber-soft: #fff7e5;
+      --red: #aa3434;
+      --red-soft: #fff0ef;
+      --radius: 18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--canvas); }
+    body { margin: 0; color: var(--ink); background: var(--canvas); line-height: 1.5; }
+    [hidden] { display: none !important; }
+    body.entry-open { overflow: hidden; }
+    body.entry-open .topbar, body.entry-open main { display: none; }
+    .entry-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; color: #f4f7fc; background: #111d2e; }
+    .entry-content { width: min(100%, 520px); text-align: center; }
+    .entry-brand { color: #a8c8f7; font-size: 11px; font-weight: 800; letter-spacing: .17em; }
+    .entry-content h1 { margin-top: 18px; font-size: clamp(34px, 7vw, 50px); }
+    .entry-content > p:not(.entry-note) { max-width: 420px; margin: 14px auto 25px; color: #c1ccda; font-size: 15px; }
+    .entry-button { position: relative; width: min(100%, 355px); min-height: 72px; display: inline-flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 22px; overflow: hidden; border: 1px solid #72a8ff; border-radius: 14px; color: #fff; background: linear-gradient(100deg, #1756ac, #2479e8 48%, #1756ac); background-size: 220% 100%; cursor: pointer; font-size: 16px; font-weight: 780; box-shadow: 0 0 0 4px rgba(89, 151, 245, .12); animation: entryShine 2.4s ease-in-out infinite; }
+    .entry-button span:last-child { font-size: 23px; }
+    .entry-note { max-width: 440px; margin: 15px auto 0; color: #aebbd0; font-size: 11px; }
+    @keyframes entryShine { 0%, 100% { background-position: 0% 50%; box-shadow: 0 0 0 4px rgba(89, 151, 245, .12); } 50% { background-position: 100% 50%; box-shadow: 0 0 0 7px rgba(89, 151, 245, .2); } }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; }
+    .shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar { background: var(--paper); border-bottom: 1px solid var(--line); }
+    .topbar-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-weight: 780; letter-spacing: -.025em; }
+    .brand-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; color: #fff; background: #18263a; font-size: 14px; letter-spacing: -.06em; }
+    .brand-name { display: block; font-size: 16px; }
+    .brand-caption { display: block; color: var(--muted); font-size: 11px; font-weight: 550; letter-spacing: .02em; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .top-link, .music-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; color: #33445e; background: #fff; text-decoration: none; font-size: 13px; font-weight: 650; }
+    .music-button { cursor: pointer; }
+    .music-button:disabled { cursor: not-allowed; color: #778398; background: #f6f8fb; }
+    .secure-mark { display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; color: #fff; background: var(--blue); font-size: 12px; font-weight: 800; }
+    .secure-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #cfe0fb; border-radius: 999px; color: #28558d; background: #f5f9ff; font-size: 12px; font-weight: 700; }
+    main { padding: 50px 0 54px; }
+    .intro { max-width: 740px; margin-bottom: 26px; }
+    .eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(32px, 5vw, 48px); line-height: 1.08; letter-spacing: -.055em; }
+    .intro-copy { max-width: 670px; margin: 14px 0 0; color: var(--muted); font-size: 16px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(285px, .85fr); gap: 20px; align-items: start; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); box-shadow: 0 8px 28px rgba(30, 51, 82, .045); }
+    .pair-card { padding: clamp(20px, 3vw, 30px); }
+    .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 21px; }
+    h2 { margin: 0; font-size: 20px; letter-spacing: -.03em; }
+    .card-copy { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .step-tag { flex: 0 0 auto; padding: 6px 9px; border-radius: 8px; color: #365983; background: var(--blue-soft); font-size: 11px; font-weight: 750; }
+    .mode-tabs, .section-tabs { display: flex; gap: 7px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: #f7f9fc; }
+    .mode-tab, .section-tab { min-height: 41px; flex: 1; border: 0; border-radius: 8px; color: #68768a; background: transparent; cursor: pointer; font-size: 13px; font-weight: 720; }
+    .mode-tab[aria-selected="true"], .section-tab[aria-selected="true"] { color: #184e9a; background: #fff; box-shadow: 0 1px 4px rgba(25, 45, 75, .11); }
+    .form-block { margin-top: 23px; }
+    .field-label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 720; }
+    .phone-row { display: flex; gap: 9px; }
+    .phone-input { width: 100%; min-width: 0; min-height: 50px; padding: 0 14px; border: 1px solid #cbd5e2; border-radius: 11px; color: var(--ink); background: #fff; font-size: 16px; outline: none; }
+    .phone-input:focus, .chat-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(23, 105, 224, .13); }
+    .field-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .primary-button { width: 100%; min-height: 50px; margin-top: 14px; border: 1px solid var(--blue); border-radius: 11px; color: #fff; background: var(--blue); cursor: pointer; font-weight: 750; }
+    .primary-button:hover { background: var(--blue-dark); }
+    .primary-button:disabled { cursor: wait; opacity: .72; }
+    .result { margin-top: 15px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: #fafbfd; font-size: 13px; }
+    .result[hidden] { display: none; }
+    .result.success { border-color: #c8e7d9; color: #155d46; background: var(--green-soft); }
+    .result.error { border-color: #f0ceca; color: var(--red); background: var(--red-soft); }
+    .qr-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); gap: 18px; align-items: start; margin-top: 22px; }
+    .qr-image-wrap { display: grid; place-items: center; min-height: 280px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .qr-image { display: block; width: min(100%, 250px); aspect-ratio: 1; image-rendering: pixelated; }
+    .qr-image[hidden] { display: none; }
+    .qr-help { color: var(--muted); font-size: 12px; }
+    .qr-help li { margin: 8px 0; }
+    .code-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pair-code { color: #173b70; font-size: clamp(21px, 4vw, 27px); font-weight: 820; letter-spacing: .16em; overflow-wrap: anywhere; }
+    .copy-button { flex: 0 0 auto; min-height: 37px; padding: 0 11px; border: 1px solid #bdd3f2; border-radius: 8px; color: #225a9f; background: #fff; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .steps { margin: 22px 0 0; padding: 17px 0 0; border-top: 1px solid var(--line); list-style: none; display: grid; gap: 11px; }
+    .steps li { display: grid; grid-template-columns: 25px 1fr; gap: 10px; align-items: start; color: #40516a; font-size: 13px; }
+    .step-number { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; color: #1e5bab; background: var(--blue-soft); font-size: 11px; font-weight: 800; }
+    .side-stack { display: grid; gap: 15px; }
+    .status-card, .region-card, .song-card { padding: 20px; }
+    .status-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .status-label { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .status-value { margin: 18px 0 0; font-size: 25px; font-weight: 800; letter-spacing: -.04em; }
+    .status-foot { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .status-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: 11px; font-weight: 750; white-space: nowrap; }
+    .status-pill.offline { color: var(--red); background: var(--red-soft); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .region-result { min-height: 22px; margin: 12px 0 0; color: #384c66; font-size: 13px; font-weight: 650; }
+    .privacy-note { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .text-button { min-height: 38px; padding: 0 12px; border: 1px solid #cbd9ec; border-radius: 9px; color: #27568f; background: #fff; cursor: pointer; font-size: 12px; font-weight: 720; }
+    .section-card { margin-top: 22px; padding: clamp(18px, 3vw, 25px); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .section-panel { display: none; }
+    .section-panel.active { display: block; }
+    .chat-box { min-height: 170px; max-height: 290px; overflow-y: auto; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fafbfd; }
+    .chat-line { width: fit-content; max-width: 88%; margin: 0 0 10px; padding: 9px 11px; border-radius: 11px; color: #364860; background: #edf1f6; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .chat-line.user { margin-left: auto; color: #184a8c; background: var(--blue-soft); }
+    .chat-line.chat-rich { max-width: 100%; white-space: normal; }
+    .chat-rich p { margin: 0 0 9px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .chat-rich p:last-child { margin-bottom: 0; }
+    .chat-rich h3, .chat-rich h4 { margin: 2px 0 8px; font-size: 14px; }
+    .chat-rich ul, .chat-rich ol { margin: 0 0 10px; padding-left: 23px; }
+    .chat-rich li { margin: 3px 0; }
+    .chat-rich pre { max-width: 100%; overflow: auto; margin: 8px 0; padding: 11px; border: 1px solid #dfe5ef; border-radius: 8px; color: #26354c; background: #f5f7fb; white-space: pre; }
+    .chat-rich code { padding: 1px 4px; border-radius: 4px; background: #e9edf4; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .94em; }
+    .chat-rich pre code { padding: 0; background: transparent; }
+    .chat-rich blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid #b7c8df; color: #53627a; }
+    .chat-actions { display: flex; gap: 7px; margin-top: 10px; }
+    .chat-action { min-height: 30px; padding: 0 9px; border: 1px solid #ccd7e6; border-radius: 7px; color: #40536e; background: #fff; cursor: pointer; font-size: 11px; font-weight: 700; }
+    .chat-row { display: flex; gap: 9px; margin-top: 10px; }
+    .chat-input { width: 100%; min-height: 44px; min-width: 0; padding: 0 12px; border: 1px solid #cbd5e2; border-radius: 10px; outline: none; }
+    .chat-send { min-width: 88px; border: 1px solid var(--blue); border-radius: 10px; color: #fff; background: var(--blue); cursor: pointer; font-size: 13px; font-weight: 740; }
+    .session-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .session-row { display: flex; justify-content: space-between; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+    .session-state { color: var(--muted); font-weight: 700; }
+    .empty-state { padding: 18px; border: 1px dashed #cbd5e2; border-radius: 10px; color: var(--muted); text-align: center; font-size: 13px; }
+    .song-copy { margin: 7px 0 13px; color: var(--muted); font-size: 12px; }
+    .song-title { margin: 12px 0 0; font-weight: 740; }
+    .music-player { width: 100%; margin: 12px 0 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: #0c0c0c; }
+    .music-player iframe { display: block; width: 100%; min-height: 200px; border: 0; }
+    .footer { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 11px; }
+    .footer-credit { color: #43536a; font-weight: 720; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 28px, 620px); }
+      main { padding-top: 35px; }
+      .layout { grid-template-columns: 1fr; }
+      .side-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .song-card { grid-column: 1 / -1; }
+    }
+    @media (max-width: 520px) {
+      .topbar-inner { min-height: 66px; }
+      .top-actions { gap: 6px; }
+      .top-link { padding: 0 9px; font-size: 12px; }
+      .secure-badge { padding: 7px 8px; font-size: 10px; }
+      .brand-mark { width: 36px; height: 36px; }
+      .brand-caption { display: none; }
+      .intro-copy { font-size: 14px; }
+      .side-stack { grid-template-columns: 1fr; }
+      .song-card { grid-column: auto; }
+      .phone-row, .chat-row { flex-direction: column; }
+      .chat-send { min-height: 43px; }
+      .qr-layout { grid-template-columns: 1fr; }
+      .footer { align-items: flex-start; flex-direction: column; }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .section-tabs { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .entry-button { animation: none; }
+    }
+  </style>
+  <style id="simulator-theme">
+    :root{color-scheme:dark;--ink:#e9f4eb;--muted:#95a89a;--line:rgba(160,210,177,.15);--paper:#0c1210;--canvas:#070a09;--blue:#77b8ff;--blue-dark:#5aa4f4;--blue-soft:rgba(54,110,167,.16);--green:#7affaa;--green-soft:rgba(38,122,65,.16);--red:#ff8585;--red-soft:rgba(145,41,41,.14);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    html{background:#070a09;scroll-behavior:smooth}body{min-height:100vh;margin:0;color:var(--ink);background:radial-gradient(ellipse at 72% -12%,rgba(38,117,68,.2),transparent 37rem),radial-gradient(ellipse at 7% 45%,rgba(21,73,45,.12),transparent 34rem),#070a09;line-height:1.55}body:before{position:fixed;z-index:-1;inset:0;pointer-events:none;content:"";opacity:.16;background-image:linear-gradient(rgba(124,255,166,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,166,.06) 1px,transparent 1px);background-size:46px 46px;mask-image:linear-gradient(to bottom,#000,transparent 85%)}body.entry-open{overflow:hidden}body.entry-open .topbar{display:block!important;visibility:hidden}body.entry-open main{display:block!important;visibility:hidden}
+    .entry-overlay{position:fixed;inset:0;z-index:50;display:grid;place-items:center;overflow:hidden;padding:24px;color:var(--ink);background:radial-gradient(ellipse at center,rgba(20,62,36,.32),transparent 33rem),#050807}.entry-overlay:before{position:absolute;inset:0;pointer-events:none;content:"";opacity:.22;background:linear-gradient(transparent 50%,rgba(123,255,170,.045) 50%);background-size:100% 5px}.entry-overlay:after{position:absolute;top:-20%;left:0;width:100%;height:22%;pointer-events:none;content:"";opacity:.38;background:linear-gradient(transparent,rgba(99,255,152,.07),transparent);animation:entryScan 5s linear infinite}.entry-content{position:relative;z-index:1;width:min(100%,560px);text-align:center;transition:opacity .25s ease,transform .25s ease}.entry-brand{display:inline-flex;align-items:center;gap:9px;color:#7affaa;font-size:11px;font-weight:850;letter-spacing:.22em}.entry-brand:before,.entry-brand:after{width:23px;height:1px;content:"";background:currentColor;opacity:.55}.entry-emblem{display:block;width:104px;height:104px;margin:26px auto 20px;filter:drop-shadow(0 0 24px rgba(122,255,170,.26))}.entry-content h1{margin:0;color:#f1fff4;font-size:clamp(29px,7vw,46px);line-height:1.08;letter-spacing:.02em;text-transform:uppercase}.entry-content>p:not(.entry-note){max-width:430px;margin:14px auto 25px;color:#95a89a;font-size:14px}.entry-button{width:min(100%,350px);min-height:58px;display:inline-flex;align-items:center;justify-content:space-between;gap:20px;padding:0 19px;border:1px solid rgba(122,255,170,.7);border-radius:10px;color:#07120a;background:linear-gradient(110deg,#75fca7,#a1ffc1);cursor:pointer;font-size:13px;font-weight:900;letter-spacing:.12em;box-shadow:0 0 28px rgba(78,255,137,.17);transition:transform .2s ease,box-shadow .2s ease}.entry-button:hover{transform:translateY(-2px);box-shadow:0 0 38px rgba(78,255,137,.32)}.entry-note{max-width:440px;margin:14px auto 0;color:#718578;font-size:11px}.grant-flash{position:absolute;z-index:2;top:50%;left:50%;width:100vw;text-align:center;color:#7affaa;font-size:clamp(32px,9vw,84px);font-weight:950;line-height:1;letter-spacing:.055em;text-shadow:0 0 12px rgba(110,255,156,.85),0 0 48px rgba(56,255,125,.52);opacity:0;pointer-events:none;transform:translate(-50%,-50%) scale(.86)}.grant-flash:before,.grant-flash:after{position:absolute;inset:0;content:attr(data-text);opacity:0}.grant-flash:before{color:#d0ffdf}.grant-flash:after{color:#11c96c}.entry-overlay.is-granting .entry-content{opacity:0;transform:scale(.96)}.entry-overlay.is-granting .grant-flash{animation:grantReveal 1.35s steps(1,end) both}.entry-overlay.is-granting .grant-flash:before{animation:glitchTop 1.1s steps(2,end) both}.entry-overlay.is-granting .grant-flash:after{animation:glitchBottom 1.1s steps(2,end) both}
+    .shell{width:min(1200px,calc(100% - 48px));margin:0 auto}.topbar{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--line);background:rgba(7,10,9,.84);backdrop-filter:blur(18px)}.topbar-inner{min-height:74px;display:flex;align-items:center;justify-content:space-between;gap:18px}.brand{display:inline-flex;align-items:center;gap:12px;text-decoration:none}.brand-mark{width:42px;height:42px;display:grid;place-items:center;border:1px solid rgba(120,255,167,.35);border-radius:12px;color:#7affaa;background:linear-gradient(145deg,#122219,#09100c);box-shadow:inset 0 0 18px rgba(107,255,156,.08)}.brand-mark svg{width:29px;height:29px}.brand-name{display:block;color:#f0fff3;font-size:15px;letter-spacing:.08em}.brand-caption{display:block;color:#95a89a;font-size:10px;letter-spacing:.055em;text-transform:uppercase}.top-actions{display:flex;align-items:center;gap:9px}.top-link,.music-button{min-height:39px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:9px;color:#c3d2c7;background:#0c1310;text-decoration:none;font-size:12px;font-weight:680}.music-button{cursor:pointer}.secure-mark{display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;color:#07110a;background:#7affaa;font-size:12px;font-weight:900}.secure-badge{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid rgba(119,184,255,.38);border-radius:999px;color:#b9d9ff;background:rgba(49,105,164,.12);font-size:10px;font-weight:800;letter-spacing:.04em;white-space:nowrap}#secureBadge{border-color:var(--line);color:#95a89a;background:#0c1310}#secureBadge .secure-mark{width:7px;height:7px;background:#7affaa;font-size:0;box-shadow:0 0 10px #7affaa}
+    main{padding:34px 0 50px}.intro{position:relative;min-height:285px;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr);align-items:center;gap:25px;margin-bottom:22px;padding:clamp(22px,4vw,43px);overflow:hidden;border:1px solid var(--line);border-radius:22px;background:linear-gradient(112deg,rgba(14,24,18,.98),rgba(9,15,12,.95) 57%,rgba(13,28,19,.92));box-shadow:0 24px 80px rgba(0,0,0,.22)}.intro:after{position:absolute;right:0;bottom:0;left:0;height:1px;content:"";background:linear-gradient(90deg,transparent,rgba(122,255,170,.45),transparent)}.intro-copy-block{position:relative;z-index:1;max-width:550px}.eyebrow{display:flex;align-items:center;gap:9px;margin:0 0 14px;color:#7affaa;font-size:10px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}.eyebrow:before{width:7px;height:7px;content:"";border-radius:50%;background:#7affaa;box-shadow:0 0 12px #7affaa}h1{margin:0;color:#f0fff3;font-size:clamp(35px,5vw,56px);line-height:1.01;letter-spacing:-.055em}.intro-copy{max-width:500px;margin:16px 0 0;color:#a6b7aa;font-size:14px}.hero-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}.meta-chip{display:inline-flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;color:#b1c4b5;background:rgba(8,15,11,.65);font-size:10px;font-weight:700;letter-spacing:.045em;text-transform:uppercase}.meta-chip svg{width:13px;height:13px;color:#7affaa}.hero-art{width:100%;min-width:0;height:230px}.hero-art svg{width:100%;height:100%;overflow:visible}.hero-art .flow{stroke-dasharray:6 11;animation:signalFlow 2.8s linear infinite}.hero-art .pulse-node{transform-box:fill-box;transform-origin:center;animation:nodePulse 2.6s ease-in-out infinite}.hero-art .orbit{transform-origin:365px 118px;animation:orbitSpin 24s linear infinite}
+    .layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(290px,.7fr);gap:18px;align-items:start}.card{border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,rgba(14,21,17,.97),rgba(10,15,12,.98));box-shadow:0 14px 35px rgba(0,0,0,.17)}.pair-card{padding:clamp(19px,3vw,28px)}.card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}h2{margin:0;color:#e8f5eb;font-size:18px}.card-copy{margin:6px 0 0;color:#95a89a;font-size:12px}.step-tag{padding:6px 9px;border:1px solid rgba(122,255,170,.19);border-radius:7px;color:#7affaa;background:rgba(45,135,75,.1);font-size:9px;font-weight:850;letter-spacing:.12em}.mode-tabs,.section-tabs{display:flex;gap:6px;padding:4px;border:1px solid var(--line);border-radius:10px;background:#080d0a}.mode-tab,.section-tab{min-height:40px;flex:1;border:0;border-radius:7px;color:#95a89a;background:transparent;cursor:pointer;font-size:12px;font-weight:750}.mode-tab[aria-selected=true],.section-tab[aria-selected=true]{color:#08120b;background:#7affaa}.form-block{margin-top:21px}.field-label{display:block;margin-bottom:7px;color:#dce9df;font-size:12px;font-weight:730}.phone-row{display:flex;gap:9px}.phone-input,.chat-input{width:100%;min-width:0;min-height:48px;padding:0 13px;border:1px solid rgba(165,207,176,.2);border-radius:9px;color:#e9f4eb;background:#080e0a;font-size:14px;outline:none}.phone-input::placeholder,.chat-input::placeholder{color:#607166}.phone-input:focus,.chat-input:focus{border-color:#7affaa;box-shadow:0 0 0 3px rgba(122,255,170,.1)}.field-hint{margin:8px 0 0;color:#718578;font-size:11px}.primary-button{width:100%;min-height:48px;margin-top:13px;border:1px solid #7affaa;border-radius:9px;color:#07120a;background:#7affaa;cursor:pointer;font-size:12px;font-weight:900;letter-spacing:.05em;text-transform:uppercase}.primary-button:disabled{cursor:wait;opacity:.7}.result{margin-top:14px;padding:12px 13px;border:1px solid var(--line);border-radius:9px;color:#b5c5b9;background:#090f0b;font-size:12px}.result.success{border-color:rgba(122,255,170,.36);color:#caffd9;background:rgba(36,116,65,.12)}.result.error{border-color:rgba(255,120,120,.33);color:#ffaaaa;background:rgba(145,41,41,.12)}
+    .qr-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,260px);gap:15px;align-items:start;margin-top:20px}.qr-image-wrap{display:grid;place-items:center;min-height:265px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#f5f7f5}.qr-image{display:block;width:min(100%,235px);aspect-ratio:1;image-rendering:pixelated}.qr-help{color:#95a89a;font-size:12px}.code-row{display:flex;align-items:center;justify-content:space-between;gap:12px}.pair-code{color:#7affaa;font-size:clamp(21px,4vw,27px);font-weight:850;letter-spacing:.16em;overflow-wrap:anywhere}.copy-button{min-height:35px;padding:0 11px;border:1px solid rgba(120,255,167,.35);border-radius:7px;color:#7affaa;background:#0d1710;cursor:pointer;font-size:11px;font-weight:750}.steps{display:grid;gap:11px;margin:20px 0 0;padding:17px 0 0;border-top:1px solid var(--line);list-style:none}.steps li{display:grid;grid-template-columns:24px 1fr;gap:10px;color:#afc0b3;font-size:12px}.step-number{display:grid;place-items:center;width:22px;height:22px;border:1px solid rgba(122,255,170,.23);border-radius:6px;color:#7affaa;background:rgba(37,100,54,.15);font-size:10px;font-weight:850}
+    .side-stack{display:grid;gap:13px}.status-card,.region-card,.song-card{padding:18px}.status-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.status-label,.status-foot{color:#95a89a;font-size:11px}.status-value{margin:18px 0 0;color:#7affaa;font-size:27px;font-weight:850}.status-pill{display:inline-flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid rgba(122,255,170,.2);border-radius:999px;color:#7affaa;background:rgba(39,110,59,.13);font-size:9px;font-weight:800}.status-pill.offline{color:#ff8585}.status-dot{width:6px;height:6px;border-radius:50%;background:currentColor}.region-result{min-height:22px;color:#d2e0d5;font-size:12px}.privacy-note,.song-copy{color:#829588;font-size:10px;line-height:1.6}.text-button,.chat-action{min-height:36px;padding:0 11px;border:1px solid var(--line);border-radius:8px;color:#c5d4c9;background:#0c1310;cursor:pointer;font-size:11px}.section-card{margin-top:18px;padding:clamp(18px,3vw,24px)}.section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.section-panel{display:none}.section-panel.active{display:block}.chat-box{min-height:170px;max-height:290px;overflow-y:auto;padding:14px;border:1px solid var(--line);border-radius:10px;background:#080e0a}.chat-line{width:fit-content;max-width:88%;margin:0 0 10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;color:#cfddd2;background:#111a14;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.chat-line.user{margin-left:auto;color:#d4ffe0;background:rgba(45,125,68,.15)}.chat-rich pre,.chat-rich blockquote{border-color:rgba(122,255,170,.3);background:#060a08}.chat-rich code{color:#adffca;background:rgba(122,255,170,.1)}.chat-row{display:flex;gap:9px;margin-top:10px}.chat-send{min-width:88px;border:1px solid #7affaa;border-radius:9px;color:#07120a;background:#7affaa;font-weight:850}.session-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.session-row{padding:12px;border:1px solid var(--line);border-radius:9px;color:#cfddd2;background:#0a100c;font-size:11px}.session-state{color:#95a89a}.empty-state{padding:17px;border:1px dashed rgba(165,207,176,.22);border-radius:9px;color:#95a89a;text-align:center;font-size:12px}.song-title{color:#e5f3e8;font-size:13px;font-weight:770}.music-player{overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#060907}.music-player iframe{width:100%;min-height:195px;border:0}.footer{margin-top:24px;padding:17px 2px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;color:#95a89a;font-size:10px}.footer-credit{color:#c2d2c6;font-weight:720}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @keyframes entryScan{to{transform:translateY(620%)}}@keyframes signalFlow{to{stroke-dashoffset:-68}}@keyframes nodePulse{0%,100%{opacity:.55;transform:scale(.86)}50%{opacity:1;transform:scale(1.16)}}@keyframes orbitSpin{to{transform:rotate(360deg)}}@keyframes grantReveal{0%{opacity:0;transform:translate(-50%,-50%) scale(.72)}12%,52%{opacity:1;transform:translate(-50%,-50%) scale(1)}20%,40%{opacity:.35;transform:translate(-50%,-50%) scale(1.025)}60%{opacity:.9;transform:translate(-50%,-50%) scale(1.02)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.12)}}@keyframes glitchTop{0%,14%,36%,100%{opacity:0;transform:translate(0)}17%{opacity:.8;transform:translate(-9px,-3px)}39%{opacity:.7;transform:translate(8px,2px)}}@keyframes glitchBottom{0%,23%,47%,100%{opacity:0;transform:translate(0)}26%{opacity:.8;transform:translate(8px,3px)}50%{opacity:.75;transform:translate(-7px,-2px)}}
+    @media(max-width:850px){.shell{width:min(100% - 32px,680px)}.intro{grid-template-columns:1fr;gap:12px;padding:27px}.intro-copy-block{max-width:620px}.hero-art{height:190px}.layout{grid-template-columns:1fr}.side-stack{grid-template-columns:repeat(2,minmax(0,1fr))}.song-card{grid-column:1/-1}}
+    @media(max-width:560px){.shell{width:min(100% - 24px,440px)}.topbar-inner{min-height:64px;gap:8px}.top-actions{gap:5px}.top-link,.music-button{min-height:35px;padding:0 8px;font-size:10px}.secure-badge{gap:5px;padding:6px 7px;font-size:8px}#secureBadge{display:none}.brand-mark{width:37px;height:37px}.brand-caption{display:none}main{padding-top:18px}.intro{min-height:0;gap:2px;margin-bottom:14px;padding:22px 18px 12px;border-radius:15px}h1{font-size:clamp(34px,10vw,45px)}.intro-copy{font-size:12px}.hero-meta{margin-top:14px}.hero-art{height:162px}.side-stack{grid-template-columns:1fr}.song-card{grid-column:auto}.phone-row,.chat-row{flex-direction:column}.chat-send{min-height:43px}.qr-layout{grid-template-columns:1fr}.footer{align-items:flex-start;flex-direction:column}.section-head{align-items:flex-start;flex-direction:column}.section-tabs{width:100%}.section-tab{padding:0 5px;font-size:10px}.grant-flash{font-size:clamp(27px,8vw,48px)}}
+    .secure-badge:not(#secureBadge) .secure-mark{color:#fff;background:#3995ff;box-shadow:0 0 12px rgba(57,149,255,.45)}
+    .chat-rich pre{color:#d5e4d8}.chat-rich blockquote{color:#95a89a}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+  </style>
+  <style id="simulator-atmosphere">
+    body{isolation:isolate;background-image:radial-gradient(ellipse at 14% 18%,rgba(112,12,47,.25),transparent 42rem),radial-gradient(ellipse at 88% 72%,rgba(43,119,62,.15),transparent 39rem),radial-gradient(ellipse at 78% 10%,rgba(62,19,91,.14),transparent 34rem),linear-gradient(145deg,#070609,#090d0a);background-size:150% 145%,140% 145%,135% 130%,cover;animation:nightDrift 28s ease-in-out infinite alternate}
+    body:before{z-index:-1;opacity:.18;background-size:48px 48px;animation:gridDrift 72s linear infinite}
+    body:after{position:fixed;z-index:-1;inset:-18%;pointer-events:none;content:"";opacity:.27;background:radial-gradient(circle at 23% 42%,rgba(179,18,61,.19) 0 1px,transparent 2px),radial-gradient(circle at 76% 64%,rgba(122,255,170,.16) 0 1px,transparent 2px),linear-gradient(132deg,transparent 0 48.9%,rgba(181,33,75,.055) 49%,transparent 49.2% 100%);background-size:83px 83px,117px 117px,100% 100%;animation:emberDrift 50s linear infinite}
+    .entry-overlay{background:radial-gradient(ellipse at 22% 40%,rgba(125,10,44,.2),transparent 30rem),radial-gradient(ellipse at 76% 62%,rgba(19,83,43,.2),transparent 30rem),#040506}
+    .entry-overlay.is-granting .grant-flash{animation:grantRevealLong 4.2s steps(1,end) both}
+    .secure-badge:not(#secureBadge) .secure-mark{color:#fff;background:#398cff;box-shadow:0 0 13px rgba(57,140,255,.55)}
+    @keyframes nightDrift{to{background-position:100% 70%,0% 20%,30% 100%,center}}
+    @keyframes gridDrift{to{background-position:48px 48px}}
+    @keyframes emberDrift{to{transform:translate3d(1.5%,-1%,0)}}
+    @keyframes grantRevealLong{0%{opacity:0;transform:translate(-50%,-50%) scale(.72)}6%,12%{opacity:1;transform:translate(-50%,-50%) scale(1)}9%,16%{opacity:.38;transform:translate(-50%,-50%) scale(1.025)}22%,78%{opacity:1;transform:translate(-50%,-50%) scale(1)}89%{opacity:.55;transform:translate(-50%,-50%) scale(1.04)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.12)}}
+    @media(prefers-reduced-motion:reduce){body,body:before,body:after{animation:none!important}}
+  </style>
+  <style id="site-app-theme">
+    .creator-badge{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid rgba(122,255,170,.3);border-radius:999px;color:#baffcb;background:rgba(30,105,53,.16);font-size:10px;font-weight:850;letter-spacing:.045em;white-space:nowrap}
+    .creator-badge .creator-check{display:grid;place-items:center;width:17px;height:17px;border-radius:50%;color:#07120a;background:#7affaa;font-size:11px;font-weight:950}
+    .terminal-card{margin-top:18px;padding:clamp(18px,3vw,24px);border-color:rgba(122,255,170,.22);background:linear-gradient(145deg,#080d09,#050806)}
+    .terminal-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:13px}
+    .terminal-kicker{margin:0 0 4px;color:#7affaa;font:800 9px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.16em}
+    .terminal-live{display:inline-flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid rgba(122,255,170,.2);border-radius:999px;color:#7affaa;font:800 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.1em}
+    .terminal-live i{width:6px;height:6px;border-radius:50%;background:#7affaa;box-shadow:0 0 9px #7affaa;animation:terminalBlink 1.3s steps(2,end) infinite}
+    .terminal-output{display:grid;gap:3px;min-height:132px;max-height:210px;overflow:auto;padding:12px;border:1px solid rgba(122,255,170,.13);border-radius:9px;color:#9df3ae;background:#020503;box-shadow:inset 0 0 26px rgba(40,255,100,.045);font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;scrollbar-color:#315d3b #050806}
+    .terminal-line{display:grid;grid-template-columns:64px 1fr;gap:9px;overflow-wrap:anywhere}
+    .terminal-time{color:#587660}.terminal-line.info{color:#a8edb4}.terminal-line.success{color:#7affaa}.terminal-line.warning{color:#ffd27a}.terminal-line.error{color:#ff9292}
+    .assistant-app{overflow:hidden;border:1px solid rgba(122,255,170,.2);border-radius:13px;background:linear-gradient(145deg,#0c140f,#080d0a);box-shadow:inset 0 1px rgba(255,255,255,.025)}
+    .assistant-app-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 15px;border-bottom:1px solid var(--line);background:rgba(11,20,14,.7)}
+    .assistant-app-id{display:flex;align-items:center;gap:11px;min-width:0}.assistant-app-icon{width:39px;height:39px;display:grid;place-items:center;flex:0 0 auto;border:1px solid rgba(122,255,170,.27);border-radius:11px;color:#9dffbb;background:linear-gradient(145deg,#183321,#0b150e);font-size:17px;box-shadow:inset 0 0 16px rgba(122,255,170,.08)}
+    .assistant-app-kicker{margin:0 0 3px;color:#7affaa;font-size:8px;font-weight:850;letter-spacing:.14em}.assistant-app-name{margin:0;color:#eaffee;font-size:14px;font-weight:830}.assistant-app-copy{margin:3px 0 0;color:#829588;font-size:10px}
+    .assistant-app-state{display:inline-flex;align-items:center;gap:6px;color:#9cb4a1;font-size:9px;font-weight:780;white-space:nowrap}.assistant-app-state i{width:6px;height:6px;border-radius:50%;background:#7affaa;box-shadow:0 0 8px #7affaa}
+    .assistant-app-body{padding:12px}.assistant-app-body .chat-box{min-height:170px}
+    .music-visual{height:32px;display:flex;align-items:center;gap:4px;margin:12px 0;padding:0 11px;border:1px solid rgba(122,255,170,.13);border-radius:8px;background:#050906}
+    .music-visual i{width:3px;height:7px;border-radius:3px;background:#7affaa;opacity:.55}.music-visual.is-playing i{animation:musicBars .8s ease-in-out infinite alternate;opacity:1}.music-visual i:nth-child(3n){animation-delay:-.25s}.music-visual i:nth-child(4n){animation-delay:-.48s}.music-visual i:nth-child(5n){animation-delay:-.12s}
+    .electric-arcs{position:absolute;inset:0;z-index:1;width:100%;height:100%;overflow:visible;opacity:0;pointer-events:none}
+    .electric-arcs path{fill:none;stroke:#a5ffc0;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 7px #58ff91) drop-shadow(0 0 18px #1de268);stroke-dasharray:360;stroke-dashoffset:360}
+    .electric-arcs path:nth-child(2){stroke:#72d9ff;stroke-width:1.4}.electric-arcs path:nth-child(3){stroke:#caffda;stroke-width:1.1}
+    .entry-overlay.is-granting .electric-arcs{opacity:1}.entry-overlay.is-granting .electric-arcs path{animation:electricDischarge 4.2s steps(1,end) both}.entry-overlay.is-granting .electric-arcs path:nth-child(2){animation-delay:.16s}.entry-overlay.is-granting .electric-arcs path:nth-child(3){animation-delay:.32s}
+    @keyframes terminalBlink{50%{opacity:.28}}@keyframes musicBars{to{height:24px}}@keyframes electricDischarge{0%,5%,12%,19%,27%,35%,43%,54%,62%,73%,84%,100%{opacity:0;stroke-dashoffset:360}6%,10%,20%,25%,36%,41%,55%,60%,74%,81%,85%,92%{opacity:1;stroke-dashoffset:0}8%,22%,39%,58%,78%,89%{opacity:.25;stroke-dashoffset:135}}
+    @media(max-width:560px){.creator-badge{font-size:8px;padding:5px 6px}.creator-badge .creator-check{width:15px;height:15px}.terminal-line{grid-template-columns:54px 1fr;gap:7px}.assistant-app-head{align-items:flex-start}.assistant-app-state{font-size:8px}}
+    @media(prefers-reduced-motion:reduce){.terminal-live i,.music-visual i,.entry-overlay.is-granting .electric-arcs path{animation:none!important}.electric-arcs{display:none}}
+  </style>
+</head>
+<body class="entry-open">
+  <div class="entry-overlay" id="entryOverlay" role="dialog" aria-modal="true" aria-labelledby="entryTitle">
+    <svg class="electric-arcs" viewBox="0 0 1440 900" preserveAspectRatio="none" aria-hidden="true"><path d="M115 0 167 86 145 138 217 184 182 247 254 299 223 365 300 409 279 474 355 516 330 581 402 633 379 710 456 752 423 824 487 900"/><path d="M1320 0 1272 73 1302 132 1229 194 1260 250 1185 307 1214 376 1142 425 1170 490 1090 550 1121 608 1048 662 1076 723 1002 778 1023 845 967 900"/><path d="M0 270 104 294 153 271 207 327 270 302 322 360 382 334 428 391 492 363 542 418"/></svg>
+    <div class="entry-content">
+      <span class="entry-brand">ZEN X · CONNECTION PORTAL</span>
+      <svg class="entry-emblem" viewBox="0 0 120 120" role="img" aria-label="Original ZEN X signal emblem"><circle cx="60" cy="60" r="52" fill="none" stroke="#214b31" stroke-width="1"/><circle cx="60" cy="60" r="39" fill="none" stroke="#326843" stroke-width="1" stroke-dasharray="3 6"/><circle cx="60" cy="60" r="26" fill="#0b170e" stroke="#7affaa" stroke-width="1.5"/><path d="M47 45h26v5L55 69h19v6H46v-5l18-19H47z" fill="#9dffbb"/><path d="M60 2v15M60 103v15M2 60h15M103 60h15" stroke="#7affaa" stroke-width="1.5"/><circle cx="60" cy="8" r="2" fill="#7affaa"/><circle cx="112" cy="60" r="2" fill="#7affaa"/></svg>
+      <h1 id="entryTitle">Welcome to ZEN X</h1>
+      <p>Open the connection portal for WhatsApp pairing, live service status, and your ZEN X tools.</p>
+      <button class="entry-button" id="enterButton" type="button"><span>Get started</span><span aria-hidden="true">↗</span></button>
+      <p class="entry-note" id="entryNote" role="status">Tap to enter · the ZEN X ambient loop starts here.</p>
+    </div>
+    <div class="grant-flash" data-text="PORTAL READY" aria-hidden="true">PORTAL READY</div>
+  </div>
+
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/pair" aria-label="ZEN X pairing home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 8h18v4L13 22h12v3H7v-4l12-10H7z" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M16 26v4M2 16h4M26 16h4" stroke="currentColor" stroke-width="1.2"/><circle cx="16" cy="16" r="14" stroke="currentColor" stroke-opacity=".35"/></svg></span>
+        <span><span class="brand-name">ZEN X</span><span class="brand-caption">WhatsApp connection portal</span></span>
+      </a>
+      <div class="top-actions">
+        <span class="creator-badge" title="Creator badge for this ZEN X website; it is not a WhatsApp or Meta verification credential." aria-label="ZEN X website creator verified by the site owner: Charles Chukwu"><span class="creator-check" aria-hidden="true">✓</span><span>CREATOR VERIFIED · CHARLES CHUKWU</span></span>
+        <span class="secure-badge" id="secureBadge"><span class="secure-mark" aria-hidden="true">✓</span><span>Checking connection</span></span>
+        <a class="top-link" href="https://github.com/charlescoding300-beep/Cyber-x" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <button class="music-button" id="musicToggle" type="button">♪ <span>Music</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="intro" aria-labelledby="pageTitle">
+      <div class="intro-copy-block">
+        <p class="eyebrow">ZEN X · Multi-session network</p>
+        <h1 id="pageTitle">Link in.<br>Stay connected.</h1>
+        <p class="intro-copy">Connect a WhatsApp device with a pairing code or QR scan. Follow the live signal and manage your sessions from one place.</p>
+        <div class="hero-meta"><span class="meta-chip"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1.5 13 3v4.1c0 3.2-2.1 5.8-5 7.4-2.9-1.6-5-4.2-5-7.4V3z" stroke="currentColor" stroke-width="1.3"/><path d="m5.5 7.7 1.6 1.6 3.5-3.5" stroke="currentColor" stroke-width="1.3"/></svg>Secure session flow</span><span class="meta-chip"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.8" stroke="currentColor"/><path d="M2 8h12M8 2c1.4 1.6 2 3.6 2 6s-.6 4.4-2 6c-1.4-1.6-2-3.6-2-6s.6-4.4 2-6Z" stroke="currentColor"/></svg>Multi-device control</span></div>
+      </div>
+      <div class="hero-art" aria-label="Signal path from the global network through a ZEN X server to a phone">
+        <svg viewBox="0 0 620 270" role="img" aria-labelledby="signalTitle signalDesc"><title id="signalTitle">ZEN X network signal path</title><desc id="signalDesc">An original vector illustration connects a globe to the ZEN X server and a phone.</desc><defs><linearGradient id="signalLine" x1="0" x2="1"><stop stop-color="#428a58"/><stop offset=".55" stop-color="#8affae"/><stop offset="1" stop-color="#4d99ff"/></linearGradient><radialGradient id="globeGlow"><stop stop-color="#61ec8d" stop-opacity=".18"/><stop offset="1" stop-color="#61ec8d" stop-opacity="0"/></radialGradient></defs><circle cx="145" cy="132" r="105" fill="url(#globeGlow)"/><g fill="none" stroke="#316b43" stroke-width="1"><circle cx="145" cy="132" r="73"/><ellipse cx="145" cy="132" rx="32" ry="73"/><ellipse cx="145" cy="132" rx="60" ry="73"/><path d="M74 132h142M85 99h120M85 165h120"/></g><path d="M84 108c18-10 27-3 38-11l17 13 16-1 8 19-14 12-7 20-16 1-9-15-18-2-15-17z" fill="#163a24" stroke="#7affaa" stroke-opacity=".6"/><text x="145" y="225" text-anchor="middle" fill="#a3c8ad" font-size="10" font-family="monospace" letter-spacing="2">GLOBAL NETWORK</text><g class="orbit" fill="none" stroke="#76ff9e" stroke-opacity=".24"><ellipse cx="365" cy="118" rx="91" ry="35" transform="rotate(-20 365 118)"/><ellipse cx="365" cy="118" rx="91" ry="35" transform="rotate(30 365 118)"/></g><path class="flow" d="M219 131h71c22 0 23-32 47-32h44c28 0 25 36 57 36h66" fill="none" stroke="url(#signalLine)" stroke-width="2"/><path d="M219 139h63c20 0 27 36 54 36h54c25 0 29-30 51-30h63" fill="none" stroke="#487d56" stroke-width="1" stroke-dasharray="2 7"/><g class="pulse-node"><circle cx="239" cy="131" r="5" fill="#7affaa"/><circle cx="239" cy="131" r="11" fill="none" stroke="#7affaa" stroke-opacity=".4"/></g><g transform="translate(340 88)"><rect width="84" height="88" rx="8" fill="#0c1710" stroke="#61df88" stroke-opacity=".75"/><rect x="10" y="12" width="64" height="17" rx="3" fill="#14271a" stroke="#315f3d"/><rect x="10" y="36" width="64" height="17" rx="3" fill="#14271a" stroke="#315f3d"/><rect x="10" y="60" width="64" height="17" rx="3" fill="#14271a" stroke="#315f3d"/><circle cx="19" cy="20" r="2.5" fill="#7affaa"/><circle cx="19" cy="44" r="2.5" fill="#7affaa"/><circle cx="19" cy="68" r="2.5" fill="#7affaa"/><path d="M29 20h35M29 44h35M29 68h35" stroke="#315f3d"/></g><text x="382" y="199" text-anchor="middle" fill="#a3c8ad" font-size="10" font-family="monospace" letter-spacing="2">ZEN X CORE</text><g transform="translate(524 91)"><rect width="43" height="78" rx="8" fill="#0b110d" stroke="#72aafa" stroke-opacity=".85" stroke-width="1.5"/><rect x="4" y="10" width="35" height="56" rx="4" fill="#14241a"/><path d="M13 21h17M13 27h17M13 33h11" stroke="#8affae" stroke-width="1.3"/><circle cx="21.5" cy="72" r="2" fill="#72aafa"/></g><text x="545" y="193" text-anchor="middle" fill="#a3c8ad" font-size="9" font-family="monospace" letter-spacing="1.5">DEVICE</text><g class="pulse-node"><circle cx="495" cy="135" r="4" fill="#72aafa"/><circle cx="495" cy="135" r="10" fill="none" stroke="#72aafa" stroke-opacity=".45"/></g><circle cx="290" cy="131" r="3" fill="#a3ffc0"/></svg>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section class="card pair-card" aria-labelledby="pairHeading">
+        <div class="card-heading">
+          <div><h2 id="pairHeading">Pair a WhatsApp account</h2><p class="card-copy">Use the phone number registered to the account you want to link.</p></div>
+          <span class="step-tag">PAIRING</span>
+        </div>
+
+        <div class="mode-tabs" role="tablist" aria-label="Pairing method">
+          <button class="mode-tab" id="pairTab" type="button" role="tab" aria-selected="true" aria-controls="pairPanel">Pairing code</button>
+          <button class="mode-tab" id="qrTab" type="button" role="tab" aria-selected="false" aria-controls="qrPanel">QR code</button>
+        </div>
+
+        <div id="pairPanel" role="tabpanel" aria-labelledby="pairTab">
+          <form class="form-block" id="pairForm">
+            <label class="field-label" for="mobileNumber">WhatsApp phone number</label>
+            <div class="phone-row">
+              <input class="phone-input" id="mobileNumber" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+234 801 234 5678" aria-describedby="phoneHint" required>
+            </div>
+            <p class="field-hint" id="phoneHint">Use the country calling code. Enter +234…, 00234…, or digits only; spaces and common separators are accepted.</p>
+            <button class="primary-button" id="pairSubmit" type="submit">Get pairing code</button>
+          </form>
+          <div class="result" id="pairResult" role="status" aria-live="polite" hidden></div>
+          <ol class="steps" aria-label="How to link your account">
+            <li><span class="step-number">1</span><span>Open WhatsApp on your phone and go to <strong>Linked devices</strong>.</span></li>
+            <li><span class="step-number">2</span><span>Choose <strong>Link a device</strong>, then <strong>Link with phone number instead</strong>.</span></li>
+            <li><span class="step-number">3</span><span>Enter the pairing code shown here in WhatsApp.</span></li>
+          </ol>
+        </div>
+
+        <div id="qrPanel" role="tabpanel" aria-labelledby="qrTab" hidden>
+          <form class="form-block" id="qrForm">
+            <label class="field-label" for="qrNumber">WhatsApp phone number</label>
+            <input class="phone-input" id="qrNumber" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+234 801 234 5678" aria-describedby="qrPhoneHint" required>
+            <p class="field-hint" id="qrPhoneHint">Use the country calling code. Enter +234…, 00234…, or digits only; spaces and common separators are accepted. The number is not printed beside the QR code.</p>
+            <button class="primary-button" id="qrSubmit" type="submit">Start QR pairing</button>
+          </form>
+          <div class="qr-layout">
+            <div>
+              <div class="result" id="qrResult" role="status" aria-live="polite" hidden></div>
+              <ol class="steps" aria-label="How to scan the QR code">
+                <li><span class="step-number">1</span><span>Open WhatsApp on the phone for this number and go to <strong>Linked devices</strong>.</span></li>
+                <li><span class="step-number">2</span><span>Choose <strong>Link a device</strong>.</span></li>
+                <li><span class="step-number">3</span><span>Scan the current QR code. It refreshes automatically when it expires.</span></li>
+              </ol>
+            </div>
+            <div class="qr-image-wrap"><img class="qr-image" id="qrImage" alt="Temporary WhatsApp device-linking QR code" hidden><span class="empty-state" id="qrPlaceholder">The QR code will appear here.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-stack" aria-label="Service information">
+        <section class="card status-card" aria-labelledby="statusHeading">
+          <div class="status-top"><div><h2 id="statusHeading">Service status</h2><p class="status-label">Current pairing service</p></div><span class="status-pill" id="statusPill"><span class="status-dot"></span><span>Checking</span></span></div>
+          <p class="status-value" id="statusCount">—</p>
+          <p class="status-foot" id="statusDetail">Connected sessions</p>
+        </section>
+
+        <section class="card region-card" aria-labelledby="regionHeading">
+          <h2 id="regionHeading">Your region</h2>
+          <p class="card-copy">See an approximate location for your current internet connection.</p>
+          <p class="region-result" id="regionResult" role="status" aria-live="polite">Not checked</p>
+          <button class="text-button" id="regionButton" type="button">Check approximate region</button>
+          <p class="privacy-note">This is estimated from your public IP address and may be inaccurate, especially when using a VPN. If you choose to check, your browser sends the lookup request to ipapi.co. ZEN X does not store the lookup result.</p>
+        </section>
+
+        <section class="card song-card" aria-labelledby="songHeading">
+          <h2 id="songHeading">Background music</h2>
+          <p class="song-title">ZEN X · SIGNAL LOOP</p>
+          <div class="music-visual" id="musicVisual" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p class="song-copy">An original ambient loop generated in your browser. It starts after Get started and repeats until you turn Music off.</p>
+          <p class="privacy-note" id="musicStatus" role="status" aria-live="polite">Music is off until you press Get started.</p>
+        </section>
+      </aside>
+    </div>
+
+    <section class="card terminal-card" aria-labelledby="terminalHeading">
+      <div class="terminal-head"><div><p class="terminal-kicker">ZEN X / LIVE OPERATIONS</p><h2 id="terminalHeading">Connection terminal</h2></div><span class="terminal-live"><i aria-hidden="true"></i> LIVE</span></div>
+      <div class="terminal-output" id="terminalOutput" role="log" aria-live="polite" aria-relevant="additions"></div>
+    </section>
+
+    <section class="card section-card" aria-labelledby="toolsHeading">
+      <div class="section-head">
+        <div><h2 id="toolsHeading">ZEN X tools</h2><p class="card-copy">Assistant, session status and group controls.</p></div>
+        <div class="section-tabs" role="tablist" aria-label="ZEN X tools">
+          <button class="section-tab" id="assistantTab" type="button" role="tab" aria-selected="true" aria-controls="assistantPanel">Assistant</button>
+          <button class="section-tab" id="sessionsTab" type="button" role="tab" aria-selected="false" aria-controls="sessionsPanel">Sessions</button>
+          <button class="section-tab" id="commandsTab" type="button" role="tab" aria-selected="false" aria-controls="commandsPanel">Mute controls</button>
+        </div>
+      </div>
+
+      <div class="section-panel active" id="assistantPanel" role="tabpanel" aria-labelledby="assistantTab">
+        <div class="assistant-app">
+          <div class="assistant-app-head"><div class="assistant-app-id"><span class="assistant-app-icon" aria-hidden="true">✦</span><div><p class="assistant-app-kicker">ZEN X APPLICATION</p><h3 class="assistant-app-name">Zenny AI</h3><p class="assistant-app-copy">Ask a question · responses use the connected assistant service</p></div></div><span class="assistant-app-state"><i aria-hidden="true"></i> CHAT</span></div>
+          <div class="assistant-app-body"><div class="chat-box" id="chatBox" aria-live="polite"><div class="chat-line">Hello, I’m the ZEN X assistant. What would you like to know?</div></div>
+            <form class="chat-row" id="chatForm"><label class="sr-only" for="chatInput">Message the ZEN X assistant</label><input class="chat-input" id="chatInput" type="text" maxlength="2000" placeholder="Ask a question…" autocomplete="off"><button class="chat-send" id="chatSend" type="submit">Send</button></form></div>
+        </div>
+      </div>
+
+      <div class="section-panel" id="sessionsPanel" role="tabpanel" aria-labelledby="sessionsTab" hidden>
+        <div class="session-list" id="sessionList"><div class="empty-state">Open this tab to load session status.</div></div>
+      </div>
+
+      <div class="section-panel" id="commandsPanel" role="tabpanel" aria-labelledby="commandsTab" hidden>
+        <div class="session-list" id="commandList"><div class="empty-state">Mute and unmute group commands.</div></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span class="footer-credit">© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦 · Built by Charles Tech</span>
+      <span>© <span id="copyrightYear"></span> Charles Chukwu</span>
+    </footer>
+  </main>
+
+  <script>
+    'use strict';
+    const API_BASE = window.location.origin;
+    const $ = (id) => document.getElementById(id);
+    const aiHistory = [];
+    let musicPlaying = false;
+    let musicUserOff = localStorage.getItem('zenx_music_off') === '1';
+    let musicContext = null;
+    let musicMaster = null;
+    let musicTimer = null;
+    let musicStep = 0;
+    let qrPollTimer = null;
+    let activeQrNumber = '';
+    let qrSessionLoggedFor = '';
+    let activeTool = 'assistant';
+    let lastServiceStatus = null;
+    let browserId = localStorage.getItem('zenx_browser_id');
+    if (!browserId) {
+      browserId = 'web_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem('zenx_browser_id', browserId);
+    }
+
+    function setSecureBadge() {
+      const label = window.location.protocol === 'https:' ? 'HTTPS connection' : 'Not using HTTPS';
+      $('secureBadge').lastElementChild.textContent = label;
+      if (window.location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        $('secureBadge').style.color = '#805a11';
+        $('secureBadge').style.background = '#fff7e5';
+        $('secureBadge').style.borderColor = '#efdfb8';
+        $('secureBadge').querySelector('.secure-mark').style.background = '#a77316';
+      }
+    }
+    setSecureBadge();
+    $('copyrightYear').textContent = String(new Date().getFullYear());
+
+    function writeTerminalLog(message, kind = 'info') {
+      const output = $('terminalOutput');
+      const row = document.createElement('div');
+      row.className = 'terminal-line ' + kind;
+      const time = document.createElement('span');
+      time.className = 'terminal-time';
+      time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const text = document.createElement('span');
+      text.textContent = '> ' + message;
+      row.append(time, text);
+      output.appendChild(row);
+      while (output.children.length > 12) output.firstElementChild.remove();
+      output.scrollTop = output.scrollHeight;
+    }
+    writeTerminalLog('Portal ready. Waiting for a pairing request.', 'success');
+
+    function updateMusicButton() {
+      const button = $('musicToggle');
+      button.innerHTML = musicPlaying ? '♫ <span>Music on</span>' : '♪ <span>Music off</span>';
+      button.setAttribute('aria-pressed', String(musicPlaying));
+      $('musicVisual').classList.toggle('is-playing', musicPlaying);
+    }
+    function playMusicTone(frequency, startAt, duration, waveform, volume) {
+      if (!musicContext || !musicMaster) return;
+      const oscillator = musicContext.createOscillator();
+      const envelope = musicContext.createGain();
+      oscillator.type = waveform;
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      envelope.gain.setValueAtTime(0.0001, startAt);
+      envelope.gain.linearRampToValueAtTime(volume, startAt + Math.min(0.12, duration * 0.2));
+      envelope.gain.setValueAtTime(volume * 0.62, startAt + duration * 0.48);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(envelope).connect(musicMaster);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.03);
+    }
+    function scheduleAmbientStep() {
+      if (!musicPlaying || !musicContext) return;
+      const beat = 0.38;
+      const now = musicContext.currentTime + 0.035;
+      const chords = [
+        [110, 130.81, 164.81],
+        [87.31, 110, 130.81],
+        [130.81, 164.81, 196],
+        [98, 123.47, 146.83],
+      ];
+      const melody = [440, 523.25, 659.25, 587.33, 523.25, 392, 440, 587.33];
+      const step = musicStep % 16;
+      const chord = chords[Math.floor(musicStep / 16) % chords.length];
+      if (step === 0) {
+        chord.forEach((frequency, index) => playMusicTone(frequency * 2, now + index * 0.035, 2.25, 'sine', 0.025));
+        playMusicTone(chord[0], now, 1.8, 'triangle', 0.035);
+      }
+      if (step === 0 || step === 8) playMusicTone(chord[0] / 2, now, 0.62, 'sine', 0.055);
+      if ([1, 4, 6, 9, 12, 14].includes(step)) {
+        const noteIndex = (Math.floor(musicStep / 2) + step) % melody.length;
+        playMusicTone(melody[noteIndex], now, 0.44, 'triangle', 0.022);
+      }
+      musicStep = (musicStep + 1) % 64;
+      musicTimer = window.setTimeout(scheduleAmbientStep, beat * 1000);
+    }
+    async function startAmbientMusic() {
+      const AudioContextType = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextType) throw new Error('Background audio is not supported by this browser.');
+      if (!musicContext) {
+        musicContext = new AudioContextType();
+        musicMaster = musicContext.createGain();
+        musicMaster.gain.value = 0.0001;
+        musicMaster.connect(musicContext.destination);
+      }
+      await musicContext.resume();
+      const now = musicContext.currentTime;
+      musicMaster.gain.cancelScheduledValues(now);
+      musicMaster.gain.setTargetAtTime(0.12, now, 0.18);
+      musicPlaying = true;
+      updateMusicButton();
+      $('musicStatus').textContent = 'The original ambient loop is playing and will repeat until Music is turned off.';
+      if (musicTimer) window.clearTimeout(musicTimer);
+      scheduleAmbientStep();
+    }
+    function stopAmbientMusic() {
+      musicPlaying = false;
+      if (musicTimer) window.clearTimeout(musicTimer);
+      musicTimer = null;
+      if (musicContext && musicMaster) {
+        const now = musicContext.currentTime;
+        musicMaster.gain.cancelScheduledValues(now);
+        musicMaster.gain.setTargetAtTime(0.0001, now, 0.08);
+      }
+      updateMusicButton();
+      $('musicStatus').textContent = 'Music is off.';
+    }
+    updateMusicButton();
+
+    function playElectricSignal() {
+      const AudioContextType = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextType) return;
+      try {
+        const audio = new AudioContextType();
+        const now = audio.currentTime;
+        const duration = 4.2;
+        const master = audio.createGain();
+        master.gain.setValueAtTime(0.0001, now);
+        master.gain.exponentialRampToValueAtTime(0.12, now + 0.045);
+        master.gain.setValueAtTime(0.085, now + 3.8);
+        master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        master.connect(audio.destination);
+
+        // A short, locally synthesized electric-signal accent; it creates no real electrical effect.
+        const noiseBuffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.42), audio.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * (1 - i / noiseData.length);
+        const hum = audio.createOscillator();
+        const humGain = audio.createGain();
+        const humFilter = audio.createBiquadFilter();
+        hum.type = 'sine';
+        hum.frequency.setValueAtTime(58, now);
+        hum.frequency.linearRampToValueAtTime(74, now + duration * 0.58);
+        hum.frequency.linearRampToValueAtTime(48, now + duration);
+        humFilter.type = 'lowpass';
+        humFilter.frequency.value = 150;
+        humGain.gain.setValueAtTime(0.045, now);
+        humGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        hum.connect(humFilter).connect(humGain).connect(master);
+        hum.start(now);
+        hum.stop(now + duration);
+
+        for (const [offset, length, startHz] of [[0.08,.32,1280],[.38,.24,880],[.78,.36,1540],[1.2,.26,1020],[1.62,.34,1760],[2.05,.24,940],[2.43,.36,1480],[2.86,.25,820],[3.12,.27,1190],[3.48,.28,1620],[3.82,.25,1020]]) {
+          const at = now + offset;
+          const noise = audio.createBufferSource();
+          noise.buffer = noiseBuffer;
+          const filter = audio.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(startHz, at);
+          filter.frequency.exponentialRampToValueAtTime(420, at + length);
+          filter.Q.value = 1.1;
+          const noiseGain = audio.createGain();
+          noiseGain.gain.setValueAtTime(0.16, at);
+          noiseGain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+          noise.connect(filter).connect(noiseGain).connect(master);
+          noise.start(at);
+          noise.stop(at + length);
+
+          const spark = audio.createOscillator();
+          const sparkGain = audio.createGain();
+          spark.type = 'sawtooth';
+          spark.frequency.setValueAtTime(startHz, at);
+          spark.frequency.exponentialRampToValueAtTime(95 + (offset * 11), at + length);
+          sparkGain.gain.setValueAtTime(0.075, at);
+          sparkGain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+          spark.connect(sparkGain).connect(master);
+          spark.start(at);
+          spark.stop(at + length);
+        }
+        if (audio.state === 'suspended') audio.resume().catch(() => {});
+        window.setTimeout(() => audio.close().catch(() => {}), 4650);
+      } catch (error) {
+        console.debug('Signal sound unavailable:', error);
+      }
+    }
+    $('enterButton').addEventListener('click', () => {
+      const overlay = $('entryOverlay');
+      $('enterButton').disabled = true;
+      $('entryTitle').textContent = 'Opening the portal';
+      $('entryNote').textContent = 'Loading the live connection tools…';
+      overlay.classList.add('is-granting');
+      playElectricSignal();
+      if (!musicUserOff) {
+        startAmbientMusic().catch((error) => {
+          $('musicStatus').textContent = error.message || 'Background music could not start in this browser.';
+          writeTerminalLog('Background audio is unavailable in this browser.', 'warning');
+        });
+      }
+      window.setTimeout(() => {
+        overlay.hidden = true;
+        document.body.classList.remove('entry-open');
+      }, 4200);
+    });
+    $('musicToggle').addEventListener('click', async () => {
+      if (musicPlaying) {
+        musicUserOff = true;
+        localStorage.setItem('zenx_music_off', '1');
+        stopAmbientMusic();
+      } else {
+        musicUserOff = false;
+        localStorage.removeItem('zenx_music_off');
+        try {
+          await startAmbientMusic();
+        } catch (error) {
+          $('musicStatus').textContent = error.message || 'Background music could not start in this browser.';
+        }
+      }
+    });
+
+    async function getJson(url, options) {
+      const response = await fetch(url, options);
+      let data;
+      try { data = await response.json(); } catch { data = {}; }
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    }
+
+    function normalizeInternationalPhone(value) {
+      const formatted = String(value || '').trim().replace(/[\s().-]/g, '');
+      if (!/^(?:\+|00)?\d+$/.test(formatted)) return '';
+      let digits = formatted.replace(/\D/g, '');
+      if (digits.startsWith('00')) digits = digits.slice(2);
+      return digits.length >= 7 && digits.length <= 15 ? digits : '';
+    }
+
+    $('pairTab').addEventListener('click', () => setPairMode('pair'));
+    $('qrTab').addEventListener('click', () => setPairMode('qr'));
+    function setPairMode(mode) {
+      const pairSelected = mode === 'pair';
+      $('pairTab').setAttribute('aria-selected', String(pairSelected));
+      $('qrTab').setAttribute('aria-selected', String(!pairSelected));
+      $('pairPanel').hidden = !pairSelected;
+      $('qrPanel').hidden = pairSelected;
+      if (pairSelected) {
+        stopQrPolling();
+        $('mobileNumber').focus();
+      } else if (activeQrNumber) {
+        refreshQr(activeQrNumber);
+      } else {
+        $('qrNumber').focus();
+      }
+    }
+
+    function stopQrPolling() {
+      if (qrPollTimer) window.clearTimeout(qrPollTimer);
+      qrPollTimer = null;
+    }
+    function showQrMessage(text, kind = '') {
+      const result = $('qrResult');
+      result.hidden = false;
+      result.className = 'result' + (kind ? ` ${kind}` : '');
+      result.textContent = text;
+    }
+    function scheduleQrRefresh(number) {
+      stopQrPolling();
+      if (activeQrNumber !== number || $('qrPanel').hidden) return;
+      qrPollTimer = window.setTimeout(() => refreshQr(number), 5000);
+    }
+    async function refreshQr(number) {
+      if (activeQrNumber !== number || $('qrPanel').hidden) return;
+      try {
+        const data = await getJson(`${API_BASE}/qr?phone=${encodeURIComponent(number)}&refresh=${Date.now()}`, { cache: 'no-store' });
+        if (data.connected) {
+          $('qrImage').hidden = true;
+          $('qrPlaceholder').hidden = false;
+          $('qrPlaceholder').textContent = 'This WhatsApp account is already connected.';
+          showQrMessage('This account is connected. No QR scan is needed.', 'success');
+          if (qrSessionLoggedFor !== number) {
+            writeTerminalLog('WhatsApp account ending ' + number.slice(-4) + ' is already connected.', 'success');
+            qrSessionLoggedFor = number;
+          }
+          stopQrPolling();
+          refreshStatus();
+          return;
+        }
+        if (!data.qr) throw new Error('The server did not return a QR code. Try again shortly.');
+        $('qrImage').src = data.qr;
+        $('qrImage').hidden = false;
+        $('qrPlaceholder').hidden = true;
+        showQrMessage('Scan this QR code in WhatsApp Linked devices. It refreshes automatically.', 'success');
+        if (qrSessionLoggedFor !== number) {
+          writeTerminalLog('A live QR session is ready for the number ending ' + number.slice(-4) + '.', 'success');
+          qrSessionLoggedFor = number;
+        }
+        if (data.expiresInMs > 0) {
+          window.setTimeout(() => {
+            if (activeQrNumber === number && $('qrImage').src === data.qr) {
+              $('qrImage').hidden = true;
+              $('qrPlaceholder').hidden = false;
+              $('qrPlaceholder').textContent = 'Refreshing the expired QR code…';
+            }
+          }, data.expiresInMs);
+        }
+      } catch (error) {
+        showQrMessage(`${error.message || 'QR refresh failed.'} Retrying shortly.`, 'error');
+      } finally {
+        scheduleQrRefresh(number);
+      }
+    }
+    $('qrForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const number = normalizeInternationalPhone($('qrNumber').value);
+      const button = $('qrSubmit');
+      if (number.length < 10 || number.length > 15) {
+        showQrMessage('Enter a valid international number with its country calling code (7 to 15 digits).', 'error');
+        $('qrNumber').focus();
+        return;
+      }
+      stopQrPolling();
+      activeQrNumber = number;
+      qrSessionLoggedFor = '';
+      $('qrImage').hidden = true;
+      $('qrPlaceholder').hidden = false;
+      $('qrPlaceholder').textContent = 'Preparing a temporary QR code…';
+      showQrMessage('Starting the QR connection. Keep this page open while the code is prepared.');
+      button.disabled = true;
+      button.textContent = 'Preparing QR…';
+      writeTerminalLog('QR pairing request sent to the live service.', 'info');
+      try {
+        await refreshQr(number);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Refresh QR session';
+      }
+    });
+
+    $('pairForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const result = $('pairResult');
+      const button = $('pairSubmit');
+      const number = normalizeInternationalPhone($('mobileNumber').value);
+      result.hidden = false;
+      result.className = 'result';
+      result.textContent = '';
+      if (number.length < 10 || number.length > 15) {
+        result.classList.add('error');
+        result.textContent = 'Enter a valid international number with its country calling code (7 to 15 digits).';
+        $('mobileNumber').focus();
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Requesting code…';
+      result.textContent = 'Connecting to the pairing service. Keep this page open while the code is prepared.';
+      writeTerminalLog('Pairing request sent to the live service for a number ending ' + number.slice(-4) + '.', 'info');
+      try {
+        const data = await getJson(`${API_BASE}/pair?phone=${encodeURIComponent(number)}`);
+        if (!data.code && !data.pairingCode) {
+          throw new Error(data.connected ? 'This WhatsApp account is already connected.' : 'The service did not return a pairing code. Please try again.');
+        }
+        const code = String(data.code || data.pairingCode);
+        result.classList.add('success');
+        result.innerHTML = '<div class="code-row"><span class="pair-code"></span><button class="copy-button" type="button">Copy code</button></div><p style="margin:9px 0 0;font-size:12px">Enter this code in WhatsApp Linked devices.</p>';
+        result.querySelector('.pair-code').textContent = code;
+        result.querySelector('.copy-button').addEventListener('click', () => copyText(code, result.querySelector('.copy-button')));
+        writeTerminalLog('Pairing code received for the number ending ' + number.slice(-4) + '.', 'success');
+        refreshStatus();
+      } catch (error) {
+        result.classList.add('error');
+        result.textContent = error.message || 'Pairing request failed. Please try again.';
+        writeTerminalLog('Pairing request failed: ' + (error.message || 'service error'), 'error');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Get pairing code';
+      }
+    });
+
+    async function copyText(value, button) {
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand('copy');
+        field.remove();
+      }
+      const previous = button.textContent;
+      button.textContent = 'Copied';
+      window.setTimeout(() => { button.textContent = previous; }, 1300);
+    }
+
+    async function refreshStatus() {
+      const pill = $('statusPill');
+      try {
+        const status = await getJson(`${API_BASE}/api/status`);
+        const online = status.status === 'ok';
+        pill.classList.toggle('offline', !online);
+        pill.lastElementChild.textContent = online ? 'Operational' : 'Unavailable';
+        const botCount = Number(status.bots) || 0;
+        $('statusCount').textContent = String(botCount);
+        $('statusDetail').textContent = 'Connected WhatsApp sessions';
+        if (lastServiceStatus !== online) {
+          writeTerminalLog(online ? 'Pairing service operational; ' + botCount + ' session(s) connected.' : 'Pairing service reported unavailable.', online ? 'success' : 'warning');
+          lastServiceStatus = online;
+        }
+      } catch {
+        pill.classList.add('offline');
+        pill.lastElementChild.textContent = 'Unavailable';
+        $('statusCount').textContent = '—';
+        $('statusDetail').textContent = 'Could not reach the status service';
+        if (lastServiceStatus !== false) writeTerminalLog('Could not reach the pairing status endpoint.', 'error');
+        lastServiceStatus = false;
+      }
+    }
+    refreshStatus();
+
+    $('regionButton').addEventListener('click', async () => {
+      const button = $('regionButton');
+      const output = $('regionResult');
+      button.disabled = true;
+      button.textContent = 'Checking…';
+      output.textContent = 'Looking up an approximate region…';
+      try {
+        const data = await getJson('https://ipapi.co/json/');
+        const region = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
+        output.textContent = region || 'Approximate location unavailable';
+      } catch {
+        output.textContent = 'Location lookup unavailable';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Check approximate region';
+      }
+    });
+
+    $('assistantTab').addEventListener('click', () => setTool('assistant'));
+    $('sessionsTab').addEventListener('click', () => setTool('sessions'));
+    $('commandsTab').addEventListener('click', () => setTool('commands'));
+    function setTool(name) {
+      activeTool = name;
+      for (const [tab, panel, key] of [
+        ['assistantTab', 'assistantPanel', 'assistant'],
+        ['sessionsTab', 'sessionsPanel', 'sessions'],
+        ['commandsTab', 'commandsPanel', 'commands'],
+      ]) {
+        const selected = name === key;
+        $(tab).setAttribute('aria-selected', String(selected));
+        $(panel).classList.toggle('active', selected);
+        $(panel).hidden = !selected;
+      }
+      if (name === 'sessions') loadSessions();
+      if (name === 'commands') loadCommandControls();
+    }
+
+    function addChatLine(text, kind) {
+      const line = document.createElement('div');
+      line.className = `chat-line ${kind || ''}`;
+      line.textContent = text;
+      $('chatBox').appendChild(line);
+      $('chatBox').scrollTop = $('chatBox').scrollHeight;
+      return line;
+    }
+    function appendInline(parent, text) {
+      const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|https?:\/\/[^\s]+)/g;
+      let cursor = 0;
+      for (const match of String(text).matchAll(pattern)) {
+        if (match.index > cursor) parent.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+        const token = match[0];
+        if (token.startsWith('**')) {
+          const strong = document.createElement('strong');
+          strong.textContent = token.slice(2, -2);
+          parent.appendChild(strong);
+        } else if (token.startsWith('*')) {
+          const em = document.createElement('em');
+          em.textContent = token.slice(1, -1);
+          parent.appendChild(em);
+        } else if (token.startsWith('`')) {
+          const code = document.createElement('code');
+          code.textContent = token.slice(1, -1);
+          parent.appendChild(code);
+        } else {
+          const trailing = token.match(/[.,!?;:)]+$/)?.[0] || '';
+          const href = trailing ? token.slice(0, -trailing.length) : token;
+          try {
+            const parsed = new URL(href);
+            if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+              const link = document.createElement('a');
+              link.href = parsed.href;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.textContent = href;
+              parent.appendChild(link);
+            } else parent.appendChild(document.createTextNode(href));
+          } catch { parent.appendChild(document.createTextNode(href)); }
+          if (trailing) parent.appendChild(document.createTextNode(trailing));
+        }
+        cursor = match.index + token.length;
+      }
+      if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+    function renderAssistantText(container, value) {
+      container.replaceChildren();
+      const lines = String(value || '').replace(/\r/g, '').split('\n');
+      let list = null;
+      let listType = '';
+      let inCode = false;
+      let codeLines = [];
+      const closeList = () => { list = null; listType = ''; };
+      const addCode = () => {
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+        code.textContent = codeLines.join('\n');
+        pre.appendChild(code);
+        container.appendChild(pre);
+        codeLines = [];
+      };
+      for (const line of lines) {
+        if (/^\s*```/.test(line)) {
+          closeList();
+          if (inCode) addCode();
+          inCode = !inCode;
+          continue;
+        }
+        if (inCode) { codeLines.push(line); continue; }
+        if (!line.trim()) { closeList(); continue; }
+        const bullet = line.match(/^\s*[-*•]\s+(.+)$/);
+        const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (bullet || numbered) {
+          const type = bullet ? 'ul' : 'ol';
+          if (!list || listType !== type) {
+            closeList();
+            list = document.createElement(type);
+            listType = type;
+            container.appendChild(list);
+          }
+          const item = document.createElement('li');
+          appendInline(item, (bullet || numbered)[1]);
+          list.appendChild(item);
+          continue;
+        }
+        closeList();
+        const heading = line.match(/^\s*(#{1,3})\s+(.+)$/);
+        if (heading) {
+          const h = document.createElement(heading[1].length === 1 ? 'h3' : 'h4');
+          appendInline(h, heading[2]);
+          container.appendChild(h);
+        } else if (/^\s*>/.test(line)) {
+          const quote = document.createElement('blockquote');
+          appendInline(quote, line.replace(/^\s*>\s?/, ''));
+          container.appendChild(quote);
+        } else {
+          const paragraph = document.createElement('p');
+          appendInline(paragraph, line);
+          container.appendChild(paragraph);
+        }
+      }
+      if (inCode) addCode();
+    }
+    function addChatActions(container, text) {
+      const actions = document.createElement('div');
+      actions.className = 'chat-actions';
+      const copy = document.createElement('button');
+      copy.className = 'chat-action';
+      copy.type = 'button';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', () => copyText(text, copy));
+      const download = document.createElement('button');
+      download.className = 'chat-action';
+      download.type = 'button';
+      download.textContent = 'Download .txt';
+      download.addEventListener('click', () => {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `zenx-assistant-${new Date().toISOString().slice(0, 10)}.txt`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+      actions.append(copy, download);
+      container.appendChild(actions);
+    }
+    $('chatForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = $('chatInput');
+      const message = input.value.trim();
+      if (!message) return;
+      input.value = '';
+      addChatLine(message, 'user');
+      const pending = addChatLine('Zenny is preparing a clear reply…', '');
+      writeTerminalLog('Zenny AI request sent.', 'info');
+      $('chatSend').disabled = true;
+      try {
+        const data = await getJson(`${API_BASE}/api/ai/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, history: aiHistory, browserId }),
+        });
+        const reply = String(data.reply || 'No reply was returned.');
+        writeTerminalLog('Zenny AI response received.', 'success');
+        pending.className = 'chat-line chat-rich';
+        renderAssistantText(pending, reply);
+        addChatActions(pending, reply);
+        aiHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
+        if (aiHistory.length > 20) aiHistory.splice(0, aiHistory.length - 20);
+      } catch (error) {
+        pending.textContent = error.message || 'The assistant is unavailable right now.';
+        writeTerminalLog('Zenny AI request failed.', 'error');
+      } finally {
+        $('chatSend').disabled = false;
+        input.focus();
+      }
+    });
+
+    async function loadCommandControls() {
+      const list = $('commandList');
+      list.replaceChildren();
+      const defaults = [
+        { name: 'vmute', usage: '.vmute (reply / @mention / number)', desc: 'Mute a group member until unmuted.' },
+        { name: 'vunmute', usage: '.vunmute (reply / @mention / number)', desc: 'Restore a muted member’s ability to chat.' },
+      ];
+      try {
+        const data = await getJson(`${API_BASE}/api/commands`);
+        const commands = Array.isArray(data.commands) ? data.commands : [];
+        for (const fallback of defaults) {
+          const found = commands.find(item => String(item.name || '').replace(/^\./, '').toLowerCase() === fallback.name);
+          const item = found || fallback;
+          const row = document.createElement('div');
+          row.className = 'session-row';
+          const description = document.createElement('span');
+          const name = document.createElement('strong');
+          name.textContent = `.${fallback.name}`;
+          const detail = document.createElement('span');
+          detail.textContent = ` — ${item.usage || fallback.usage} · ${item.description || item.desc || fallback.desc}`;
+          description.append(name, detail);
+          row.appendChild(description);
+          list.appendChild(row);
+        }
+      } catch {
+        for (const item of defaults) {
+          const row = document.createElement('div');
+          row.className = 'session-row';
+          row.textContent = `.${item.name} — ${item.usage} · ${item.desc}`;
+          list.appendChild(row);
+        }
+      }
+    }
+
+    async function loadSessions() {
+      const list = $('sessionList');
+      list.innerHTML = '<div class="empty-state">Loading session status…</div>';
+      try {
+        const data = await getJson(`${API_BASE}/api/sessions`);
+        const sessions = Array.isArray(data) ? data : (data.sessions || []);
+        writeTerminalLog('Session status loaded: ' + sessions.length + ' session(s).', 'success');
+        if (!sessions.length) {
+          list.innerHTML = '<div class="empty-state">No sessions are listed right now.</div>';
+          return;
+        }
+        list.replaceChildren();
+        sessions.forEach((session, index) => {
+          const row = document.createElement('div');
+          row.className = 'session-row';
+          const identity = document.createElement('span');
+          identity.textContent = `Session ${index + 1}`;
+          const state = document.createElement('span');
+          state.className = 'session-state';
+          const online = Boolean(session.connected) || /connected|open|online/i.test(String(session.status || ''));
+          state.textContent = online ? 'Connected' : 'Disconnected';
+          row.append(identity, state);
+          list.appendChild(row);
+        });
+      } catch (error) {
+        list.innerHTML = '';
+        const message = document.createElement('div');
+        message.className = 'empty-state';
+        message.textContent = error.message || 'Could not load session status.';
+        list.appendChild(message);
+      }
+    }
+  </script>
+</body>
+</html>

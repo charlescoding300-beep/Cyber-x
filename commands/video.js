@@ -25,8 +25,36 @@ function isYouTubeUrl(value) {
   }
 }
 
+function extractVideoId(youtubeUrl) {
+  return String(youtubeUrl).match(/(?:v=|youtu\.be\/|\/(?:shorts|embed)\/)([\w-]{11})/i)?.[1] || null
+}
+
 function isMp4(buffer) {
   return Buffer.isBuffer(buffer) && buffer.length >= 2048 && buffer.slice(4, 8).toString('latin1') === 'ftyp'
+}
+
+// When the user already pastes a YouTube link, skip the search step entirely
+// and pull real title/thumbnail straight from YouTube's own public oEmbed
+// endpoint — no API key needed, and it gives better metadata than a bare
+// "YouTube video" placeholder would. Falls back gracefully if it's
+// unreachable: the download itself only needs the URL, so nothing blocks on this.
+async function getVideoFromDirectUrl(youtubeUrl) {
+  const videoId = extractVideoId(youtubeUrl)
+  let title = 'YouTube video'
+  let thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null
+
+  try {
+    const res = await axios.get('https://www.youtube.com/oembed', {
+      params: { url: youtubeUrl, format: 'json' },
+      timeout: 8000,
+    })
+    if (res?.data?.title) title = res.data.title
+    if (res?.data?.thumbnail_url) thumbnail = res.data.thumbnail_url
+  } catch (error) {
+    console.log(`[VIDEO] oEmbed lookup skipped (${error.message}) — using URL-derived thumbnail only`)
+  }
+
+  return { url: youtubeUrl, title, thumbnail }
 }
 
 async function getEliteProTechVideoByUrl(youtubeUrl, signal) {
@@ -149,7 +177,7 @@ async function downloadVideo(youtubeUrl) {
 
 async function sendVideoInfo(sock, from, msg, video, youtubeUrl) {
   const title = String(video.title || 'YouTube video').replace(/[\r\n]+/g, ' ').slice(0, 180)
-  const videoId = String(youtubeUrl).match(/(?:v=|youtu\.be\/|\/(?:shorts|embed)\/)([\w-]{11})/i)?.[1]
+  const videoId = extractVideoId(youtubeUrl)
   const thumbnails = [...new Set([
     video.thumbnail,
     videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null,
@@ -175,7 +203,9 @@ module.exports = {
 
   run: async ({ sock, from, msg, args = [] }) => {
     if (msg?.key) {
-      void sock.sendMessage(from, { react: { text: '📺', key: msg.key } }).catch(() => {})
+      for (const emoji of ['📥', '⏳', '🎬']) {
+        await sock.sendMessage(from, { react: { text: emoji, key: msg.key } }).catch(() => {})
+      }
     }
 
     const query = args.join(' ').trim()
@@ -187,8 +217,15 @@ module.exports = {
 
     let searchMsg
     try {
-      searchMsg = await sock.sendMessage(from, { text: `🔎 *Searching YouTube:* ${query}` }, { quoted: msg })
-      const video = await getVideo(query)
+      // A pasted YouTube link skips the search step entirely — faster, and
+      // avoids yt-search misbehaving when it's handed a URL instead of a query.
+      const queryIsDirectLink = isYouTubeUrl(query)
+
+      if (!queryIsDirectLink) {
+        searchMsg = await sock.sendMessage(from, { text: `🔎 *Searching YouTube:* ${query}` }, { quoted: msg })
+      }
+
+      const video = queryIsDirectLink ? await getVideoFromDirectUrl(query) : await getVideo(query)
       if (!video?.url) {
         if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
         return sock.sendMessage(from, { text: `❌ No YouTube results found for *${query}*.\n\n${CREDIT}` }, { quoted: msg })

@@ -8,30 +8,46 @@
 //     .gcstatus all                                  (post it to EVERY group the bot is in)
 //     .gcstatus all stop                             (cancel a running bulk post)
 //     .gcstatus ... --flat                           (fallback engine, see below)
+//     .gcstatus ... --nopreview                      (no link card on text statuses)
+//     .gcstatus ... --color=red | #ff8800 | primary | secondary | tertiary | css
+//                                                    (background color; default = random of ALL)
+//     .gcstatus colors                               (list every color name)
 //     .gcstatus check                                (library patch diagnostics)
+//
+// COLORS: every primary (RGB light, CMY print, RYB paint), every secondary,
+//   every tertiary (RYB + RGB wheels) and all CSS named colors — never black,
+//   white included. Text color flips dark/white automatically for contrast.
+//   Applies to TEXT and AUDIO statuses (images/videos fill the screen, so they
+//   have no background). A text status that carries a link card may ignore it.
+//
+// DEEP LINK-IMAGE ENGINE: the card image is hunted in waves (page as WhatsApp/
+//   Facebook/Twitter/browser, deep page scan, oEmbed APIs, site resolvers,
+//   screenshots, icons) and stops at the first good picture. Images are squeezed
+//   under ~250 KB because WhatsApp silently drops thumbnails over ~300 KB.
+//   .env GCSTATUS_IMAGE_BUDGET_MS=45000 sets the most time it may spend.
+//
+// LINK CARD FIXES (earlier version):
+//   • Garbled card text (@#$%^&*...): the page was read as text even when the
+//     server sent compressed / binary / non-UTF-8 bytes. Now the body is read as
+//     raw bytes, only gzip/deflate is requested, the charset is detected, and
+//     every title/description is sanitised. If the text still looks like junk the
+//     card falls back to the domain name.
+//   • Card image missing: image download had a 700 ms timeout and the big-card
+//     upload 2.5 s, so they usually timed out. Timeouts are now realistic, the
+//     image is converted to a proper JPEG before upload, and the thumbnail fields
+//     are written onto the message explicitly if the library didn't.
+//
+// OTHER FIX: the "library not patched" check used inspectLib() without await,
+//   which threw AFTER a successful media post and showed "Group Status failed".
 //
 // WHY MEDIA USED TO FAIL (text worked):
 //   Group Status is a normal message wrapped in `groupStatusMessageV2`.
 //   Baileys' relayMessage() decides the stanza's `mediatype` attribute by
-//   looking only at the TOP level of the message. Wrapped media → mediatype
-//   never gets set → WhatsApp receives something that looks like plain text
-//   → image/video/audio silently vanish while text posts fine.
-//   (Same bug fixed upstream for view-once in WhiskeySockets/Baileys PR #2847.)
+//   looking only at the TOP level of the message → wrapped media never gets it.
+//   FIX: node patch-gcstatus-lib.js (run once, restart; re-run after npm install).
 //
-//   FIX (two parts):
-//     1) node patch-gcstatus-lib.js   → makes relayMessage unwrap before
-//        picking mediatype. Run once, restart the bot. (Re-run after any
-//        `npm install` that reinstalls the baileys package.)
-//     2) This file no longer depends on lib/gcStatusMedia.js. It builds the
-//        media status the same way the (working) text path does, and also
-//        fixes the old forced `ptt: true` on every media type.
-//
-//   --nopreview : text statuses with a link normally get a link-preview card
-//            (image + title + description). Add this to skip the card.
-//
-//   --flat : fallback engine that skips the wrapper entirely and sends normal
-//            media with the group-status contextInfo flags. Use it only if the
-//            wrapped engine still doesn't show up after patching.
+//   --flat : fallback engine, sends normal media with the group-status
+//            contextInfo flags. Use only if the wrapped engine doesn't show up.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const crypto = require("crypto")
@@ -70,6 +86,132 @@ const STATUS_SOURCE_NAME = {
 }
 
 const SUPPORTED_MEDIA = new Set(["image", "video", "audio"])
+
+// ── BACKGROUND COLORS ────────────────────────────────────────────────────────
+// Every primary (RGB + CMY + RYB paint), every secondary (all three models),
+// every tertiary (RYB 12-wheel + RGB 12-wheel) and all CSS named colors.
+// NO black (pure black and near-black are filtered out). White IS included.
+
+const toColorMap = str => {
+  const out = {}
+  for (const pair of str.trim().split(/\s+/)) {
+    const [name, hex] = pair.split(":")
+    const n = parseInt(hex, 16)
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+    if (r < 0x30 && g < 0x30 && b < 0x30) continue // never black / near-black
+    out[name] = n
+  }
+  return out
+}
+
+const COLOR_GROUPS = {
+  // primary: light (RGB), print (CMY), paint (RYB)
+  primary: toColorMap(`
+    red:FF0000 green:00FF00 blue:0000FF
+    cyan:00FFFF magenta:FF00FF yellow:FFFF00
+    paintred:E60026 paintyellow:FFD500 paintblue:0047AB`),
+
+  // secondary: light (yellow cyan magenta), print (red green blue), paint (orange green purple/violet)
+  secondary: toColorMap(`
+    yellow:FFFF00 cyan:00FFFF magenta:FF00FF
+    red:FF0000 green:00FF00 blue:0000FF
+    orange:FF8000 purple:800080 violet:8000FF
+    paintorange:FF6A00 paintgreen:00A550 paintpurple:6A0DAD`),
+
+  // tertiary: the 6 RYB ones + the 6 RGB ones
+  tertiary: toColorMap(`
+    vermilion:E34234 amber:FFBF00 chartreuse:7FFF00
+    teal:008080 indigo:4B0082 redviolet:C71585
+    springgreen:00FF80 azure:0080FF rose:FF0080
+    redorange:FF4500 yelloworange:FFAE42 yellowgreen:9ACD32
+    bluegreen:0D98BA blueviolet:8A2BE2`),
+
+  // every CSS named color (black removed)
+  css: toColorMap(`
+    aliceblue:F0F8FF antiquewhite:FAEBD7 aqua:00FFFF aquamarine:7FFFD4 azuremist:F0FFFF
+    beige:F5F5DC bisque:FFE4C4 black:000000 blanchedalmond:FFEBCD blueviolet:8A2BE2
+    brown:A52A2A burlywood:DEB887 cadetblue:5F9EA0 chocolate:D2691E coral:FF7F50
+    cornflowerblue:6495ED cornsilk:FFF8DC crimson:DC143C darkblue:00008B darkcyan:008B8B
+    darkgoldenrod:B8860B darkgray:A9A9A9 darkgreen:006400 darkkhaki:BDB76B darkmagenta:8B008B
+    darkolivegreen:556B2F darkorange:FF8C00 darkorchid:9932CC darkred:8B0000 darksalmon:E9967A
+    darkseagreen:8FBC8F darkslateblue:483D8B darkslategray:2F4F4F darkturquoise:00CED1
+    darkviolet:9400D3 deeppink:FF1493 deepskyblue:00BFFF dimgray:696969 dodgerblue:1E90FF
+    firebrick:B22222 floralwhite:FFFAF0 forestgreen:228B22 fuchsia:FF00FF gainsboro:DCDCDC
+    ghostwhite:F8F8FF gold:FFD700 goldenrod:DAA520 gray:808080 greenyellow:ADFF2F
+    honeydew:F0FFF0 hotpink:FF69B4 indianred:CD5C5C ivory:FFFFF0 khaki:F0E68C
+    lavender:E6E6FA lavenderblush:FFF0F5 lawngreen:7CFC00 lemonchiffon:FFFACD lightblue:ADD8E6
+    lightcoral:F08080 lightcyan:E0FFFF lightgoldenrodyellow:FAFAD2 lightgray:D3D3D3
+    lightgreen:90EE90 lightpink:FFB6C1 lightsalmon:FFA07A lightseagreen:20B2AA
+    lightskyblue:87CEFA lightslategray:778899 lightsteelblue:B0C4DE lightyellow:FFFFE0
+    lime:00FF00 limegreen:32CD32 linen:FAF0E6 maroon:800000 mediumaquamarine:66CDAA
+    mediumblue:0000CD mediumorchid:BA55D3 mediumpurple:9370DB mediumseagreen:3CB371
+    mediumslateblue:7B68EE mediumspringgreen:00FA9A mediumturquoise:48D1CC
+    mediumvioletred:C71585 midnightblue:191970 mintcream:F5FFFA mistyrose:FFE4E1
+    moccasin:FFE4B5 navajowhite:FFDEAD navy:000080 oldlace:FDF5E6 olive:808000
+    olivedrab:6B8E23 orangered:FF4500 orchid:DA70D6 palegoldenrod:EEE8AA palegreen:98FB98
+    paleturquoise:AFEEEE palevioletred:DB7093 papayawhip:FFEFD5 peachpuff:FFDAB9 peru:CD853F
+    pink:FFC0CB plum:DDA0DD powderblue:B0E0E6 rebeccapurple:663399 rosybrown:BC8F8F
+    royalblue:4169E1 saddlebrown:8B4513 salmon:FA8072 sandybrown:F4A460 seagreen:2E8B57
+    seashell:FFF5EE sienna:A0522D silver:C0C0C0 skyblue:87CEEB slateblue:6A5ACD
+    slategray:708090 snow:FFFAFA steelblue:4682B4 tan:D2B48C thistle:D8BFD8 tomato:FF6347
+    turquoise:40E0D0 wheat:F5DEB3 white:FFFFFF whitesmoke:F5F5F5`),
+}
+
+// white is a valid background (kept explicitly)
+COLOR_GROUPS.primary.white = 0xFFFFFF
+
+// name → rgb for every color in every group
+const STATUS_COLORS = {}
+for (const group of Object.values(COLOR_GROUPS)) {
+  for (const [name, rgb] of Object.entries(group)) {
+    if (STATUS_COLORS[name] === undefined) STATUS_COLORS[name] = rgb
+  }
+}
+// unique shades (so duplicate names for the same shade don't skew the random pick)
+const ALL_SHADES = [...new Set(Object.values(STATUS_COLORS))]
+
+const toArgb = rgb => (0xFF000000 | rgb) >>> 0
+
+// light backgrounds get dark text, dark backgrounds get white text
+function textColorFor(argb) {
+  const r = (argb >> 16) & 255, g = (argb >> 8) & 255, b = argb & 255
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? 0xFF222222 : 0xFFFFFFFF
+}
+
+// spec can be:  a color name ("red", "teal", "hotpink")  |  a hex ("#ff8800")
+//               a group ("primary" | "secondary" | "tertiary" | "css")
+//               nothing / "random" / unknown  → random from EVERY color
+function pickBackground(spec) {
+  const s = String(spec || "").trim().toLowerCase().replace(/^#/, "")
+
+  if (/^[0-9a-f]{6}$/.test(s)) {
+    const n = parseInt(s, 16)
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+    if (!(r < 0x30 && g < 0x30 && b < 0x30)) return toArgb(n) // black is refused
+  }
+
+  if (COLOR_GROUPS[s]) {
+    const shades = Object.values(COLOR_GROUPS[s])
+    return toArgb(shades[Math.floor(Math.random() * shades.length)])
+  }
+
+  if (STATUS_COLORS[s] !== undefined) return toArgb(STATUS_COLORS[s])
+
+  return toArgb(ALL_SHADES[Math.floor(Math.random() * ALL_SHADES.length)])
+}
+
+function colorSummary() {
+  const g = COLOR_GROUPS
+  return {
+    primary: Object.keys(g.primary).length,
+    secondary: Object.keys(g.secondary).length,
+    tertiary: Object.keys(g.tertiary).length,
+    css: Object.keys(g.css).length,
+    names: Object.keys(STATUS_COLORS).length,
+    shades: ALL_SHADES.length,
+  }
+}
 
 // ── quoted message helpers ───────────────────────────────────────────────────
 
@@ -254,9 +396,9 @@ function statusKind(content) {
 }
 
 // ── LINK PREVIEW (text statuses that contain a link) ─────────────────────────
-// Builds the same card WhatsApp shows in a normal chat: big image + title +
-// description + domain, with the link pill underneath. Everything comes from
-// the link's own page (og:title / og:description / og:image).
+// Builds the card WhatsApp shows in a normal chat: big image + title +
+// description + domain. Everything comes from the link's own page
+// (og:title / og:description / og:image).
 // Never blocks the status: if anything fails, the text is sent without a card.
 
 const URL_RE = /((?:https?:\/\/|www\.)[^\s<>"']+|\b(?:t\.me|wa\.me|chat\.whatsapp\.com|youtu\.be|bit\.ly|instagram\.com|tiktok\.com|facebook\.com|x\.com|twitter\.com)\/[^\s<>"']+)/i
@@ -280,14 +422,52 @@ function withTimeout(promise, ms, label = "operation") {
 }
 
 function decodeEntities(s) {
+  const cp = n => { try { return String.fromCodePoint(n) } catch { return "" } }
   return String(s || "")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => cp(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => cp(Number(n)))
     .trim()
+}
+
+// Strip control characters / replacement chars / stray markup, collapse spaces.
+function cleanText(s, max = 300) {
+  return decodeEntities(s)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\ufffd\u200b-\u200f\u2028-\u202f\u2060\ufeff]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+}
+
+// True when a string is mostly symbols/junk (e.g. "@#$(*&^%$#!@#$%^&*(") instead of
+// real text. Real titles are mostly letters/digits/spaces in any language.
+function isGarbled(s) {
+  const t = String(s || "")
+  if (!t) return false
+  if (t.length < 3) return false
+  const good = (t.match(/[\p{L}\p{N}\s]/gu) || []).length
+  return good / t.length < 0.5
+}
+
+// Pick the best readable text, or "" if it's junk.
+function safeText(s, max) {
+  const t = cleanText(s, max)
+  return t && !isGarbled(t) ? t : ""
+}
+
+function decodeBody(buf, contentType) {
+  let charset = /charset=["']?([\w-]+)/i.exec(contentType || "")?.[1]
+  if (!charset) {
+    const head = buf.subarray(0, 4096).toString("latin1")
+    charset = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1]
+  }
+  try { return new TextDecoder(charset || "utf-8").decode(buf) }
+  catch { return buf.toString("utf8") }
 }
 
 function readMeta(html, names) {
@@ -329,115 +509,532 @@ function normalizePreviewImageUrl(raw, baseUrl) {
   }
 }
 
-// Up to ten real image sources, ordered from the page's strongest metadata
-// down to its icons and first content image. The page HTML is fetched once;
-// image candidates are each tried at most once with a short timeout.
-function getPreviewImageCandidates(html, baseUrl) {
-  const candidates = []
-  const add = raw => {
+// ═════════════════════════════════════════════════════════════════════════════
+// DEEP LINK-IMAGE ENGINE
+// Finds the picture of a link by going as deep as it takes, in waves, and stops
+// the moment it has a good one (so easy links are instant, hard links get time).
+//
+//   WAVE 1  page HTML fetched as WhatsApp / Facebook / Twitter / browser at the
+//           same time (sites often only show the image to some crawlers) +
+//           site-specific resolvers (YouTube, TikTok, X, Instagram, Vimeo,
+//           Spotify, SoundCloud) → og:image, twitter:image, JSON-LD, <link
+//           image_src>, video posters, <img>/srcset/<picture>, and a raw scan of
+//           every image URL buried in the page's scripts/JSON.
+//   WAVE 2  oEmbed advertised by the page, noembed.com, Microlink metadata.
+//   WAVE 3  real screenshot of the page (Microlink, WordPress mshots, thum.io),
+//           then the site's icon on a clean card.
+//
+// Every image is checked (real image? big enough? sensible shape?) and squeezed
+// under ~250 KB — WhatsApp silently drops thumbnails bigger than about 300 KB.
+// Results are cached 30 min, so reposting / `.gcstatus all` is instant.
+//   .env  GCSTATUS_IMAGE_BUDGET_MS=45000   (max total time the engine may spend)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ENGINE_UAS = {
+  whatsapp: "WhatsApp/2.24.7.78 A",
+  facebook: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+  twitter: "Twitterbot/1.0",
+  browser: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+}
+const ENGINE_MAX_BYTES = 250 * 1024
+const ENGINE_CACHE_MS = 30 * 60 * 1000
+const engineCache = new Map()
+const engineLog = (...a) => console.log("[GCSTATUS ENGINE]", ...a)
+const engineSleep = ms => new Promise(r => setTimeout(r, ms))
+
+function engineBudgetMs() {
+  const n = parseInt(process.env.GCSTATUS_IMAGE_BUDGET_MS, 10)
+  return Number.isFinite(n) && n >= 5000 ? n : 45000
+}
+
+function hostOf(url) {
+  try { return new URL(toFetchUrl(url)).hostname.replace(/^www\./i, "").toLowerCase() } catch { return "" }
+}
+
+function httpGet(url, { ua = ENGINE_UAS.browser, timeout = 8000, max = 3 * 1024 * 1024, accept, headers } = {}) {
+  return withTimeout(axios.get(url, {
+    timeout,
+    maxRedirects: 6,
+    maxContentLength: max,
+    maxBodyLength: max,
+    responseType: "arraybuffer",
+    headers: {
+      "User-Agent": ua,
+      Accept: accept || "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5",
+      "Accept-Encoding": "gzip, deflate", // never br/zstd — that produced the garbage text
+      "Accept-Language": "en-US,en;q=0.9",
+      ...(headers || {}),
+    },
+    validateStatus: s => s >= 200 && s < 400,
+  }), timeout + 1500, "request")
+}
+
+async function getJson(url, timeout = 7000) {
+  const res = await httpGet(url, { timeout, max: 2 * 1024 * 1024, accept: "application/json,*/*;q=0.5" })
+  try { return JSON.parse(Buffer.from(res.data || []).toString("utf8")) } catch { return null }
+}
+
+// ── page fetching ────────────────────────────────────────────────────────────
+
+async function fetchPage(url, ua) {
+  let target = toFetchUrl(url)
+  for (let hop = 0; hop < 2; hop++) {
+    const res = await httpGet(target, { ua, timeout: 9000 })
+    const contentType = String(res.headers?.["content-type"] || "")
+    const finalUrl = res.request?.res?.responseUrl || target
+
+    if (/^image\//i.test(contentType)) return { html: "", finalUrl, directImage: finalUrl, ua }
+    if (contentType && !/html|xml|text\/|json/i.test(contentType)) throw new Error(`not HTML (${contentType.split(";")[0]})`)
+
+    const buf = Buffer.from(res.data || [])
+    if (buf.subarray(0, 2000).includes(0)) throw new Error("binary body")
+    const html = decodeBody(buf, contentType)
+
+    // tiny redirect pages (meta refresh / JS location) — follow one hop
+    const hop2 =
+      html.match(/http-equiv=["']?refresh["']?[^>]*content=["'][^"']*?url=([^"'>\s]+)/i)?.[1] ||
+      html.match(/location(?:\.href)?\s*=\s*["'](https?:\/\/[^"']+)["']/i)?.[1]
+    if (hop === 0 && hop2 && html.length < 6000 && !readMeta(html, ["og:image"])) {
+      try { target = new URL(decodeEntities(hop2), finalUrl).href; continue } catch {}
+    }
+    return { html, finalUrl, ua }
+  }
+}
+
+// all four crawler identities at once; returns as soon as the first one answers
+// (plus a short grace period so the others can still contribute)
+function collectPages(url) {
+  const order = [ENGINE_UAS.whatsapp, ENGINE_UAS.facebook, ENGINE_UAS.twitter, ENGINE_UAS.browser]
+  return new Promise(resolve => {
+    const got = []
+    let pending = order.length
+    let timer = null
+    const finish = () => {
+      clearTimeout(timer)
+      resolve(order.map(ua => got.find(g => g.ua === ua)).filter(Boolean))
+    }
+    for (const ua of order) {
+      fetchPage(url, ua)
+        .then(p => {
+          got.push(p)
+          // the page already advertises an image → no reason to wait for the others
+          if (p.directImage || (p.html && readMeta(p.html, ["og:image", "twitter:image", "og:image:secure_url"]))) return finish()
+          if (!timer) timer = setTimeout(finish, 700)
+        })
+        .catch(e => engineLog(`page fetch failed (${ua.split("/")[0]}): ${e.message}`))
+        .finally(() => { if (--pending === 0) finish() })
+    }
+  })
+}
+
+// ── candidate extraction (the "go deep" part) ────────────────────────────────
+
+const JUNK_IMG = /(sprite|pixel|tracking|tracker|beacon|1x1|spacer|blank\.|transparent|doubleclick|adsystem|googleads|facebook\.com\/tr|emoji|loading\.|loader|placeholder|lazy\.|\/ads?\/|badge|button)/i
+
+function collectLdImages(value, acc, depth = 0) {
+  if (depth > 8 || value == null || acc.length >= 6) return
+  if (Array.isArray(value)) { value.forEach(v => collectLdImages(v, acc, depth + 1)); return }
+  if (typeof value !== "object") return
+  for (const [key, child] of Object.entries(value)) {
+    if (["image", "thumbnailUrl", "thumbnail", "primaryImageOfPage"].includes(key)) {
+      const items = Array.isArray(child) ? child : [child]
+      for (const it of items) {
+        if (typeof it === "string") acc.push(it)
+        else if (it?.url) acc.push(it.url)
+      }
+    } else collectLdImages(child, acc, depth + 1)
+  }
+}
+
+function bestFromSrcset(srcset, fallback) {
+  let best = fallback, bestW = -1
+  for (const part of String(srcset || "").split(",")) {
+    const [u, d] = part.trim().split(/\s+/)
+    const w = parseInt(d, 10) || 0
+    if (u && w > bestW) { bestW = w; best = u }
+  }
+  return best
+}
+
+// returns [{ url, tier, source }] — lower tier = better source
+function deepCandidates(html, baseUrl) {
+  const out = []
+  const seen = new Set()
+  const add = (raw, tier, source) => {
     const url = normalizePreviewImageUrl(raw, baseUrl)
-    if (url && !candidates.includes(url) && candidates.length < 10) candidates.push(url)
+    if (!url || seen.has(url)) return
+    if (/\.ico(\?|#|$)/i.test(url)) return                              // sharp can't read .ico
+    if (tier >= 4 && (/\.(svg|gif)(\?|#|$)/i.test(url) || JUNK_IMG.test(url))) return
+    seen.add(url)
+    out.push({ url, tier, source })
   }
 
-  add(readMeta(html, ["og:image"]))                         // 1: Open Graph image
-  add(readMeta(html, ["og:image:secure_url"]))             // 2: secure Open Graph image
-  add(readMeta(html, ["og:image:url"]))                    // 3: alternate Open Graph image
-  add(readMeta(html, ["twitter:image"]))                   // 4: Twitter card image
-  add(readMeta(html, ["twitter:image:src"]))               // 5: alternate Twitter image
-  add(readMetaAttribute(html, "itemprop", "image"))        // 6: Schema.org image
+  // tier 1 — metadata the site deliberately publishes for link cards
+  for (const [name, label] of [
+    ["og:image", "og:image"], ["og:image:secure_url", "og:image:secure"], ["og:image:url", "og:image:url"],
+    ["twitter:image", "twitter:image"], ["twitter:image:src", "twitter:image:src"],
+    ["thumbnail", "meta thumbnail"], ["parsely-image-url", "parsely"], ["vk:image", "vk:image"],
+  ]) add(readMeta(html, [name]), 1, label)
+  add(readMetaAttribute(html, "itemprop", "image"), 1, "itemprop image")
+  add(readMetaAttribute(html, "itemprop", "thumbnailUrl"), 1, "itemprop thumbnail")
 
-  const scripts = html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || []
-  for (const script of scripts) {
-    const json = script.replace(/^.*?>|<\/script>.*$/gis, "").trim()
-    try {
-      const findImage = (value, depth = 0) => {
-        if (depth > 8 || value == null) return null
-        if (Array.isArray(value)) {
-          for (const item of value) {
-            const found = findImage(item, depth + 1)
-            if (found) return found
-          }
-          return null
-        }
-        if (typeof value !== "object") return null
-        for (const key of ["image", "thumbnailUrl", "thumbnail"]) {
-          const image = value[key]
-          if (typeof image === "string") return image
-          if (Array.isArray(image) || (image && typeof image === "object")) {
-            const found = findImage(image, depth + 1) || image.url || image.contentUrl
-            if (typeof found === "string") return found
-          }
-        }
-        for (const [key, child] of Object.entries(value)) {
-          if (["image", "thumbnailUrl", "thumbnail"].includes(key)) continue
-          const found = findImage(child, depth + 1)
-          if (found) return found
-        }
-        return null
-      }
-      const image = findImage(JSON.parse(json))
-      if (image) {
-        add(image) // 7: Schema.org JSON-LD image
-        break
-      }
-    } catch {}
+  // tier 2 — structured data and <link image_src>
+  const ld = []
+  for (const script of html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || []) {
+    try { collectLdImages(JSON.parse(script.replace(/^.*?>|<\/script>.*$/gis, "").trim()), ld) } catch {}
   }
+  ld.forEach(u => add(u, 2, "JSON-LD"))
 
   const links = html.match(/<link\b[^>]*>/gi) || []
   for (const tag of links) {
     const rel = tagAttribute(tag, "rel").toLowerCase().split(/\s+/)
-    if (rel.includes("image_src")) add(tagAttribute(tag, "href")) // 8: image_src
+    if (rel.includes("image_src")) add(tagAttribute(tag, "href"), 2, "link image_src")
   }
+
+  // tier 3 — preloaded hero images and video posters
   for (const tag of links) {
     const rel = tagAttribute(tag, "rel").toLowerCase().split(/\s+/)
-    if (rel.includes("apple-touch-icon") || rel.includes("icon")) add(tagAttribute(tag, "href")) // 9: site icon
+    if (rel.includes("preload") && /image/i.test(tagAttribute(tag, "as"))) {
+      add(bestFromSrcset(tagAttribute(tag, "imagesrcset"), tagAttribute(tag, "href")), 3, "preloaded image")
+    }
+  }
+  for (const tag of html.match(/<video\b[^>]*>/gi) || []) add(tagAttribute(tag, "poster"), 3, "video poster")
+  add(readMeta(html, ["msapplication-TileImage"]), 3, "tile image")
+
+  // tier 5 — images in the page body, ranked (hero/cover/banner up, logos/avatars down)
+  const scored = []
+  for (const tag of (html.match(/<img\b[^>]*>/gi) || []).slice(0, 150)) {
+    const src = tagAttribute(tag, "src") || tagAttribute(tag, "data-src") || tagAttribute(tag, "data-lazy-src") || tagAttribute(tag, "data-original")
+    const best = bestFromSrcset(tagAttribute(tag, "srcset") || tagAttribute(tag, "data-srcset"), src)
+    if (!best) continue
+    const w = parseInt(tagAttribute(tag, "width"), 10) || 0
+    const h = parseInt(tagAttribute(tag, "height"), 10) || 0
+    if ((w && w < 120) || (h && h < 90)) continue
+    const hint = `${tag} ${best}`.toLowerCase()
+    let score = w + h
+    if (/hero|cover|banner|featured|lead|poster|thumb|article|post-image|og-image|wp-post-image/.test(hint)) score += 800
+    if (/logo|avatar|icon|profile|author|sprite|emoji|advert|\bad-/.test(hint)) score -= 1500
+    scored.push({ best, score })
+  }
+  scored.sort((a, b) => b.score - a.score).slice(0, 10).forEach(s => add(s.best, 5, "page image"))
+  for (const tag of (html.match(/<source\b[^>]*>/gi) || []).slice(0, 10)) {
+    add(bestFromSrcset(tagAttribute(tag, "srcset") || tagAttribute(tag, "data-srcset"), ""), 5, "picture source")
   }
 
-  const images = html.match(/<img\b[^>]*>/gi) || []
-  for (const tag of images.slice(0, 8)) {
-    add(tagAttribute(tag, "src") || tagAttribute(tag, "data-src") || tagAttribute(tag, "data-original")) // 10: content image
+  // tier 6 — every image URL hiding in scripts / JSON state (Next.js, Nuxt, apps)
+  const flat = html.replace(/\\u002F/gi, "/").replace(/\\\//g, "/")
+  const raw = flat.match(/https?:\/\/[^"'\s<>\\)(]+?\.(?:jpe?g|png|webp|avif)(?:\?[^"'\s<>\\)(]*)?/gi) || []
+  let deep = 0
+  for (const u of raw) {
+    if (deep >= 15) break
+    const before = out.length
+    add(u, 6, "deep page scan")
+    if (out.length > before) deep++
   }
 
-  return candidates
+  // tier 9 — the site's own icons (last resort, shown on a clean card)
+  let iconBest = null, iconSize = -1
+  for (const tag of links) {
+    const rel = tagAttribute(tag, "rel").toLowerCase().split(/\s+/)
+    if (!(rel.includes("apple-touch-icon") || rel.includes("apple-touch-icon-precomposed") || rel.includes("icon"))) continue
+    const size = parseInt(tagAttribute(tag, "sizes"), 10) || (rel.includes("apple-touch-icon") ? 180 : 32)
+    if (size > iconSize) { iconSize = size; iconBest = tagAttribute(tag, "href") }
+  }
+  add(iconBest, 9, "site icon")
+  try { add(new URL("/apple-touch-icon.png", baseUrl).href, 9, "apple-touch-icon") } catch {}
+
+  return out
 }
 
-async function scrapePage(url) {
-  const res = await axios.get(toFetchUrl(url), {
-    timeout: 4500,
-    maxRedirects: 4,
-    maxContentLength: 3 * 1024 * 1024,
-    responseType: "text",
-    headers: {
-      "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-      Accept: "text/html,*/*",
-    },
-    validateStatus: s => s >= 200 && s < 400,
-  })
+// ── site-specific resolvers (cheap, run in wave 1 alongside the page fetch) ──
 
-  const html = String(res.data || "")
-  const title =
-    readMeta(html, ["og:title", "twitter:title"]) ||
-    decodeEntities(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) ||
-    decodeEntities(html.match(/<h1[^>]*>([^<]*)<\/h1>/i)?.[1])
+async function resolveKnownSites(url) {
+  const host = hostOf(url)
+  const enc = encodeURIComponent(toFetchUrl(url))
+  const cands = []
+  const jobs = []
+  let title = ""
+  const push = (u, tier, source) => { if (u && typeof u === "string") cands.push({ url: u, tier, source }) }
+  const oembed = (endpoint, label) => jobs.push(
+    getJson(endpoint).then(j => {
+      if (j?.thumbnail_url) push(j.thumbnail_url, 1, label)
+      if (j?.title && !title) title = String(j.title)
+    }).catch(() => {})
+  )
 
-  const finalUrl = res.request?.res?.responseUrl || toFetchUrl(url)
-  let host = "Link preview"
-  try { host = new URL(finalUrl).hostname.replace(/^www\./i, "") } catch {}
-
-  return {
-    title: title || host,
-    description: readMeta(html, ["og:description", "twitter:description", "description"]) || "",
-    imageCandidates: getPreviewImageCandidates(html, finalUrl),
-    canonicalUrl: readMeta(html, ["og:url"]) || finalUrl,
+  const yt = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/))([\w-]{11})/i)?.[1]
+  if (yt) {
+    push(`https://i.ytimg.com/vi/${yt}/maxresdefault.jpg`, 1, "youtube thumbnail")
+    push(`https://i.ytimg.com/vi/${yt}/sddefault.jpg`, 1, "youtube thumbnail")
+    push(`https://i.ytimg.com/vi/${yt}/hqdefault.jpg`, 2, "youtube thumbnail")
+    oembed(`https://www.youtube.com/oembed?url=${enc}&format=json`, "youtube oembed")
   }
+  if (/(^|\.)tiktok\.com$/.test(host)) oembed(`https://www.tiktok.com/oembed?url=${enc}`, "tiktok oembed")
+  if (/(^|\.)vimeo\.com$/.test(host)) oembed(`https://vimeo.com/api/oembed.json?url=${enc}`, "vimeo oembed")
+  if (/(^|\.)spotify\.com$/.test(host)) oembed(`https://open.spotify.com/oembed?url=${enc}`, "spotify oembed")
+  if (/(^|\.)soundcloud\.com$/.test(host)) oembed(`https://soundcloud.com/oembed?format=json&url=${enc}`, "soundcloud oembed")
+
+  const tw = String(url).match(/(?:twitter|x)\.com\/([^\/?#]+)\/status\/(\d+)/i)
+  if (tw) {
+    jobs.push(getJson(`https://api.fxtwitter.com/${tw[1]}/status/${tw[2]}`).then(j => {
+      const t = j?.tweet
+      for (const p of t?.media?.photos || []) push(p.url, 1, "x photo")
+      for (const v of t?.media?.videos || []) push(v.thumbnail_url, 1, "x video")
+      push(String(t?.author?.avatar_url || "").replace("_normal", "_400x400"), 3, "x avatar")
+      if (t?.text && !title) title = String(t.text)
+    }).catch(() => {}))
+  }
+
+  const ig = String(url).match(/instagram\.com\/(?:p|reel|tv)\/([\w-]+)/i)?.[1]
+  if (ig) push(`https://www.instagram.com/p/${ig}/media/?size=l`, 2, "instagram media")
+
+  await Promise.all(jobs)
+  return { cands, title }
+}
+
+// ── wave 2: generic oEmbed / metadata APIs ───────────────────────────────────
+
+async function resolveGeneric(url, pages) {
+  const enc = encodeURIComponent(toFetchUrl(url))
+  const cands = []
+  const jobs = []
+  let title = "", description = ""
+  const push = (u, tier, source) => { if (u && typeof u === "string") cands.push({ url: u, tier, source }) }
+
+  // oEmbed endpoint advertised by the page itself
+  for (const p of pages) {
+    for (const tag of (p.html || "").match(/<link\b[^>]*oembed[^>]*>/gi) || []) {
+      const href = tagAttribute(tag, "href")
+      if (!href) continue
+      try {
+        const abs = new URL(href, p.finalUrl).href
+        jobs.push(getJson(abs).then(j => {
+          push(j?.thumbnail_url, 1, "page oEmbed")
+          if (j?.type === "photo") push(j.url, 1, "page oEmbed photo")
+          if (j?.title && !title) title = String(j.title)
+        }).catch(() => {}))
+      } catch {}
+    }
+  }
+
+  jobs.push(getJson(`https://noembed.com/embed?url=${enc}`, 9000).then(j => {
+    push(j?.thumbnail_url, 2, "noembed")
+    if (j?.title && !title) title = String(j.title)
+  }).catch(() => {}))
+
+  jobs.push(getJson(`https://api.microlink.io/?url=${enc}`, 12000).then(j => {
+    const d = j?.data
+    push(d?.image?.url, 2, "microlink image")
+    push(d?.logo?.url, 4, "microlink logo")
+    if (d?.title && !title) title = String(d.title)
+    if (d?.description && !description) description = String(d.description)
+  }).catch(() => {}))
+
+  await Promise.all(jobs)
+  return { cands, title, description }
+}
+
+// ── wave 3: screenshots, then icons ──────────────────────────────────────────
+
+function lastResortCandidates(finalUrl) {
+  const enc = encodeURIComponent(finalUrl)
+  const host = hostOf(finalUrl)
+  return [
+    { url: `https://api.microlink.io/?url=${enc}&screenshot=true&meta=false&embed=screenshot.url&viewport.width=1200&viewport.height=630`, tier: 8, source: "microlink screenshot" },
+    { url: `https://s.wordpress.com/mshots/v1/${enc}?w=1200&h=630`, tier: 8, source: "wordpress screenshot", retries: 4, retryDelay: 2500 },
+    { url: `https://image.thum.io/get/width/1200/crop/630/noanimate/${finalUrl}`, tier: 8, source: "thum.io screenshot" },
+    { url: `https://www.google.com/s2/favicons?domain=${host}&sz=256`, tier: 9, source: "site icon (google)" },
+  ]
+}
+
+// ── image check + squeeze ────────────────────────────────────────────────────
+
+// returns { buffer, width, height } (JPEG ≤ ~250 KB) or null if the image is unusable
+async function compressForCard(raw, tier) {
+  if (!sharp) {
+    return isJpegBuffer(raw) && raw.length <= ENGINE_MAX_BYTES + 50 * 1024 ? { buffer: raw, width: 0, height: 0 } : null
+  }
+
+  let meta
+  try { meta = await sharp(raw, { failOn: "none" }).metadata() } catch { return null }
+  const w = meta.width || 0
+  const h = meta.height || 0
+  if (!w || !h) return null
+
+  const isIcon = tier >= 9
+  if (isIcon) {
+    if (w < 48 || h < 48) return null
+    try {
+      const icon = await sharp(raw, { failOn: "none" }).resize({ width: 280, height: 280, fit: "inside" }).png().toBuffer()
+      const bg = Buffer.from(`<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2e8f0"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient></defs><rect width="1200" height="630" fill="url(#g)"/></svg>`)
+      const out = await sharp(bg).composite([{ input: icon, gravity: "center" }]).jpeg({ quality: 82 }).toBuffer()
+      return { buffer: out, width: 1200, height: 630 }
+    } catch { return null }
+  }
+
+  if (w < 200 || h < 120) return null                 // thumbnails/trackers
+  const ratio = w / h
+  if (ratio > 4.5 || ratio < 0.25) return null        // banners/skyscrapers
+
+  for (const width of [1200, 960, 720, 540, 400]) {
+    for (const quality of [82, 70, 58, 46]) {
+      try {
+        const out = await sharp(raw, { failOn: "none" })
+          .rotate()
+          .resize({ width, withoutEnlargement: true })
+          .flatten({ background: "#ffffff" })
+          .jpeg({ quality, mozjpeg: true })
+          .toBuffer()
+        if (out.length <= ENGINE_MAX_BYTES) {
+          const sw = Math.min(width, w)
+          return { buffer: out, width: sw, height: Math.round(h * sw / w) }
+        }
+      } catch { return null }
+    }
+  }
+  return null
+}
+
+async function tryImage(cand, deadline, referer) {
+  const attempts = (cand.retries || 0) + 1
+  for (let i = 0; i < attempts; i++) {
+    const left = deadline - Date.now()
+    if (left < 1200) throw new Error("time budget used up")
+
+    const res = await httpGet(cand.url, {
+      ua: ENGINE_UAS.browser,
+      timeout: Math.min(cand.tier >= 8 ? 20000 : 8000, left),
+      max: 12 * 1024 * 1024,
+      accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+      headers: referer ? { Referer: referer } : undefined,
+    })
+    const contentType = String(res.headers?.["content-type"] || "").toLowerCase()
+    const raw = Buffer.from(res.data || [])
+
+    // WordPress mshots answers with a "generating…" GIF until the shot is ready
+    if (cand.retries && contentType.includes("gif")) {
+      if (i < attempts - 1) { await engineSleep(cand.retryDelay || 2500); continue }
+      throw new Error("screenshot not ready")
+    }
+    if (raw.length < 400) throw new Error("too small")
+    if (/text\/|json|html/.test(contentType)) throw new Error("not an image")
+
+    const card = await compressForCard(raw, cand.tier)
+    if (!card) throw new Error("rejected (too small, odd shape or unreadable)")
+    return { ...card, url: cand.url, source: cand.source, tier: cand.tier }
+  }
+  throw new Error("not ready")
+}
+
+// tries candidates best-first, four at a time; first good one wins
+async function firstGoodImage(cands, deadline, referer, tried, label) {
+  const list = cands.filter(c => !tried.has(c.url)).slice(0, 28)
+  engineLog(`${label}: trying up to ${list.length} image candidates`)
+  for (let i = 0; i < list.length; i += 4) {
+    if (deadline - Date.now() < 1500) return null
+    const chunk = list.slice(i, i + 4)
+    chunk.forEach(c => tried.add(c.url))
+    const runs = chunk.map(c => tryImage(c, deadline, referer).then(r => ({ ok: true, r }), e => ({ ok: false, e, c })))
+    for (const run of runs) {                 // in priority order, but never wait for losers
+      const res = await run
+      if (res.ok) return res.r
+      engineLog(`  ✗ ${res.c.source}: ${res.e.message}`)
+    }
+  }
+  return null
+}
+
+function dedupeBest(list) {
+  const best = new Map()
+  for (const c of list) {
+    const prev = best.get(c.url)
+    if (!prev || c.tier < prev.tier) best.set(c.url, c)
+  }
+  return [...best.values()].sort((a, b) => a.tier - b.tier)   // stable: known-site results stay first within a tier
+}
+
+const BLOCK_TITLE = /just a moment|attention required|access denied|403 forbidden|captcha|robot check|are you a human|enable javascript/i
+
+// → { title, description, canonicalUrl, image: {buffer,width,height,source,url}|null, ms }
+async function resolveLinkImage(url) {
+  const cached = engineCache.get(url)
+  if (cached && Date.now() - cached.at < ENGINE_CACHE_MS) {
+    engineLog("cache hit", url)
+    return cached.data
+  }
+
+  const t0 = Date.now()
+  const deadline = t0 + engineBudgetMs()
+  const tried = new Set()
+  engineLog("START", url)
+
+  // ── WAVE 1
+  const [pages, known] = await Promise.all([
+    collectPages(url).catch(() => []),
+    resolveKnownSites(url).catch(() => ({ cands: [], title: "" })),
+  ])
+
+  let title = "", description = ""
+  let finalUrl = pages.find(p => p.finalUrl)?.finalUrl || toFetchUrl(url)
+  let canonicalUrl = ""
+  for (const p of pages) {
+    if (!p.html) continue
+    const t = safeText(readMeta(p.html, ["og:title", "twitter:title"]) || decodeEntities(p.html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]), 120)
+    const d = safeText(readMeta(p.html, ["og:description", "twitter:description", "description"]), 220)
+    if (t && !BLOCK_TITLE.test(t) && !title) title = t
+    if (d && !description) description = d
+    if (!canonicalUrl) canonicalUrl = readMeta(p.html, ["og:url"]) || ""
+  }
+
+  const pageCands = []
+  for (const p of pages) {
+    if (p.directImage) pageCands.push({ url: p.directImage, tier: 1, source: "direct image link" })
+    if (p.html) pageCands.push(...deepCandidates(p.html, p.finalUrl))
+  }
+  engineLog(`wave 1: ${pages.length} page(s) read, ${pageCands.length} page candidates, ${known.cands.length} site candidates`)
+
+  let image = await firstGoodImage(dedupeBest([...known.cands, ...pageCands]), deadline, finalUrl, tried, "wave 1")
+
+  // ── WAVE 2
+  if (!image && deadline - Date.now() > 4000) {
+    const generic = await resolveGeneric(url, pages).catch(() => ({ cands: [], title: "", description: "" }))
+    if (!title && generic.title) title = safeText(generic.title, 120)
+    if (!description && generic.description) description = safeText(generic.description, 220)
+    image = await firstGoodImage(dedupeBest(generic.cands), deadline, finalUrl, tried, "wave 2")
+  }
+
+  // ── WAVE 3
+  if (!image && deadline - Date.now() > 4000) {
+    image = await firstGoodImage(lastResortCandidates(finalUrl), deadline, finalUrl, tried, "wave 3")
+  }
+
+  if (!title && known.title) title = safeText(known.title, 120)
+  if (!title) title = hostOf(finalUrl) || "Link preview"
+
+  const data = {
+    title,
+    description,
+    canonicalUrl: canonicalUrl || finalUrl,
+    image,
+    ms: Date.now() - t0,
+  }
+  engineLog(image
+    ? `DONE in ${data.ms} ms — image from "${image.source}" (${image.width}x${image.height}, ${Math.round(image.buffer.length / 1024)} KB)`
+    : `DONE in ${data.ms} ms — no image found anywhere`)
+
+  if (image) engineCache.set(url, { at: Date.now(), data })
+  return data
+}
+
+function isJpegBuffer(buf) {
+  return buf?.[0] === 0xff && buf?.[1] === 0xd8
 }
 
 async function makeSmallThumb(buf) {
   if (sharp) {
     try { return await sharp(buf).resize({ width: 192, withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer() } catch {}
   }
-  const isJpeg = buf?.[0] === 0xff && buf?.[1] === 0xd8
-  return isJpeg && buf.length <= 40000 ? buf : null
+  return isJpegBuffer(buf) && buf.length <= 40000 ? buf : null
 }
 
 function escapeXml(value) {
@@ -450,6 +1047,7 @@ async function makeFallbackThumb(host, title) {
   try { return await sharp(Buffer.from(svg)).jpeg({ quality: 70 }).toBuffer() } catch { return null }
 }
 
+// Uploads the BIG card image to WhatsApp ("thumbnail-link" media type).
 async function uploadBigThumb(sock, buf) {
   if (typeof baileys.prepareWAMessageMedia !== "function") return null
   const { imageMessage } = await baileys.prepareWAMessageMedia(
@@ -459,66 +1057,45 @@ async function uploadBigThumb(sock, buf) {
   return imageMessage || null
 }
 
-// returns { matchedText, canonicalUrl, title, description, jpegThumbnail, hq } or null
+// returns { matchedText, canonicalUrl, title, description, jpegThumbnail, hq, imageSource } or null
 async function fetchLinkPreview(sock, url) {
-  // Fetch the page once, then try its ten known image locations. A blocked or
-  // metadata-free page still gets a generic domain card so the URL is previewed.
-  let page
-  try { page = await scrapePage(url) } catch (e) {
-    let host
-    try { host = new URL(toFetchUrl(url)).hostname.replace(/^www\./i, "") } catch { throw e }
-    console.warn(`[GCSTATUS] page metadata unavailable for ${host}: ${e.message}`)
-    page = {
-      title: host,
-      description: `Open this link to view ${host}.`,
-      imageCandidates: [],
-      canonicalUrl: toFetchUrl(url),
-    }
-  }
-  if (!page) return null
+  const r = await resolveLinkImage(url)
 
-  let jpegThumbnail, hq = null
-  for (const imageUrl of page.imageCandidates) {
-    try {
-      const response = await axios.get(imageUrl, {
-        responseType: "arraybuffer", timeout: 700, maxRedirects: 2, maxContentLength: 8 * 1024 * 1024,
-        headers: { "User-Agent": "Mozilla/5.0" },
-      })
-      const contentType = String(response.headers?.["content-type"] || "").toLowerCase()
-      const img = Buffer.from(response.data || [])
-      if (!contentType.startsWith("image/") || contentType.includes("svg") || img.length < 500) continue
-      jpegThumbnail = await makeSmallThumb(img)
-      if (jpegThumbnail) {
-        hq = await withTimeout(uploadBigThumb(sock, img), 2500, "thumbnail upload")
-          .catch(e => { console.warn("[GCSTATUS] big thumbnail upload skipped:", e.message); return null })
-        break
-      }
-    } catch (e) {
-      // Try the next metadata image; each network attempt has a short timeout.
+  let jpegThumbnail = null
+  let hq = null
+  let imageSource = "none"
+
+  if (r.image) {
+    imageSource = r.image.source
+    jpegThumbnail = await makeSmallThumb(r.image.buffer)
+    // big card image: upload to WhatsApp, one retry if it fails
+    for (let attempt = 1; attempt <= 2 && !hq; attempt++) {
+      hq = await withTimeout(uploadBigThumb(sock, r.image.buffer), 20000, "thumbnail upload")
+        .catch(e => { console.warn(`[GCSTATUS] big thumbnail upload attempt ${attempt} failed:`, e.message); return null })
     }
   }
 
-  let thumbnailSource = "website"
   if (!jpegThumbnail) {
-    const host = (() => { try { return new URL(page.canonicalUrl).hostname.replace(/^www\./i, "") } catch { return "Link preview" } })()
-    jpegThumbnail = await makeFallbackThumb(host, page.title)
-    thumbnailSource = jpegThumbnail ? "generated fallback card" : "unavailable"
+    const host = hostOf(r.canonicalUrl) || "Link preview"
+    jpegThumbnail = await makeFallbackThumb(host, r.title)
+    imageSource = jpegThumbnail ? "generated card (no image found)" : "none"
   }
 
-  console.log("[GCSTATUS] Link preview via built-in scraper", { title: page.title, thumbnailSource, hasBigThumb: !!hq })
+  console.log("[GCSTATUS] Link preview", { title: r.title, imageSource, hasSmallThumb: !!jpegThumbnail, hasBigThumb: !!hq, bigThumbPath: hq?.directPath || null, engineMs: r.ms })
   return {
     matchedText: url,
-    canonicalUrl: page.canonicalUrl,
-    title: page.title,
-    description: page.description,
+    canonicalUrl: r.canonicalUrl,
+    title: r.title,
+    description: r.description || "",
     jpegThumbnail,
     hq,
+    imageSource,
   }
 }
 
 // ── TEXT status ──────────────────────────────────────────────────────────────
 
-async function buildTextStatus(sock, groupJid, text, userJid, preview) {
+async function buildTextStatus(sock, groupJid, text, userJid, preview, bg) {
   const secret = crypto.randomBytes(32)
   const linkPreview = preview ? {
     "canonical-url": preview.canonicalUrl || toFetchUrl(preview.matchedText),
@@ -543,10 +1120,33 @@ async function buildTextStatus(sock, groupJid, text, userJid, preview) {
     throw new Error(`Text status content was not generated (got: ${Object.keys(prepared || {}).join(", ") || "nothing"})`)
   }
 
-  inner.extendedTextMessage.contextInfo = {
-    ...(inner.extendedTextMessage.contextInfo || {}),
+  const ext = inner.extendedTextMessage
+
+  ext.contextInfo = {
+    ...(ext.contextInfo || {}),
     ...buildStatusContext(STATUS_SOURCE.text),
   }
+
+  // background color + readable white text + font
+  ext.backgroundArgb = bg ?? pickBackground()
+  ext.textArgb = textColorFor(ext.backgroundArgb)
+  ext.font = 2
+
+  // Some baileys forks don't copy highQualityThumbnail onto the message.
+  // If the big image was uploaded but the fields are missing, write them here
+  // so the card actually shows its image.
+  if (preview?.hq && !ext.thumbnailDirectPath) {
+    const h = preview.hq
+    ext.thumbnailDirectPath = h.directPath
+    ext.thumbnailSha256 = h.fileSha256
+    ext.thumbnailEncSha256 = h.fileEncSha256
+    ext.thumbnailHeight = h.height
+    ext.thumbnailWidth = h.width
+    ext.mediaKey = h.mediaKey
+    ext.mediaKeyTimestamp = h.mediaKeyTimestamp
+    console.log("[GCSTATUS] Big thumbnail fields written onto the message manually")
+  }
+
   inner.messageContextInfo = {
     ...(inner.messageContextInfo || {}),
     messageSecret: secret,
@@ -671,6 +1271,11 @@ async function sendWrappedMedia(sock, groupJid, content) {
     ...buildStatusContext(STATUS_SOURCE[kind]),
   }
 
+  // voice-note statuses get a background color too
+  if (content.type === "audio") {
+    mediaMessage.backgroundArgb = content.bg ?? pickBackground()
+  }
+
   console.log("[GCSTATUS] Media uploaded", {
     hasUrl: !!mediaMessage.url,
     hasDirectPath: !!mediaMessage.directPath,
@@ -761,6 +1366,7 @@ async function inspectLib() {
   }
   return report
 }
+
 // ── POST TO EVERY GROUP  (.gcstatus all) ─────────────────────────────────────
 // Reply to any content in your DM and send:  .gcstatus all
 // The media is downloaded + uploaded ONCE and re-used for every group, groups are
@@ -815,6 +1421,10 @@ async function prepareWrappedMedia(sock, content) {
     ...buildStatusContext(STATUS_SOURCE[kind]),
   }
 
+  if (content.type === "audio") {
+    mediaMessage.backgroundArgb = content.bg ?? pickBackground()
+  }
+
   return { inner, mediaKey, type: content.type }
 }
 
@@ -833,7 +1443,7 @@ async function publishPrepared(sock, groupJid, prep) {
   return status
 }
 
-async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
+async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg }) {
   const key = sessionKey(sock)
   const running = bulkJobs.get(key)
 
@@ -889,16 +1499,17 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview }) {
       let preview = null
       const link = noPreview ? null : extractFirstUrl(textValue)
       if (link) {
-        try { preview = await withTimeout(fetchLinkPreview(sock, link), 16000, "link preview") }
+        try { preview = await withTimeout(fetchLinkPreview(sock, link), engineBudgetMs() + 30000, "link preview") }
         catch (e) { console.warn(`[GCSTATUS ALL] Link preview skipped: ${e.message}`) }
       }
 
       publish = async (g) => {
-        const st = await buildTextStatus(sock, g.id, textValue, sock.user?.id, preview)
+        const st = await buildTextStatus(sock, g.id, textValue, sock.user?.id, preview, bg)
         await relayStatus(sock, g, st, "text")
       }
     } else {
       content.buffer = await downloadMedia(sock, content.node, content.type, quoted, from)
+      content.bg = bg
 
       if (flat) {
         publish = (g) => sendFlatMedia(sock, g.id, content)
@@ -990,7 +1601,7 @@ module.exports = {
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",
 
-  usage: ".gcstatus <group name|GID|invite link> | .gcstatus all (every group) | .gcstatus all stop | or .gcstatus inside a group  (flags: --nopreview skips the link card, --flat = fallback engine; .gcstatus check = diagnostics)",
+  usage: ".gcstatus <group name|GID|invite link> | .gcstatus all (every group) | .gcstatus all stop | or .gcstatus inside a group  (flags: --nopreview skips the link card, --color=red picks the background, --flat = fallback engine; .gcstatus check = diagnostics)",
 
   category: "owner",
 
@@ -1016,14 +1627,28 @@ module.exports = {
       )
     }
 
+    // list the available colors
+    if (destination.toLowerCase() === "colors") {
+      const c = colorSummary()
+      const names = Object.keys(STATUS_COLORS).sort().join(", ")
+      return helper.reply(
+        sock,
+        msg,
+        `> 🎨 *Group Status colors*\n>\n> Primary: *${c.primary}* | Secondary: *${c.secondary}* | Tertiary: *${c.tertiary}* | CSS named: *${c.css}*\n> Total names: *${c.names}* (${c.shades} unique shades, no black)\n>\n> Use: *--color=red*, *--color=#ff8800*, *--color=primary|secondary|tertiary|css*, or leave it out for random.\n>\n> ${names}`
+      )
+    }
+
+    // flags: --flat  --nopreview  --color=NAME
     const flat = /(^|\s)--flat(?=\s|$)/i.test(destination)
     const noPreview = /(^|\s)--nopreview(?=\s|$)/i.test(destination)
-    destination = destination.replace(/(^|\s)--(?:flat|nopreview)(?=\s|$)/gi, " ").trim()
+    const colorFlag = destination.match(/(^|\s)--color=(\S+)(?=\s|$)/i)?.[2]
+    destination = destination.replace(/(^|\s)--(?:flat|nopreview|color=\S+)(?=\s|$)/gi, " ").trim()
+    const bg = pickBackground(colorFlag)
 
     // .gcstatus all  /  .gcstatus all stop  → every group the bot is in
     const words = destination.split(/\s+/).filter(Boolean)
     if (words[0] && words[0].toLowerCase() === "all") {
-      return runAllGroups({ sock, from, msg, helper, sub: (words[1] || "").toLowerCase(), flat, noPreview })
+      return runAllGroups({ sock, from, msg, helper, sub: (words[1] || "").toLowerCase(), flat, noPreview, bg })
     }
 
     const quoted = getQuotedInfo(msg)
@@ -1091,13 +1716,13 @@ module.exports = {
         const link = noPreview ? null : extractFirstUrl(textValue)
         if (link) {
           try {
-            preview = await withTimeout(fetchLinkPreview(sock, link), 16000, "link preview")
+            preview = await withTimeout(fetchLinkPreview(sock, link), engineBudgetMs() + 30000, "link preview")
           } catch (e) {
             console.warn(`[GCSTATUS] Link preview skipped: ${e.message}`)
           }
         }
 
-        status = await buildTextStatus(sock, group.id, textValue, sock.user?.id, preview)
+        status = await buildTextStatus(sock, group.id, textValue, sock.user?.id, preview, bg)
         await relayStatus(sock, group, status, "text")
       }
 
@@ -1112,6 +1737,7 @@ module.exports = {
         }
 
         content.buffer = await downloadMedia(sock, content.node, content.type, quoted, from)
+        content.bg = bg
 
         status = flat
           ? await sendFlatMedia(sock, group.id, content)
@@ -1125,10 +1751,12 @@ module.exports = {
       }
 
       // warn if the library still has the mediatype bug (wrapped media only)
-      const previewNote = preview ? `\n> Link preview: *attached*` : ""
+      const previewNote = preview ? `\n> Link card: *attached*${preview.hq ? " (big image)" : preview.jpegThumbnail ? " (small image)" : ""}\n> Image source: *${preview.imageSource || "unknown"}*` : ""
       let warn = ""
       if (content.type !== "text" && !flat) {
-        const unfixed = inspectLib().filter(r => !r.fixed)
+        // inspectLib() is async — it must be awaited (this used to throw here)
+        let unfixed = []
+        try { unfixed = (await inspectLib()).filter(r => !r.fixed) } catch {}
         if (unfixed.length) {
           warn = `\n>\n> ⚠️ *Library not patched yet* — media may not show.\n> Run *node patch-gcstatus-lib.js* and restart.`
         }

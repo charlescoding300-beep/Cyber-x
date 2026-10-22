@@ -264,7 +264,7 @@ ${CREDIT}`
         mimetype: 'video/mp4',
         fileName: `${videoData.title.replace(/[^\w\s-]/g, '').trim() || 'tiktok'}.mp4`,
         caption:  `🎦 *${videoData.title}*\n\n✅ _No watermark_\n\n${CREDIT}`,
-      }, { quoted: infoMsg })
+      }, { quoted: msg })
 
       // ── React success ──
       await sock.sendMessage(from, {

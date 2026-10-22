@@ -9,6 +9,7 @@ const autoVV = require('./commands/autovv')
 const autoTag = require('./commands/autotag')
 const path = require("path")
 const Pino = require("pino")
+const QRCode = require("qrcode")
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -82,6 +83,7 @@ const CONFIG_DIR = path.join(__dirname, "config")
 const TEMP_DIR   = path.join(__dirname, "temp")
 const SESS_ROOT  = path.join(__dirname, "sessions")
 const META_FILE  = path.join(SESS_ROOT, "_meta.json")
+const PAIRING_MODE_FILE = path.join(SESS_ROOT, "_pairing_modes.json")
 const BOT_PREFIX = process.env.BOT_PREFIX || "."
 const MEDIA_COMMAND_TIMEOUT_MS = (() => {
   const value = Number(process.env.MEDIA_COMMAND_TIMEOUT_MS)
@@ -820,6 +822,35 @@ api.fetchBuffer = fetchBufferSafe
 // ─────────────────────────────────────────────────────────────────────────────
 const sessions = new Map()
 
+let pairingModes = {}
+try {
+  if (fs.existsSync(PAIRING_MODE_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(PAIRING_MODE_FILE, "utf8"))
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) pairingModes = saved
+  }
+} catch (e) {
+  console.error("[PAIRING] mode restore failed:", e.message)
+}
+
+function savePairingModes() {
+  try {
+    fs.mkdirSync(SESS_ROOT, { recursive: true })
+    fs.writeFileSync(PAIRING_MODE_FILE, JSON.stringify(pairingModes, null, 2))
+  } catch (e) {
+    console.error("[PAIRING] mode save failed:", e.message)
+  }
+}
+
+function setPairingMode(phone, mode) {
+  const nextMode = mode === "qr" ? "qr" : "pair"
+  const changed = nextMode === "qr" ? pairingModes[phone] !== "qr" : !!pairingModes[phone]
+  if (nextMode === "qr") pairingModes[phone] = "qr"
+  else delete pairingModes[phone]
+  if (changed) savePairingModes()
+  const state = sessions.get(phone)
+  if (state) state.pairingMode = nextMode
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ULTRA SPEED — group metadata served from each session's own cache.
 // Stale-while-revalidate: a cached group answers instantly and is refreshed
@@ -1083,6 +1114,11 @@ function makeSessionState(phone) {
   if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true })
   return {
     phone, sessDir,
+    pairingMode: pairingModes[phone] === "qr" ? "qr" : "pair",
+    authRegistered: false,
+    qrDataUrl: null,
+    qrExpiresAt: null,
+    qrVersion: 0,
     settings:      makeSessionSettings(phone),
     groupCache:    {},
     msgRetryCounterCache: makeTtlCache(),
@@ -1132,6 +1168,7 @@ function logOnce(phone, key, msg, level = "log") {
 }
 
 const PAIRING_CODE_TTL_MS = 60 * 1000
+const PAIRING_QR_TTL_MS = 19 * 1000
 
 function getValidPairingCode(state) {
   if (!state.pairingCode) return null
@@ -1142,6 +1179,16 @@ function getValidPairingCode(state) {
     return null
   }
   return state.pairingCode
+}
+
+function getValidPairingQr(state) {
+  if (!state.qrDataUrl) return null
+  if (!state.qrExpiresAt || Date.now() >= state.qrExpiresAt) {
+    state.qrDataUrl = null
+    state.qrExpiresAt = null
+    return null
+  }
+  return state.qrDataUrl
 }
 
 function saveMeta() {
@@ -2147,17 +2194,30 @@ function antistatusLoad(phone) {
   } catch (e) {
     console.error(`[ANTISTATUS] load error for ${phone}:`, e.message)
   }
-  if (!data) data = { groups: {}, warnings: {} }
+  data = {
+    groups: {},
+    warnings: {},
+    ...(data && typeof data === "object" ? data : {}),
+  }
+  if (!data.groups || typeof data.groups !== "object" || Array.isArray(data.groups)) data.groups = {}
+  if (!data.warnings || typeof data.warnings !== "object" || Array.isArray(data.warnings)) data.warnings = {}
   cacheSet(antistatusCache, phone, data)
   return data
 }
 function antistatusSave(phone, data) {
+  const file = antistatusFilePath(phone)
+  const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
   try {
-    fs.writeFileSync(antistatusFilePath(phone), JSON.stringify(data, null, 2))
+    fs.mkdirSync(ANTISTATUS_DIR, { recursive: true })
+    fs.writeFileSync(temp, JSON.stringify(data, null, 2), { mode: 0o600 })
+    fs.renameSync(temp, file)
+    cacheSet(antistatusCache, phone, data)
+    return true
   } catch (e) {
     console.error(`[ANTISTATUS] save error for ${phone}:`, e.message)
+    try { fs.rmSync(temp, { force: true }) } catch {}
+    return false
   }
-  cacheSet(antistatusCache, phone, data)
 }
 function antistatusIsEnabled(phone, groupId) {
   return !!antistatusLoad(phone).groups[groupId]?.enabled
@@ -2178,21 +2238,37 @@ function antistatusGetMode(phone, groupId) {
 }
 function antistatusAddWarning(phone, groupId, sender) {
   const data = antistatusLoad(phone)
-  if (!data.warnings[groupId]) data.warnings[groupId] = {}
-  const key = String(sender || '').replace(/:\d+(?=@)/, '')
+  if (!data.warnings[groupId] || typeof data.warnings[groupId] !== "object" || Array.isArray(data.warnings[groupId])) {
+    data.warnings[groupId] = {}
+  }
+  const raw = String(sender || '').replace(/:\d+(?=@)/, '')
+  const key = raw.includes('@') ? raw : `${raw.replace(/\D/g, '')}@s.whatsapp.net`
   const warnings = data.warnings[groupId]
-  const stored = Object.keys(warnings).find(id => String(id).replace(/:\d+(?=@)/, '') === key) || key
-  warnings[stored] = (Number(warnings[stored]) || 0) + 1
-  antistatusSave(phone, data)
+  const stable = id => {
+    const value = String(id || '').replace(/:\d+(?=@)/, '')
+    return value.includes('@') ? value : `${value.replace(/\D/g, '')}@s.whatsapp.net`
+  }
+  const stored = Object.keys(warnings).find(id => stable(id) === key) || key
+  const previous = Number(warnings[stored]) || 0
+  warnings[stored] = previous + 1
+  if (!antistatusSave(phone, data)) {
+    if (previous) warnings[stored] = previous
+    else delete warnings[stored]
+    throw new Error('anti-status warning could not be saved to local storage')
+  }
   return warnings[stored]
 }
 function antistatusResetWarnings(phone, groupId, sender) {
   const data = antistatusLoad(phone)
   const warnings = data.warnings[groupId]
-  const key = String(sender || '').replace(/:\d+(?=@)/, '')
+  const normalize = value => {
+    const raw = String(value || '').replace(/:\d+(?=@)/, '')
+    return raw.includes('@') ? raw : `${raw.replace(/\D/g, '')}@s.whatsapp.net`
+  }
+  const key = normalize(sender)
   if (warnings) {
     for (const stored of Object.keys(warnings)) {
-      if (String(stored).replace(/:\d+(?=@)/, '') === key) delete warnings[stored]
+      if (normalize(stored) === key) delete warnings[stored]
     }
     antistatusSave(phone, data)
   }
@@ -2561,6 +2637,7 @@ async function startBot(phone) {
   // Production durable auth (Redis + local mirror). Falls back to disk
   // if Redis is offline or not configured.
   const { state: authState, saveCreds } = await authStore.useAuthState(phone, state.sessDir)
+  state.authRegistered = !!authState.creds.registered
   const version = await getSafeWaVersion()
 
   const sock = makeWASocket({
@@ -2898,8 +2975,22 @@ async function startBot(phone) {
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update
 
+    if (!authState.creds.registered && state.pairingMode === "qr" && qr) {
+      const qrVersion = ++state.qrVersion
+      try {
+        const dataUrl = await QRCode.toDataURL(qr, { errorCorrectionLevel: "M", margin: 2, width: 320 })
+        if (state.pairingMode === "qr" && state.sock === sock && state.qrVersion === qrVersion) {
+          state.qrDataUrl = dataUrl
+          state.qrExpiresAt = Date.now() + PAIRING_QR_TTL_MS
+        }
+      } catch (e) {
+        console.error(`[${phone}] QR render failed:`, e.message)
+      }
+    }
+
     if (
       !authState.creds.registered &&
+      state.pairingMode !== "qr" &&
       !pairingCodeRequested &&
       connection === "connecting" &&
       !qr
@@ -2932,6 +3023,9 @@ async function startBot(phone) {
       state.retries              = 0
       state.pairingCode          = null
       state.pairingCodeExpiresAt = null
+      state.qrDataUrl            = null
+      state.qrExpiresAt          = null
+      if (pairingModes[phone] === "qr") setPairingMode(phone, "pair")
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"} at ${nowWAT()} WAT`)
       const allSettings = state.settings.getAll()
       const settingKeys = Object.keys(allSettings)
@@ -3355,9 +3449,17 @@ async function init() {
   // session auth AND its settings/changes are cleaned up together.
 }
 
+function normalizePairingPhone(phone) {
+  const formatted = String(phone || "").trim().replace(/[\s().-]/g, "")
+  if (!/^(?:\+|00)?\d+$/.test(formatted)) return ""
+  let digits = formatted.replace(/\D/g, "")
+  if (digits.startsWith("00")) digits = digits.slice(2)
+  return digits.length >= 7 && digits.length <= 15 ? digits : ""
+}
+
 async function addSession(phone, preferredSlot = null) {
-  const clean = phone.replace(/\D/g, "")
-  if (!clean) throw new Error("Invalid phone number")
+  const clean = normalizePairingPhone(phone)
+  if (!clean) throw new Error("Enter a valid international WhatsApp number with country code (7 to 15 digits).")
 
   // Already live? Don't spin up a second socket on the same WhatsApp
   // identity — that's what causes the endless 440 "replaced" conflict
@@ -3374,8 +3476,18 @@ async function addSession(phone, preferredSlot = null) {
     }
   }
 
+  if (existing?.startingUp && existing.pairingMode === "qr") {
+    throw new Error("This number is already starting in QR mode. Finish or cancel that connection before requesting a pairing code.")
+  }
   const slot = assignToSlot(clean, preferredSlot)
   if (slot === null) throw new Error("All server slots are full. Please try again later.")
+  setPairingMode(clean, "pair")
+  if (existing) {
+    existing.qrDataUrl = null
+    existing.qrExpiresAt = null
+    existing.pairingCode = null
+    existing.pairingCodeExpiresAt = null
+  }
   await startBot(clean)
   saveMeta()
   const state = sessions.get(clean)
@@ -3394,8 +3506,54 @@ async function addSession(phone, preferredSlot = null) {
   }
 }
 
+async function addQrSession(phone, preferredSlot = null) {
+  const clean = normalizePairingPhone(phone)
+  if (!clean) throw new Error("Enter a valid international WhatsApp number with country code (7 to 15 digits).")
+
+  let state = sessions.get(clean)
+  if (state?.connected) {
+    return { qr: null, expiresInMs: 0, connected: true, slot: slotAssignments[clean] || null }
+  }
+  if (state?.startingUp && state.pairingMode !== "qr") {
+    throw new Error("This number is already starting in pairing-code mode. Wait for it to finish, then retry QR mode.")
+  }
+
+  const slot = assignToSlot(clean, preferredSlot)
+  if (slot === null) throw new Error("All server slots are full. Please try again later.")
+
+  setPairingMode(clean, "qr")
+  state = sessions.get(clean)
+  if (state) {
+    state.pairingCode = null
+    state.pairingCodeExpiresAt = null
+  }
+
+  await startBot(clean)
+  saveMeta()
+  state = sessions.get(clean)
+  if (state.authRegistered && !state.connected) {
+    throw new Error("This WhatsApp account is already linked. Let it reconnect instead of starting a new QR pairing.")
+  }
+
+  let qr = getValidPairingQr(state)
+  for (let i = 0; i < 60 && !qr && !state.connected; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500))
+    qr = getValidPairingQr(state)
+  }
+  if (state.connected) return { qr: null, expiresInMs: 0, connected: true, slot }
+  if (!qr) throw new Error("Timed out waiting for a QR code. Please try again.")
+
+  return {
+    qr,
+    expiresInMs: Math.max(0, state.qrExpiresAt - Date.now()),
+    connected: false,
+    slot,
+  }
+}
+
 async function removeSession(phone) {
-  const clean = phone.replace(/\D/g, "")
+  const clean = String(phone || "").replace(/\D/g, "")
+  if (pairingModes[clean]) setPairingMode(clean, "pair")
   const state = sessions.get(clean)
   if (state) {
     if (state.presenceTimer) clearInterval(state.presenceTimer)
@@ -3512,7 +3670,7 @@ function getPublicCommandCatalog() {
 }
 
 module.exports = {
-  init, addSession, removeSession, listBots, getPublicCommandCatalog,
+  init, addSession, addQrSession, removeSession, listBots, getPublicCommandCatalog,
   getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY,
   TOTAL_RAM_MB, MAX_RAM_MB, MEM_RESERVE_MB, PER_SESSION_BUDGET_MB,
 }

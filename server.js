@@ -4,7 +4,7 @@ const https = require("https")
 const fs    = require("fs")
 const path  = require("path")
 
-const { init, addSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY, getPublicCommandCatalog } = require("./index")
+const { init, addSession, addQrSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY, getPublicCommandCatalog } = require("./index")
 const sessionBackup = require("./lib/sessionBackup")
 
 const PORT       = process.env.PORT || 3000
@@ -48,6 +48,14 @@ function setCors(res) {
 function json(res, data, status = 200) {
   res.writeHead(status, { "Content-Type": "application/json" })
   res.end(JSON.stringify(data))
+}
+
+function normalizePairingPhone(value) {
+  const formatted = String(value || "").trim().replace(/[\s().-]/g, "")
+  if (!/^(?:\+|00)?\d+$/.test(formatted)) return ""
+  let digits = formatted.replace(/\D/g, "")
+  if (digits.startsWith("00")) digits = digits.slice(2)
+  return digits.length >= 7 && digits.length <= 15 ? digits : ""
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +114,7 @@ const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN
 const aiMemoryEnabled = !!(UPSTASH_URL && UPSTASH_TOKEN)
 
 if (!aiMemoryEnabled) {
-  console.warn("[AI MEMORY] ⚠ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — Shivan won't remember conversations across visits")
+  console.warn("[AI MEMORY] ⚠ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — Zenny won't remember conversations across visits")
 }
 
 function upstashRequest(command, args) {
@@ -158,7 +166,7 @@ async function incrementTotalUsers() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHIVAN AI MEMORY
+// Zenny AI MEMORY
 // ─────────────────────────────────────────────────────────────────────────────
 const AI_MEMORY_MAX_MESSAGES = 40
 
@@ -190,7 +198,7 @@ async function saveAiMemory(browserId, messages) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function callGroq(messages, systemPrompt) {
   const GROQ_KEY = process.env.GROQ_API_KEY
-  if (!GROQ_KEY) return "⚠ Shivan AI is offline — GROQ_API_KEY not set on server."
+  if (!GROQ_KEY) return "⚠ Zenny AI is offline — GROQ_API_KEY not set on server."
 
   const body = JSON.stringify({
     model: "openai/gpt-oss-20b",
@@ -231,9 +239,9 @@ async function callGroq(messages, systemPrompt) {
   }
   if (data?.error?.message) {
     console.error("[GROQ] API error:", data.error.message)
-    return `⚠ Shivan hit an AI provider error: ${data.error.message}`
+    return `⚠ Zenny hit an AI provider error: ${data.error.message}`
   }
-  return "Shivan here — I couldn't process that. Try again."
+  return "Zenny here — I couldn't process that. Try again."
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,7 +277,7 @@ const server = http.createServer(async (req, res) => {
         return res.end()
       }
     }
-    return servePublicFile(res, "pair.html", "text/html")
+    return servePublicFile(res, "nextgen-pair.html", "text/html")
   }
 
   // ── /api/slots ────────────────────────────────────────────────────────────
@@ -294,14 +302,44 @@ const server = http.createServer(async (req, res) => {
     return servePublicFile(res, "commands.html", "text/html")
   }
 
+  // ── /qr — create or refresh a QR-pairing session ──────────────────────────
+  if (url === "/qr" && method === "GET") {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+    res.setHeader("Pragma", "no-cache")
+    const params = new URL(req.url, "http://internal").searchParams
+    const cleanPhone = normalizePairingPhone(params.get("phone"))
+    const slotParam = params.get("slot") ? parseInt(params.get("slot"), 10) : null
+    if (!cleanPhone) {
+      return json(res, { status: false, error: "Enter a valid international WhatsApp number with country code." }, 400)
+    }
+    try {
+      const result = await addQrSession(cleanPhone, slotParam)
+      return json(res, {
+        status: true,
+        qr: result.qr,
+        connected: !!result.connected,
+        expiresInMs: result.expiresInMs || 0,
+        slot: result.slot,
+      })
+    } catch (e) {
+      return json(res, { status: false, error: e.message || "Could not prepare QR pairing." }, 503)
+    }
+  }
+
+  if (url === "/control-center" && method === "GET") {
+    return servePublicFile(res, "Pairs.html", "text/html")
+  }
+
   if ((url === "/pair" || url === "/pair.html") && method === "GET") {
     const params     = new URL(req.url, "http://internal").searchParams
     const phoneParam = params.get("phone")
     const slotParam  = params.get("slot") ? parseInt(params.get("slot"), 10) : null
 
     if (phoneParam) {
-      const cleanPhone = phoneParam.replace(/\D/g, "")
-      if (!cleanPhone || cleanPhone.length < 10) {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+      res.setHeader("Pragma", "no-cache")
+      const cleanPhone = normalizePairingPhone(phoneParam)
+      if (!cleanPhone) {
         return json(res, { status: false, error: "Invalid phone number — include country code" }, 400)
       }
       try {
@@ -334,7 +372,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    return servePublicFile(res, "pair.html", "text/html")
+    return servePublicFile(res, "nextgen-pair.html", "text/html")
   }
 
   // ── /pair POST (legacy) ───────────────────────────────────────────────────
@@ -620,24 +658,24 @@ const server = http.createServer(async (req, res) => {
       online:       bots.filter(b => b.connected).length,
       library:      "@whiskeysockets/baileys",
       platform:     "Render Free Tier",
-      aiName:       "Shivan",
+      aiName:       "Zenny",
       aiPoweredBy:  "Groq (openai/gpt-oss-20b)",
     })
   }
 
-  // ── /api/ai/chat — Shivan AI ──────────────────────────────────────────────
+  // ── /api/ai/chat — Zenny AI ──────────────────────────────────────────────
   if (url === "/api/ai/chat" && method === "POST") {
     try {
       const { message, history = [], systemPrompt, browserId } = await readBody(req)
       if (!message) return json(res, { error: "message required" }, 400)
 
-      const SHIVAN_SYSTEM = systemPrompt || `You are Shivan — the AI assistant built into Zen X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
+      const Zenny_SYSTEM = systemPrompt || `You are Zenny — the AI assistant built into Zen X, an enterprise WhatsApp bot infrastructure created by Charles Chukwu (also known as charlescoding300 / Charles Tech).
 
 ABOUT ZEN X (answer these when asked, otherwise don't force it into unrelated chat):
 - Multi-session WhatsApp bot built with Node.js and Baileys (@whiskeysockets/baileys)
 - Hosted on Render cloud platform at https://cyber-x-y8yv.onrender.com
 - Uses Upstash Redis for session persistence and automatic backups
-- Features: multi-session management, AI responses (Shivan), antilink protection, welcome/goodbye messages, music download (.song), video download (.video), Pokémon card game, slot machine, admin commands (.promote/.demote), sticker maker (.sticker), auto-typing, auto-recording, anti-bad-word filter, antidelete, dynamic multi-server slot system, and 50+ commands
+- Features: multi-session management, AI responses (Zenny), antilink protection, welcome/goodbye messages, music download (.song), video download (.video), Pokémon card game, slot machine, admin commands (.promote/.demote), sticker maker (.sticker), auto-typing, auto-recording, anti-bad-word filter, antidelete, dynamic multi-server slot system, and 50+ commands
 - Prefix: . (dot)
 - Developer: Charles Chukwu — a skilled bot developer from Nigeria building next-level WhatsApp automation
 
@@ -648,7 +686,14 @@ YOUR JOB:
 - Be honest about uncertainty — you don't have live internet access.
 - Match response length to the question.
 
-PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about Zen X.`
+PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who knows everything about Zen X.
+
+RESPONSE FORMAT:
+- Keep simple answers short and direct.
+- For explanations or instructions, use clear headings and ordered or bulleted steps.
+- Use **bold** for key labels, inline code for short commands, and fenced code blocks for code.
+- Keep code blocks clean and copy-ready; put explanations outside them.
+- Never claim a live lookup, pairing status, or action happened unless the system actually returned that information.`
 
       const savedMemory   = await loadAiMemory(browserId)
       const clientHistory = history.slice(-10).map(h => ({
@@ -659,14 +704,14 @@ PERSONALITY: Playful, warm, a little witty. Like texting a clever friend who kno
       const messages = combined.slice(-20)
       messages.push({ role: "user", content: message })
 
-      const reply = await callGroq(messages, SHIVAN_SYSTEM)
+      const reply = await callGroq(messages, Zenny_SYSTEM)
 
       const updatedMemory = [...combined, { role: "user", content: message }, { role: "assistant", content: reply }]
       saveAiMemory(browserId, updatedMemory).catch(() => {})
 
-      return json(res, { reply, ai: "Shivan", model: "openai/gpt-oss-20b (Groq)" })
+      return json(res, { reply, ai: "Zenny", model: "openai/gpt-oss-20b (Groq)" })
     } catch (e) {
-      return json(res, { reply: "⚠ Shivan encountered an error: " + e.message })
+      return json(res, { reply: "⚠ Zenny encountered an error: " + e.message })
     }
   }
 
@@ -720,7 +765,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`[WEB] 🖥️  Server slots: ${SLOT_COUNT} slots × ${SLOT_CAPACITY} capacity each`)
   console.log(`[WEB] 💾 Session backup: ${sessionBackup.enabled ? "ENABLED (" + process.env.GITHUB_BACKUP_REPO + ")" : "DISABLED"}`)
   console.log(`[WEB] 📁 Auto static: ${PUBLIC_DIR} — drop any HTML/CSS/JS/image and it's live instantly`)
-  console.log(`[WEB] 🤖 Shivan AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq openai/gpt-oss-20b)" : "DISABLED — set GROQ_API_KEY"}`)
+  console.log(`[WEB] 🤖 Zenny AI: ${process.env.GROQ_API_KEY ? "ENABLED (Groq openai/gpt-oss-20b)" : "DISABLED — set GROQ_API_KEY"}`)
   console.log(`[WEB] 📊 Total users counter: ${aiMemoryEnabled ? "ENABLED (Upstash Redis)" : "DISABLED — set UPSTASH env vars"}`)
 
   try {
