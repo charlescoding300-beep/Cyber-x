@@ -342,16 +342,30 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .scr{background:#f3f1e9;color:#17211c}
 .phone-top{margin:-54px -18px 16px;padding:42px 16px 11px;background:var(--wa-green);color:#fff;border:0;min-height:94px}
 .phone-top h4{font-size:18px}
+.phone-statusbar{position:absolute;z-index:4;top:13px;left:17px;right:17px;display:flex;align-items:center;justify-content:space-between;color:#f4fff8;font:600 9px/1 var(--sans);letter-spacing:.02em;pointer-events:none}
+.phone-status-icons{display:inline-flex;align-items:center;gap:4px;font-size:8px}
+.phone-status-battery{position:relative;width:15px;height:7px;border:1px solid currentColor;border-radius:2px}
+.phone-status-battery::before{position:absolute;inset:1px 2px 1px 1px;border-radius:1px;background:currentColor;content:""}
+.phone-status-battery::after{position:absolute;right:-3px;top:1px;width:2px;height:3px;border-radius:0 1px 1px 0;background:currentColor;content:""}
 .phone-three{border-color:#ffffff30;color:#fff;background:#ffffff10}
 .mock-chats{gap:0}.mock-chat{padding:11px 0;border-bottom-color:#17211c16}
 .mock-avatar{background:#d9eee4;color:#17664c}.mock-chat-copy span{color:#66746d}
+.mock-avatar-photo{width:36px;height:36px;flex:none;object-fit:cover;border:1px solid #075e5433;border-radius:50%}
+.phone-nav{position:absolute;right:0;bottom:15px;left:0;display:grid;grid-template-columns:repeat(4,1fr);padding:9px 5px 4px;border-top:1px solid #17211c16;background:#fff;color:#69766f;text-align:center;font-size:8px}
+.phone-nav span{display:grid;justify-items:center;gap:3px}.phone-nav b{font-size:14px;line-height:1}.phone-nav .active{color:#087b4b;font-weight:750}
 .phone-menu{background:#fff;border-color:#15221b12;box-shadow:0 16px 34px #12251b30}
 .phone-menu-item{color:#1b2821}.phone-menu-item.hl{background:#e4f6eb;color:#09663d;box-shadow:inset 3px 0 #25d366}
 .phone-note{background:#ffffffd9;border-color:#12251b16;color:#53625a}
 .phone-choice{background:#075e54;color:#fff;box-shadow:0 8px 20px #075e5433}
 .phone-link{color:#087c4d;font-weight:700}
 .demo-code{background:#fff;border:1px dashed #13a86b;color:#075e54;box-shadow:0 8px 22px #075e5418}
-.demo-code small{color:#a54a1c}
+.demo-code{padding:11px 8px;text-align:left}
+.demo-code.demo-code-ready{border-style:solid;border-color:#128f58;box-shadow:0 0 0 3px #25d36622,0 8px 22px #075e5418}
+.demo-code-label{display:block;margin-bottom:8px;color:#526159;font:600 8px/1.3 var(--sans);letter-spacing:.08em}
+.demo-code-cells{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.demo-code-cells i{display:grid;place-items:center;min-width:0;height:31px;border:1px solid #d9e3dc;border-radius:6px;background:#f8fbf9;color:#97a69d;font:600 17px/1 var(--mono);font-style:normal;animation:demoCellFocus 2.4s ease-in-out infinite;animation-delay:calc(var(--cell-index)*.16s)}
+.demo-code small{display:block;margin-top:8px;color:#a54a1c;text-align:center;font:700 8px/1.3 var(--sans);letter-spacing:.09em}
+@keyframes demoCellFocus{0%,13%,100%{border-color:#d9e3dc;background:#f8fbf9;color:#97a69d;box-shadow:none}4%,10%{border-color:#25a66a;background:#e8f7ee;color:#087b4b;box-shadow:0 0 0 2px #25d36624}}
 .phone-demo-mark{background:#4b3511;color:#ffe4a3;box-shadow:0 4px 14px #0005}
 .sim-pointer-ring{position:absolute;z-index:6;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:34px;height:34px;border:2px solid #25d366;border-radius:50%;box-shadow:0 0 0 5px #25d36635;transform:translate(-50%,-50%);pointer-events:none;animation:simPointerPulse 1.25s ease-out infinite}
 .sim-pointer{position:absolute;z-index:8;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:26px;height:32px;transform:translate(-3px,-4px);pointer-events:none;filter:drop-shadow(0 2px 2px #0009);transition:left .65s cubic-bezier(.2,.8,.2,1),top .65s cubic-bezier(.2,.8,.2,1);animation:simCursorTap 1.25s ease-in-out infinite}
@@ -444,6 +458,7 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
     </div>
     <div class="phone" id="phoneDemo" data-step="0" role="img" aria-label="Illustrated WhatsApp-style phone guide. The sample code is not real.">
       <div class="phone-demo-mark">SIMULATION · NOT CONNECTED</div>
+      <div class="phone-statusbar" aria-hidden="true"><span id="phoneClock">--:--</span><span class="phone-status-icons">●●● &nbsp;▰ <i class="phone-status-battery"></i></span></div>
       <div class="sim-pointer-ring" aria-hidden="true"></div>
       <div class="sim-pointer" id="simPointer" aria-hidden="true"><svg viewBox="0 0 32 40"><path d="M4 2v29l8-8 6 13 5-2-6-13h11L4 2Z" fill="#fff" stroke="#10231a" stroke-width="2" stroke-linejoin="round"/></svg></div>
       <div class="sim-pointer-hint" id="simPointerHint" aria-hidden="true">POINTER GUIDE · TAP THE THREE-DOT MENU</div>
@@ -453,7 +468,9 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
           <div class="mock-chat"><span class="mock-avatar">M</span><span class="mock-chat-copy"><b>Maya</b><span>See you soon 👋</span></span></div>
           <div class="mock-chat"><span class="mock-avatar">J</span><span class="mock-chat-copy"><b>Jordan</b><span>Thanks for the update</span></span></div>
           <div class="mock-chat"><span class="mock-avatar">G</span><span class="mock-chat-copy"><b>Weekend group</b><span>Alex: Sounds good</span></span></div>
+          <div class="mock-chat"><img class="mock-avatar-photo" src="https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000" alt=""><span class="mock-chat-copy"><b>ZEN X Bot</b><span>Pairing guide ready</span></span></div>
         </div>
+        <div class="phone-nav" aria-hidden="true"><span class="active"><b>◉</b>Chats</span><span><b>◌</b>Updates</span><span><b>◎</b>Communities</span><span><b>▣</b>Calls</span></div>
       </div>
       <div class="scr">
         <div class="phone-top"><h4>Chat menu</h4><span class="phone-three">⋮</span></div>
@@ -473,9 +490,13 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
       </div>
       <div class="scr">
         <div class="phone-top"><h4>Enter code</h4><span>‹</span></div>
-        <p class="phone-note">This sample is only here to show where a code entry screen appears.</p>
-        <div class="demo-code">DEMO ONLY<small>NOT A REAL CODE</small></div>
-        <p class="phone-note">Never share your real pairing code with anyone.</p>
+        <p class="phone-note">Enter the one-time code from the pairing panel on this page.</p>
+        <div class="demo-code" id="demoCode" aria-label="Simulated eight-character code entry layout">
+          <span class="demo-code-label">ENTER THE ONE-TIME CODE</span>
+          <div class="demo-code-cells" aria-hidden="true"><i style="--cell-index:0">_</i><i style="--cell-index:1">_</i><i style="--cell-index:2">_</i><i style="--cell-index:3">_</i><i style="--cell-index:4">_</i><i style="--cell-index:5">_</i><i style="--cell-index:6">_</i><i style="--cell-index:7">_</i></div>
+          <small>SIMULATION · NOT A REAL CODE</small>
+        </div>
+        <p class="phone-note">The code entry here is only an illustration. Type your real code in WhatsApp on your own phone.</p>
       </div>
     </div>
   </div>
@@ -609,7 +630,7 @@ function morph(to){
   form.style.height="auto"; const h1=form.offsetHeight; form.style.height=h0+"px"; void form.offsetHeight; form.style.height=h1+"px";
   return sleep(420).then(()=>{form.style.height="";form.style.overflow=""});
 }
-function setPhoneCode(){const sample=$("demoCode");if(sample)sample.textContent="DEMO ONLY"}
+function setPhoneCode(code){const sample=$("demoCode");if(sample)sample.classList.toggle("demo-code-ready",Boolean(code));/* Keep the mock phone generic; never mirror a real pairing code here. */}
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2000)}
 
 const PAIR_HTTP_MESSAGES={
@@ -668,7 +689,7 @@ form.addEventListener("submit",async e=>{
     await line("ok","Pairing code received from the server",true);setPct(100);setStat("CODE READY");botState("happy");
     await morph("vDone"); form.classList.remove("run"); form.classList.add("done"); document.body.classList.remove("think"); document.body.classList.add("has-code");
     await typeCode(code); celebrate(); current=code; setPhoneCode(code);
-    $("copy").disabled=false; $("copy").textContent="Copy code"; $("copy").classList.add("pulse"); countdown(); dgo(3);
+    $("copy").disabled=false; $("copy").textContent="Copy code"; $("copy").classList.add("pulse"); countdown(); dgo(4,{manual:true});
     if(location.protocol==="file:") $("dsub").textContent="Preview: this is a sample code, not a real one";
     scrollTo({top:Math.max(0,form.getBoundingClientRect().top+scrollY-92),behavior:"smooth"});
   }catch(ex){
@@ -750,8 +771,10 @@ const pointerGuide=[
   {x:128,y:208,hint:"POINTER GUIDE · CHOOSE LINKED DEVICES"},
   {x:128,y:177,hint:"POINTER GUIDE · TAP LINK A DEVICE"},
   {x:128,y:276,hint:"POINTER GUIDE · CHOOSE PHONE-NUMBER LINKING"},
-  {x:128,y:226,hint:"POINTER GUIDE · ENTER YOUR REAL ONE-TIME CODE"}
+  {x:49,y:230,hint:"POINTER GUIDE · CODE ENTRY IS ILLUSTRATIVE ONLY"}
 ];
+function updatePhoneClock(){const clock=$("phoneClock");if(clock)clock.textContent=new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit",hour12:true}).format(new Date())}
+updatePhoneClock();setInterval(updatePhoneClock,30000);
 function dgo(n,{manual=false}={}){
   ds.forEach((b,k)=>{b.classList.toggle("on",k===n);b.setAttribute("aria-pressed",String(k===n));const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
   scr.forEach((s,k)=>s.classList.toggle("on",k===n));
