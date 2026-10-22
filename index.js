@@ -1172,6 +1172,62 @@ function logOnce(phone, key, msg, level = "log") {
 
 const PAIRING_CODE_TTL_MS = 60 * 1000
 const PAIRING_QR_TTL_MS = 19 * 1000
+const PAIRING_WELCOME_IMAGE_URL = "https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000"
+const PAIRING_WELCOME_CAPTION =
+  '╭──────「 CONNECTION SUCCESSFUL 」──────╮\n' +
+  '│ ✅ Bot paired successfully\n' +
+  '│ 🤖 Send .menu to view available commands\n' +
+  '╰─────────────────────────────────────╯'
+const PAIRING_WELCOME_PENDING_FILE = path.join(__dirname, "data", "pairing-welcome-pending.json")
+
+function loadPairingWelcomePending() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(PAIRING_WELCOME_PENDING_FILE, "utf8"))
+    return new Set(Array.isArray(stored) ? stored.map(String) : [])
+  } catch { return new Set() }
+}
+
+const pairingWelcomePending = loadPairingWelcomePending()
+const pairingWelcomeSending = new Set()
+
+function persistPairingWelcomePending() {
+  const temporary = `${PAIRING_WELCOME_PENDING_FILE}.${process.pid}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(PAIRING_WELCOME_PENDING_FILE), { recursive: true })
+    fs.writeFileSync(temporary, JSON.stringify([...pairingWelcomePending], null, 2))
+    fs.renameSync(temporary, PAIRING_WELCOME_PENDING_FILE)
+  } catch (error) {
+    try { fs.rmSync(temporary, { force: true }) } catch {}
+    console.error(`[PAIR-WELCOME] pending state save failed: ${error.message}`)
+  }
+}
+
+function setPairingWelcomePending(phone, pending) {
+  const clean = String(phone || "").replace(/\D/g, "")
+  if (!clean) return
+  if (pending) pairingWelcomePending.add(clean)
+  else pairingWelcomePending.delete(clean)
+  persistPairingWelcomePending()
+}
+
+async function sendPairingWelcome(sock, phone) {
+  if (!pairingWelcomePending.has(phone) || pairingWelcomeSending.has(phone)) return
+  pairingWelcomeSending.add(phone)
+  try {
+    const recipient = `${phone}@s.whatsapp.net`
+    await sock.sendMessage(recipient, {
+      image: { url: PAIRING_WELCOME_IMAGE_URL },
+      caption: PAIRING_WELCOME_CAPTION,
+      mimetype: "image/jpeg",
+    })
+    setPairingWelcomePending(phone, false)
+    console.log(`[${phone}] 📨 Pairing welcome image sent`)
+  } catch (error) {
+    console.error(`[${phone}] Pairing welcome send failed; will retry on reconnect: ${error.message}`)
+  } finally {
+    pairingWelcomeSending.delete(phone)
+  }
+}
 
 function getValidPairingCode(state) {
   if (!state.pairingCode) return null
@@ -3030,6 +3086,15 @@ async function startBot(phone) {
       state.qrExpiresAt          = null
       if (pairingModes[phone] === "qr") setPairingMode(phone, "pair")
       console.log(`[${phone}] ⚡ Connected — ${sock.user?.id || "unknown"} at ${nowWAT()} WAT`)
+      // Website and Telegram pairing both converge here. Keep media delivery
+      // off the connection-update path so it cannot delay normal bot startup.
+      setImmediate(() => {
+        if (sessions.get(phone)?.sock === sock) {
+          sendPairingWelcome(sock, phone).catch(error =>
+            console.error(`[${phone}] Pairing welcome error: ${error.message}`)
+          )
+        }
+      })
       const allSettings = state.settings.getAll()
       const settingKeys = Object.keys(allSettings)
       if (settingKeys.length > 0) {
@@ -3485,6 +3550,7 @@ async function addSession(phone, preferredSlot = null) {
   const slot = assignToSlot(clean, preferredSlot)
   if (slot === null) throw new Error("All server slots are full. Please try again later.")
   setPairingMode(clean, "pair")
+  setPairingWelcomePending(clean, true)
   if (existing) {
     existing.qrDataUrl = null
     existing.qrExpiresAt = null
@@ -3525,6 +3591,7 @@ async function addQrSession(phone, preferredSlot = null) {
   if (slot === null) throw new Error("All server slots are full. Please try again later.")
 
   setPairingMode(clean, "qr")
+  setPairingWelcomePending(clean, true)
   state = sessions.get(clean)
   if (state) {
     state.pairingCode = null
