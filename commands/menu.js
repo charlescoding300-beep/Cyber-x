@@ -7,8 +7,13 @@ const fs   = require('fs')
 const path = require('path')
 const os   = require('os')
 
-// Set this to your bot's image URL/path — sent as the menu's picture
-const MENU_IMAGE = process.env.MENU_IMAGE_URL || 'https://i.imgur.com/BdycOtx.jpeg'
+// The supplied Zen X artwork is the default. A session-specific image chosen
+// with .botpp still takes precedence; the URL remains a fallback if the local
+// asset is unavailable in a deployment.
+const DEFAULT_MENU_IMAGE_PATH = path.join(__dirname, '..', 'assets', 'zenx-menu-default.jpg')
+const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || 'https://i.imgur.com/BdycOtx.jpeg'
+let DEFAULT_MENU_IMAGE = null
+try { DEFAULT_MENU_IMAGE = fs.readFileSync(DEFAULT_MENU_IMAGE_PATH) } catch {}
 
 const ZEN_X_CHANNEL_JID  = '120363431058647261@newsletter'
 const ZEN_X_CHANNEL_NAME = '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
@@ -281,7 +286,7 @@ ${sections}
 
         try {
             await sock.sendMessage(from, {
-                image:    { url: MENU_IMAGE },
+                image:    DEFAULT_MENU_IMAGE || { url: MENU_IMAGE_URL },
                 caption,
                 mimetype: 'image/jpeg',
                 mentions,

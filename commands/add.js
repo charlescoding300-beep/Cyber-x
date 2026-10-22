@@ -1,6 +1,7 @@
 'use strict'
 
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 const WHATSAPP_USER_SUFFIX = '@s.whatsapp.net'
 const NIGERIA_CALLING_CODE = '234'
 
@@ -228,14 +229,7 @@ module.exports = {
       )
     }
 
-    if (!isBotAdmin && !isOwner) {
-      return reply(
-        sock,
-        from,
-        msg,
-        'I need to be a group admin before I can add someone.',
-      )
-    }
+    if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
 
     const target = getTarget(args, msg)
     if (target && target.error) {
@@ -288,6 +282,7 @@ module.exports = {
       results = await sock.groupParticipantsUpdate(from, [targetJid], 'add')
     } catch (error) {
       const status = getStatus(error)
+      if (status === 401) return sendBotNotAdmin(sock, from, msg)
       const message = /connection (?:was )?closed|connection terminated/i.test(
         String(error && error.message),
       )
@@ -303,6 +298,7 @@ module.exports = {
       await react(sock, from, msg, '✅')
       return reply(sock, from, msg, 'Added ' + targetLabel + ' to this group.')
     }
+    if (status === 401) return sendBotNotAdmin(sock, from, msg)
 
     await react(sock, from, msg, status === 403 ? '❗' : '❌')
     return reply(sock, from, msg, explainAddFailure(status))

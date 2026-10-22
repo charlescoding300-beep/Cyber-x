@@ -2,6 +2,7 @@
 
 let db
 try { db = require('../lib/userDb') } catch { db = null }
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 let OCR = false
 try { require('tesseract.js'); OCR = true } catch {}
@@ -60,9 +61,7 @@ module.exports = {
       }, { quoted: msg })
     }
     if (!isBotAdmin) {
-      return sock.sendMessage(from, {
-        text: 'Please make me a group admin before enabling link protection.',
-      }, { quoted: msg })
+      return sendBotNotAdmin(sock, from, msg)
     }
     if (!isAdmin) {
       return sock.sendMessage(from, {

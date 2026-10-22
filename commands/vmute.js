@@ -14,6 +14,7 @@
 // ════════════════════════════════════════════════════════════════════
 
 const vm = require('../core/vmute')
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
@@ -125,9 +126,7 @@ module.exports = {
     if (vm.isAdminP(memberP)) return reply('I can\'t mute an admin 😕')
 
     const botP = vm.findParticipant(meta, botIds)
-    if (botP && !vm.isAdminP(botP)) {
-      return reply('⚠️ I need to be a group admin to delete messages. Make me admin, then run *.vmute* again.')
-    }
+    if (!vm.isAdminP(botP)) return sendBotNotAdmin(sock, from, msg)
 
     const added = vm.mute(phone, from, ids, msg.key?.participant || '')
     if (!added) return reply(`ℹ️ ${label} is already muted.`, { mentions: [mentionJid] })

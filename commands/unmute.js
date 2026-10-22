@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 module.exports = {
   pattern:  "unmute",
@@ -45,10 +46,7 @@ module.exports = {
     }
 
     if (!isBotAdmin) {
-      return sock.sendMessage(from, {
-        text: `> ❌ *I need to be an admin to unmute the group.*\n>\n${CREDIT}`,
-        quoted: msg
-      })
+      return sendBotNotAdmin(sock, from, msg)
     }
 
     // ── Cancel active mute timer if one exists ────────────

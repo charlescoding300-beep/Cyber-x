@@ -16,6 +16,7 @@
 
 let db
 try { db = require('../lib/userDb') } catch { db = null }
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 let isAdminLib
 try { isAdminLib = require('../lib/isAdmin') } catch { isAdminLib = null }
@@ -146,9 +147,7 @@ module.exports = {
     }
 
     if (!isBotAdmin) {
-      return sock.sendMessage(from, {
-        text: '⚠️ I need to be a group admin first. Promote me, then any group admin can use *.antibadword*.',
-      }, { quoted: msg })
+      return sendBotNotAdmin(sock, from, msg)
     }
 
     if (!isAdmin) {
@@ -279,15 +278,7 @@ async function handleBadword(sock, msg, extractBody) {
 
   // Bot not admin → quoted notice only
   if (!isBotAdmin) {
-    await sock.sendMessage(from, {
-      text:
-`🫢 *Bad word detected*
-
-@${tag} used inappropriate language, but I am *not a group admin*, so I cannot delete it. 🔕
-
-Please promote me to admin to enforce this filter.`,
-      mentions: [sender],
-    }, { quoted: msg }).catch(() => {})
+    await sendBotNotAdmin(sock, from, msg).catch(() => {})
     return
   }
 

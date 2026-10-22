@@ -1,6 +1,7 @@
 'use strict'
 
 const adminLib = require('../lib/isAdmin')
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
@@ -48,10 +49,9 @@ module.exports = {
 
       // Recompute from the cached participant list. The owner override used by
       // command authorization does not grant the WhatsApp account admin rights.
-      const botHasGroupAdmin = adminLib.isBotAdmin(groupCache, from, sock) ||
-        (isBotAdmin && !isOwner)
+      const botHasGroupAdmin = adminLib.isBotAdmin(groupCache, from, sock) || isBotAdmin
       if (!botHasGroupAdmin) {
-        return reply('⚠️ WhatsApp requires the bot itself to be a group admin to delete another member’s message. Bot-owner access cannot override this. I can still delete messages sent by this bot account.')
+        return sendBotNotAdmin(sock, from, msg)
       }
       if (!participant) {
         return reply('⚠️ I could not identify who sent that message. Reply to it again and retry.')

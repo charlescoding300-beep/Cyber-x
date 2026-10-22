@@ -26,6 +26,7 @@
 
 const BRAND = "> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦"
 const antibotEngine = require('../lib/antibot')
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 function normalizeJid(id) {
   if (!id) return null
@@ -66,7 +67,7 @@ module.exports = {
   usage:    '.antibot kick|delete|warn|off|status|exempt <jid>|unexempt <jid>',
   category: 'group',
 
-  async run({ sock, from, msg, args, settings, isOwner, isAdmin, isGroup, lib }) {
+  async run({ sock, from, msg, args, settings, isOwner, isAdmin, isBotAdmin, isGroup, lib }) {
     if (!isGroup) {
       return sock.sendMessage(from, { text: `❌ This command only works in groups.\n\n${BRAND}` }, { quoted: msg })
     }
@@ -83,6 +84,7 @@ module.exports = {
     const labels = { off: "❌ Disabled", kick: "🥾 Kick", delete: "🧹 Delete-only", warn: "⚠️ Warn (3 strikes)" }
 
     if (action === 'on' || action === 'kick' || action === 'delete' || action === 'warn') {
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       const mode = action === 'on' ? 'kick' : action
       setGroupState(lib, phone, groupJid, { mode })
       return sock.sendMessage(from, { text: `✅ Antibot mode set to: *${labels[mode]}*\n\n${BRAND}` }, { quoted: msg })

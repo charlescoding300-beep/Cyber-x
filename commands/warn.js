@@ -2,6 +2,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 // ── Database ────────────────────────────────────────────────────
 const DATA_DIR  = path.join(__dirname, '../data');
@@ -455,17 +456,7 @@ Make sure I'm *admin* with remove rights.`,
             });
           }
         } else {
-          await sock.sendMessage(from, {
-            text:
-`🚨 *ACTION REQUIRED*
-${LINE}
-${fmt(target)} hit *max warns* but I'm
-not an admin — I can't remove them.
-
-👑 Please *promote the bot to admin*
-   so it can enforce the warn limit.`,
-            mentions: [target]
-          });
+          await sendBotNotAdmin(sock, from, msg).catch(() => {})
         }
       }
 

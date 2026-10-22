@@ -18,6 +18,7 @@
 // Credit: set BOT_CREDIT in .env to change it everywhere (default below).
 
 const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const MODES = {
   warn:   '🗑️ Deletes the status + warns — 3 warnings = removed',
@@ -72,6 +73,7 @@ module.exports = {
 
     // ── ON (".antistatus on kick" or the shortcut ".antistatus kick") ──
     if (action === 'on' || MODES[action]) {
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       if (action === 'on' && modeArg && !MODES[modeArg]) return reply(USAGE)
       const mode = MODES[action] ? action : (MODES[modeArg] ? modeArg : 'warn')
 
@@ -83,9 +85,6 @@ module.exports = {
         `│ ${MODES[mode]}`,
         '│ 📱 Applies to statuses shared in this group chat (admins are exempt)',
       ]
-      if (!isBotAdmin) {
-        lines.push('│ ⚠️ I am not an admin here — I cannot delete statuses until I am promoted')
-      }
       if (!lib || typeof lib.handleAntistatusGroup !== 'function') {
         lines.push('│ ⚠️ lib/antistatusgc.js is not loaded — add it and restart the bot')
       }

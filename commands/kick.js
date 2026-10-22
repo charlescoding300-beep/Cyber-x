@@ -6,6 +6,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 function getContextInfo(msg) {
   const queue = [{ value: msg?.message, depth: 0 }]
@@ -122,7 +123,7 @@ module.exports = {
       const botIdentities = [sock.user?.id, sock.user?.lid]
       const botParticipant = findParticipant(participants, botIdentities)
       if (!isBotAdmin && !isAdminParticipant(botParticipant)) {
-        return reply('⚠️ *I need to be a group admin to remove members.*')
+        return sendBotNotAdmin(sock, from, msg)
       }
 
       const targetParticipant = findParticipant(participants, targets)

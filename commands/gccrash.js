@@ -7,6 +7,8 @@
 // WARNING: This command removes ALL members from the target group.
 // The bot owner retains access via the bot's own JID.
 
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+
 module.exports = {
   pattern: "gccrash",
   category: 'fun',
@@ -67,11 +69,7 @@ module.exports = {
 
     // Check if bot is admin
     const botParticipant = participants.find(p => p.id === botJid)
-    if (!botParticipant?.admin && botParticipant) {
-      return sock.sendMessage(from, {
-        text: `❌ Bot is not an admin in this group.\nThe bot must be an admin to perform this operation.`
-      })
-    }
+    if (!botParticipant || !botParticipant.admin) return sendBotNotAdmin(sock, from, msg)
 
     // ─── WARM-UP SESSION ──────────────────────────────────────
     // Send presence to ensure session is active

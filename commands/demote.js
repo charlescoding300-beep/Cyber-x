@@ -15,6 +15,7 @@
  */
 
 const { getAdmins, toNum } = require('../lib/isAdmin')
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 
@@ -52,9 +53,7 @@ module.exports = {
     }
 
     if (!isBotAdmin) {
-      return sock.sendMessage(from, {
-        text: `❌ I need to be an *admin* to demote members.\n\n${CREDIT}`,
-      }, { quoted: msg })
+      return sendBotNotAdmin(sock, from, msg)
     }
 
     const target = getTarget(msg)

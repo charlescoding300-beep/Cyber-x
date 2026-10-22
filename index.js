@@ -668,16 +668,19 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
     isActualGroupAdmin = candidateNums.some(n => actualAdminSet.has(n))
   }
 
-  // Keep the existing bot-owner override for command execution. The separate
-  // actual-role result lets admin-required group commands explain when
-  // WhatsApp itself does not list the owner as a group admin.
-  if (isOwner) return { isAdmin: true, isBotAdmin: true, isActualGroupAdmin }
+  // Bot-owner authorization does not grant the connected WhatsApp account
+  // admin rights. Keep the owner override for sender authorization, while
+  // always reporting the bot account's actual role for API operations.
+  const adminCache = meta?.participants
+    ? { ...state.groupCache, [from]: meta }
+    : state.groupCache
+  let isBotAdmin = false
+  try { isBotAdmin = isAdminLib.isBotAdmin(adminCache, from, sock) } catch {}
+  if (isOwner) return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
   if (!Array.isArray(meta?.participants) || !meta.participants.length) {
     return { isAdmin: false, isBotAdmin: false, isActualGroupAdmin }
   }
 
-  let isBotAdmin = false
-  try { isBotAdmin = isAdminLib.isBotAdmin(state.groupCache, from, sock) } catch {}
   if (SUDO_NUMBERS.length && candidateNums.some(n => SUDO_NUMBERS.includes(n)))
     return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
   let isAdmin = false
