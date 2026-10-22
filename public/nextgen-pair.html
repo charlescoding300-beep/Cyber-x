@@ -182,7 +182,6 @@ header.hero>.lead{animation-delay:.55s}header.hero>.prompt{animation-delay:.7s}h
 .scr{position:absolute;inset:0;padding:54px 18px 18px;opacity:0;transform:translateX(34px) scale(.98);transition:.55s cubic-bezier(.2,.8,.2,1);pointer-events:none}
 .scr.on{opacity:1;transform:none}
 .phone h4{margin:0 0 16px;font-size:21px;font-weight:600}
-.phone-demo-mark{position:absolute;z-index:5;top:36px;left:50%;transform:translateX(-50%);white-space:nowrap;padding:3px 8px;border:1px solid #ffc85788;border-radius:99px;background:#4b3511;color:#ffe4a3;font:600 9px var(--mono);letter-spacing:.06em}
 .phone-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:11px;border-bottom:1px solid #ffffff18}
 .phone-top h4{margin:0}.phone-three{display:grid;place-items:center;width:34px;height:34px;border:1px solid #ffffff24;border-radius:50%;font-size:23px;color:#d9f2e6}
 .mock-chats{display:grid;gap:13px}.mock-chat{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #ffffff12}
@@ -295,18 +294,12 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .app-screen{display:none;min-height:68vh}.app-screen.active{display:block;animation:app-open .48s cubic-bezier(.2,.8,.2,1)}
 @keyframes app-open{from{opacity:0;transform:translateY(14px) scale(.992);filter:blur(5px)}to{opacity:1;transform:none;filter:none}}
 .app-shell{max-width:1160px;margin:0 auto;padding:0 18px}
-.sound-button{border:1px solid var(--line);border-radius:99px;background:var(--cell);color:var(--ink);padding:7px 11px;font:500 12px var(--sans);cursor:pointer;white-space:nowrap}
 .local-time-card{display:flex;align-items:center;justify-content:space-between;gap:18px;max-width:560px;margin:0 auto 10px;padding:18px 22px;border:1px solid var(--line);border-radius:22px;background:var(--card);backdrop-filter:blur(16px);box-shadow:0 20px 50px -35px var(--focus);text-align:left}
 .time-copy{display:grid;gap:2px;min-width:0}.time-kicker{font:600 11px var(--mono);letter-spacing:.13em;color:var(--muted)}
 #visitorTime{font:600 clamp(30px,6vw,44px)/1.05 var(--mono);letter-spacing:-.06em;font-variant-numeric:tabular-nums}
 #visitorCountry{font-weight:600;font-size:15px}.time-date{font-size:13px;color:var(--muted)}
 .time-zone{flex:none;text-align:right;color:var(--muted);font:500 11px/1.5 var(--mono);letter-spacing:.06em;max-width:150px;overflow-wrap:anywhere}
 .location-disclosure{max-width:520px;margin:0 auto 24px;color:var(--muted);font-size:12px;line-height:1.45}
-.music-panel{position:fixed;right:18px;bottom:18px;z-index:80;width:min(360px,calc(100vw - 28px));padding:12px;border:1px solid var(--line);border-radius:20px;background:var(--card);backdrop-filter:blur(18px);box-shadow:0 20px 70px -24px rgba(0,0,0,.55)}
-.music-panel[hidden]{display:none}.music-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 4px 9px;font-size:13px}
-.music-panel-head button{border:1px solid var(--line);border-radius:99px;padding:4px 10px;background:var(--cell);color:var(--ink);font:inherit;cursor:pointer}
-.music-panel iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#08090c}
-.music-credit{margin:7px 3px 0;color:var(--muted);font-size:11px}
 .local-time-card + .location-disclosure + h1{margin-top:8px}
 #screen-ai,#screen-bot{max-width:1040px;margin:0 auto;padding:72px 18px 0}
 .app-kicker{font:500 12px var(--mono);letter-spacing:.11em;color:var(--muted);margin-bottom:12px}
@@ -331,12 +324,12 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .live-dot{display:inline-block;width:9px;height:9px;margin-right:8px;border-radius:50%;background:var(--muted)}
 .live-dot.up{background:var(--ok);box-shadow:0 0 0 5px color-mix(in srgb,var(--ok) 15%,transparent)}
 .live-dot.down{background:var(--bad)}
-@media(max-width:680px){nav{top:8px;margin-top:8px}.pill{gap:8px;padding:7px 8px 7px 12px}.pill .status{display:none}.sound-button{font-size:11px;padding:6px 9px}.app-dock{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:0 12px}.app-shortcut{display:grid;justify-items:center;gap:7px;padding:11px 5px;text-align:center;border-radius:17px}.app-glyph{width:38px;height:38px;border-radius:12px}.app-copy b{font-size:12px}.app-copy small{display:none}.verified-badge{flex-wrap:wrap;justify-content:center;gap:6px}.verified-note{flex-basis:100%}.app-shell{padding:0 10px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-window{min-height:250px}}
-@media(max-width:680px){.local-time-card{padding:15px 16px}.time-zone{font-size:9px;max-width:105px}.official-guide{grid-template-columns:1fr;padding:15px}.music-panel{right:10px;bottom:10px}}
-@media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}.phone-demo-mark,.phone-three{animation:none!important}}
+@media(max-width:680px){nav{top:8px;margin-top:8px}.pill{gap:8px;padding:7px 8px 7px 12px}.pill .status{display:none}.app-dock{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:0 12px}.app-shortcut{display:grid;justify-items:center;gap:7px;padding:11px 5px;text-align:center;border-radius:17px}.app-glyph{width:38px;height:38px;border-radius:12px}.app-copy b{font-size:12px}.app-copy small{display:none}.verified-badge{flex-wrap:wrap;justify-content:center;gap:6px}.verified-note{flex-basis:100%}.app-shell{padding:0 10px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-window{min-height:250px}}
+@media(max-width:680px){.local-time-card{padding:15px 16px}.time-zone{font-size:9px;max-width:105px}.official-guide{grid-template-columns:1fr;padding:15px}}
+@media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}.phone-three{animation:none!important}}
 </style>
 <style id="pairing-simulator-upgrade">
-/* Guided phone mockup: familiar WhatsApp colors, always marked as a simulation. */
+/* Guided phone mockup: familiar WhatsApp colors and clearly labeled sample content. */
 .brand-bot-image{display:block;width:28px;height:28px;flex:none;object-fit:cover;border-radius:50%;border:1px solid color-mix(in srgb,var(--o3) 65%,white);box-shadow:0 0 16px color-mix(in srgb,var(--o3) 40%,transparent)}
 .phone{--wa-green:#075e54;--wa-light:#25d366;background:#f3f1e9;color:#17211c;border-color:#1d2423;box-shadow:0 44px 90px -30px rgba(30,80,65,.45),0 0 0 1px rgba(255,255,255,.08)}
 .scr{background:#f3f1e9;color:#17211c}
@@ -366,7 +359,6 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .demo-code-cells i{display:grid;place-items:center;min-width:0;height:31px;border:1px solid #d9e3dc;border-radius:6px;background:#f8fbf9;color:#97a69d;font:600 17px/1 var(--mono);font-style:normal;animation:demoCellFocus 2.4s ease-in-out infinite;animation-delay:calc(var(--cell-index)*.16s)}
 .demo-code small{display:block;margin-top:8px;color:#a54a1c;text-align:center;font:700 8px/1.3 var(--sans);letter-spacing:.09em}
 @keyframes demoCellFocus{0%,13%,100%{border-color:#d9e3dc;background:#f8fbf9;color:#97a69d;box-shadow:none}4%,10%{border-color:#25a66a;background:#e8f7ee;color:#087b4b;box-shadow:0 0 0 2px #25d36624}}
-.phone-demo-mark{background:#4b3511;color:#ffe4a3;box-shadow:0 4px 14px #0005}
 .sim-pointer-ring{position:absolute;z-index:6;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:34px;height:34px;border:2px solid #25d366;border-radius:50%;box-shadow:0 0 0 5px #25d36635;transform:translate(-50%,-50%);pointer-events:none;animation:simPointerPulse 1.25s ease-out infinite}
 .sim-pointer{position:absolute;z-index:8;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:26px;height:32px;transform:translate(-3px,-4px);pointer-events:none;filter:drop-shadow(0 2px 2px #0009);transition:left .65s cubic-bezier(.2,.8,.2,1),top .65s cubic-bezier(.2,.8,.2,1);animation:simCursorTap 1.25s ease-in-out infinite}
 .phone[data-pointer-ready="false"] .sim-pointer,.phone[data-pointer-ready="false"] .sim-pointer-ring{visibility:hidden}
@@ -382,16 +374,11 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 <body>
 <div id="sp"></div><div id="spot"></div><canvas id="net" aria-hidden="true"></canvas><canvas id="fx" aria-hidden="true"></canvas>
 <div id="toast" role="status"></div><div class="hudc" aria-hidden="true"><span>NEURAL-LINK // ONLINE</span><span id="hudt"></span></div>
-<aside class="music-panel" id="musicPanel" hidden aria-label="MADEAWISH background music player">
-  <div class="music-panel-head"><b>MADEAWISH · KEVNN C.</b><button id="musicClose" type="button" aria-label="Close music player">Close</button></div>
-  <div id="musicFrame"></div>
-  <p class="music-credit">Starts with your first touch, click, or scroll gesture · loops while open · tap Play here if your browser blocks autoplay.</p>
-</aside>
+<audio id="backgroundMusic" src="/assets/madeawish.mp3" preload="none" loop aria-hidden="true"></audio>
 <nav><div class="pill">
   <a class="logo" href="#top"><img class="brand-bot-image" src="https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000" alt=""><span id="brand">ZEN X</span></a>
   <div class="links"><a href="#how">How it works</a><a href="#faq">FAQ</a></div>
   <div class="status"><i></i>ZEN X workspace</div>
-  <button class="sound-button" id="musicToggle" type="button" aria-pressed="false" title="Play the MADEAWISH YouTube soundtrack">Play MADEAWISH</button>
 </div></nav>
 
 <div class="app-dock" role="tablist" aria-label="ZEN X apps">
@@ -459,7 +446,6 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
       <button class="ds"><b>5 · Enter your real code</b><span>Use only the one-time code shown in the pairing panel above.</span><i></i></button>
     </div>
     <div class="phone" id="phoneDemo" data-step="0" role="img" aria-label="Illustrated WhatsApp-style phone guide. The sample code is not real.">
-      <div class="phone-demo-mark">SIMULATION · NOT CONNECTED</div>
       <div class="phone-statusbar" aria-hidden="true"><span id="phoneClock">--:--</span><span class="phone-status-icons">●●● &nbsp;▰ <i class="phone-status-battery"></i></span></div>
       <div class="sim-pointer-ring" aria-hidden="true"></div>
       <div class="sim-pointer" id="simPointer" aria-hidden="true"><svg viewBox="0 0 32 40"><path d="M4 2v29l8-8 6 13 5-2-6-13h11L4 2Z" fill="#fff" stroke="#10231a" stroke-width="2" stroke-linejoin="round"/></svg></div>
@@ -904,30 +890,27 @@ async function refreshBotStatus(){
 }
 $("statusRefresh").addEventListener("click",refreshBotStatus);
 
-/* YouTube soundtrack: start on the first real user gesture (browser audio policy). */
-const MUSIC_VIDEO_ID="XUrmskUYoas";
-const musicPanel=$("musicPanel"),musicFrame=$("musicFrame"),musicToggle=$("musicToggle");
+/* Start the hosted audio file on the first trusted user gesture and keep it looping. */
+const backgroundMusic=$("backgroundMusic");
 let musicGestureArmed=true;
-const musicGestureEvents=["pointerdown","touchstart","wheel","scroll","keydown"];
-function disarmMusicGesture(){if(!musicGestureArmed)return;for(const type of musicGestureEvents)window.removeEventListener(type,startMusicOnGesture);musicGestureArmed=false}
-function stopMusic(){disarmMusicGesture();musicFrame.replaceChildren();musicPanel.hidden=true;musicToggle.textContent="Play MADEAWISH";musicToggle.setAttribute("aria-pressed","false")}
-function startMusic(){
-  if(!musicPanel.hidden)return;
-  disarmMusicGesture();
-  const iframe=document.createElement("iframe"),query=new URLSearchParams({autoplay:"1",controls:"1",loop:"1",playlist:MUSIC_VIDEO_ID,playsinline:"1",rel:"0"});
-  iframe.src=`https://www.youtube-nocookie.com/embed/${MUSIC_VIDEO_ID}?${query}`;
-  iframe.title="MADEAWISH by KEVNN C. — YouTube music player";
-  iframe.allow="autoplay; encrypted-media; picture-in-picture; clipboard-write";
-  iframe.referrerPolicy="strict-origin-when-cross-origin";iframe.allowFullscreen=true;
-  musicFrame.replaceChildren(iframe);musicPanel.hidden=false;musicToggle.textContent="Stop MADEAWISH";musicToggle.setAttribute("aria-pressed","true");
+let musicStartPending=false;
+const musicGestureEvents=["pointerdown","touchstart","click","keydown"];
+function disarmMusicGesture(){
+  if(!musicGestureArmed)return;
+  for(const type of musicGestureEvents)document.removeEventListener(type,startMusicOnGesture,true);
+  musicGestureArmed=false;
 }
 function startMusicOnGesture(event){
-  if(event.target instanceof Element&&event.target.closest("#musicPanel,#musicToggle"))return;
-  startMusic();
+  if(!event.isTrusted||!musicGestureArmed||musicStartPending)return;
+  musicStartPending=true;
+  try{
+    const playback=backgroundMusic.play();
+    if(playback&&typeof playback.then==="function")playback.then(disarmMusicGesture).catch(()=>{musicStartPending=false});
+    else disarmMusicGesture();
+  }catch{musicStartPending=false}
 }
-for(const type of musicGestureEvents)window.addEventListener(type,startMusicOnGesture,{passive:true});
-musicToggle.addEventListener("click",()=>musicPanel.hidden?startMusic():stopMusic());
-$("musicClose").addEventListener("click",stopMusic);
+for(const type of musicGestureEvents)document.addEventListener(type,startMusicOnGesture,{capture:true,passive:true});
+backgroundMusic.addEventListener("error",()=>console.warn("Background music file unavailable: add the licensed track at /assets/madeawish.mp3."));
 showApp(initialScreen);
 </script>
 </body>
