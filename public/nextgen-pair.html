@@ -336,7 +336,7 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 <aside class="music-panel" id="musicPanel" hidden aria-label="MADEAWISH background music player">
   <div class="music-panel-head"><b>MADEAWISH · KEVNN C.</b><button id="musicClose" type="button" aria-label="Close music player">Close</button></div>
   <div id="musicFrame"></div>
-  <p class="music-credit">YouTube player · loops while open · tap Play in the player if your browser blocks autoplay.</p>
+  <p class="music-credit">Starts with your first touch, click, or scroll gesture · loops while open · tap Play here if your browser blocks autoplay.</p>
 </aside>
 <nav><div class="pill">
   <a class="logo" href="#top"><span class="dot"></span><span id="brand">ZEN X</span></a>
@@ -822,11 +822,16 @@ async function refreshBotStatus(){
 }
 $("statusRefresh").addEventListener("click",refreshBotStatus);
 
-/* YouTube soundtrack: start only after the visitor presses Play (browser audio policy). */
+/* YouTube soundtrack: start on the first real user gesture (browser audio policy). */
 const MUSIC_VIDEO_ID="XUrmskUYoas";
 const musicPanel=$("musicPanel"),musicFrame=$("musicFrame"),musicToggle=$("musicToggle");
-function stopMusic(){musicFrame.replaceChildren();musicPanel.hidden=true;musicToggle.textContent="Play MADEAWISH";musicToggle.setAttribute("aria-pressed","false")}
+let musicGestureArmed=true;
+const musicGestureEvents=["pointerdown","touchstart","wheel","keydown"];
+function disarmMusicGesture(){if(!musicGestureArmed)return;for(const type of musicGestureEvents)window.removeEventListener(type,startMusicOnGesture);musicGestureArmed=false}
+function stopMusic(){disarmMusicGesture();musicFrame.replaceChildren();musicPanel.hidden=true;musicToggle.textContent="Play MADEAWISH";musicToggle.setAttribute("aria-pressed","false")}
 function startMusic(){
+  if(!musicPanel.hidden)return;
+  disarmMusicGesture();
   const iframe=document.createElement("iframe"),query=new URLSearchParams({autoplay:"1",controls:"1",loop:"1",playlist:MUSIC_VIDEO_ID,playsinline:"1",rel:"0"});
   iframe.src=`https://www.youtube-nocookie.com/embed/${MUSIC_VIDEO_ID}?${query}`;
   iframe.title="MADEAWISH by KEVNN C. — YouTube music player";
@@ -834,6 +839,11 @@ function startMusic(){
   iframe.referrerPolicy="strict-origin-when-cross-origin";iframe.allowFullscreen=true;
   musicFrame.replaceChildren(iframe);musicPanel.hidden=false;musicToggle.textContent="Stop MADEAWISH";musicToggle.setAttribute("aria-pressed","true");
 }
+function startMusicOnGesture(event){
+  if(event.target instanceof Element&&event.target.closest("#musicPanel,#musicToggle"))return;
+  startMusic();
+}
+for(const type of musicGestureEvents)window.addEventListener(type,startMusicOnGesture,{passive:true});
 musicToggle.addEventListener("click",()=>musicPanel.hidden?startMusic():stopMusic());
 $("musicClose").addEventListener("click",stopMusic);
 showApp(initialScreen);
