@@ -176,6 +176,23 @@ header.hero>.lead{animation-delay:.55s}header.hero>.prompt{animation-delay:.7s}h
 .scr{position:absolute;inset:0;padding:54px 18px 18px;opacity:0;transform:translateX(34px) scale(.98);transition:.55s cubic-bezier(.2,.8,.2,1);pointer-events:none}
 .scr.on{opacity:1;transform:none}
 .phone h4{margin:0 0 16px;font-size:21px;font-weight:600}
+.phone-demo-mark{position:absolute;z-index:5;top:36px;left:50%;transform:translateX(-50%);white-space:nowrap;padding:3px 8px;border:1px solid #ffc85788;border-radius:99px;background:#4b3511;color:#ffe4a3;font:600 9px var(--mono);letter-spacing:.06em}
+.phone-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:11px;border-bottom:1px solid #ffffff18}
+.phone-top h4{margin:0}.phone-three{display:grid;place-items:center;width:34px;height:34px;border:1px solid #ffffff24;border-radius:50%;font-size:23px;color:#d9f2e6}
+.mock-chats{display:grid;gap:13px}.mock-chat{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #ffffff12}
+.mock-avatar{width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#238b6c,#2757a4);font-size:13px;font-weight:700}
+.mock-chat-copy{min-width:0;display:grid}.mock-chat-copy b{font-size:13px}.mock-chat-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9da4a8;font-size:11px}
+.phone-menu{display:grid;gap:3px;padding:9px;border:1px solid #ffffff18;border-radius:16px;background:#1b2224;box-shadow:0 18px 35px #0008}
+.phone-menu-item{display:flex;justify-content:space-between;gap:12px;padding:9px;border-radius:9px;color:#e1e6e3;font-size:12px}.phone-menu-item.hl{background:#25473b;color:#c9ffe5}
+.phone-note{margin:13px 0;padding:10px;border:1px solid #ffffff19;border-radius:12px;color:#b8c3c0;font-size:12px;line-height:1.5}
+.phone-choice{padding:11px;border-radius:12px;background:#214f3f;color:#e5fff2;font-size:12px;text-align:center;font-weight:600}
+.phone-link{margin-top:12px;color:#8ff0c0;font-size:12px;text-align:center;text-decoration:underline;text-underline-offset:3px}
+.demo-code{margin:18px 0 8px;padding:14px 8px;border:1px dashed #ffd36a;border-radius:13px;background:#352a15;color:#ffe9af;text-align:center;font:700 18px var(--mono);letter-spacing:.09em}
+.demo-code small{display:block;margin-top:3px;font:600 9px var(--sans);letter-spacing:.12em}
+.demo-label{display:inline-block;margin:-3px 0 20px;padding:6px 11px;border:1px solid color-mix(in srgb,var(--focus) 34%,var(--line));border-radius:99px;color:var(--muted);font-size:12px}
+.official-guide{display:grid;grid-template-columns:minmax(190px,.75fr) minmax(260px,1.25fr);gap:22px;align-items:center;margin:34px 0 10px;padding:20px;border:1px solid var(--line);border-radius:22px;background:var(--card)}
+.official-guide h3{margin:7px 0;font-size:18px}.official-guide p{margin:0;color:var(--muted);font-size:13px}.guide-tag{font:600 10px var(--mono);letter-spacing:.1em;color:var(--focus)}
+.guide-frame{aspect-ratio:16/9;overflow:hidden;border-radius:14px;background:#090a0e}.guide-frame iframe{width:100%;height:100%;border:0}
 .li{padding:13px 8px;border-bottom:1px solid #ffffff14;font-size:14.5px;color:#c9cbd3}
 .li.hl{color:#fff;font-weight:600;border-radius:12px;animation:glowrow 1.4s ease-in-out infinite}
 @keyframes glowrow{50%{background:rgba(53,208,198,.2)}}
@@ -232,6 +249,10 @@ kbd{font-family:var(--mono);font-size:12px;padding:1px 7px;border:1px solid var(
 .bot.scan .eyes{animation:scn 1.3s ease-in-out infinite}
 @keyframes scn{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
 .bot.happy .eye{animation:none;transform:scaleY(.3)}
+.bot.angry{--o3:#ff5364}.bot.angry .rb{animation:angryShake .22s ease-in-out 5;color:#ff5364}
+.bot.angry .eye{fill:#ff5364;filter:drop-shadow(0 0 6px #ff5364);animation:none;transform:scaleY(1.22)}
+.bot.angry .eyes{transform:translateY(2px) scaleY(.78)}.bot.angry .ant{fill:#ff5364;filter:drop-shadow(0 0 5px #ff5364)}
+@keyframes angryShake{25%{translate:-3px 0}75%{translate:3px 0}}
 .v-done .rb{width:54px;height:54px}
 .dhead{display:flex;align-items:center;gap:14px;margin-bottom:4px}
 .dhead b{display:block;font-size:19px;font-weight:600}.dhead span{color:var(--muted);font-size:14px}
@@ -269,6 +290,18 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 @keyframes app-open{from{opacity:0;transform:translateY(14px) scale(.992);filter:blur(5px)}to{opacity:1;transform:none;filter:none}}
 .app-shell{max-width:1160px;margin:0 auto;padding:0 18px}
 .sound-button{border:1px solid var(--line);border-radius:99px;background:var(--cell);color:var(--ink);padding:7px 11px;font:500 12px var(--sans);cursor:pointer;white-space:nowrap}
+.local-time-card{display:flex;align-items:center;justify-content:space-between;gap:18px;max-width:560px;margin:0 auto 10px;padding:18px 22px;border:1px solid var(--line);border-radius:22px;background:var(--card);backdrop-filter:blur(16px);box-shadow:0 20px 50px -35px var(--focus);text-align:left}
+.time-copy{display:grid;gap:2px;min-width:0}.time-kicker{font:600 11px var(--mono);letter-spacing:.13em;color:var(--muted)}
+#visitorTime{font:600 clamp(30px,6vw,44px)/1.05 var(--mono);letter-spacing:-.06em;font-variant-numeric:tabular-nums}
+#visitorCountry{font-weight:600;font-size:15px}.time-date{font-size:13px;color:var(--muted)}
+.time-zone{flex:none;text-align:right;color:var(--muted);font:500 11px/1.5 var(--mono);letter-spacing:.06em;max-width:150px;overflow-wrap:anywhere}
+.location-disclosure{max-width:520px;margin:0 auto 24px;color:var(--muted);font-size:12px;line-height:1.45}
+.music-panel{position:fixed;right:18px;bottom:18px;z-index:80;width:min(360px,calc(100vw - 28px));padding:12px;border:1px solid var(--line);border-radius:20px;background:var(--card);backdrop-filter:blur(18px);box-shadow:0 20px 70px -24px rgba(0,0,0,.55)}
+.music-panel[hidden]{display:none}.music-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 4px 9px;font-size:13px}
+.music-panel-head button{border:1px solid var(--line);border-radius:99px;padding:4px 10px;background:var(--cell);color:var(--ink);font:inherit;cursor:pointer}
+.music-panel iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#08090c}
+.music-credit{margin:7px 3px 0;color:var(--muted);font-size:11px}
+.local-time-card + .location-disclosure + h1{margin-top:8px}
 #screen-ai,#screen-bot{max-width:1040px;margin:0 auto;padding:72px 18px 0}
 .app-kicker{font:500 12px var(--mono);letter-spacing:.11em;color:var(--muted);margin-bottom:12px}
 .app-panel{border:1px solid var(--line);border-radius:26px;background:var(--card);backdrop-filter:blur(18px);box-shadow:0 24px 60px -38px rgba(35,25,70,.42);padding:clamp(18px,3vw,28px)}
@@ -293,17 +326,23 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .live-dot.up{background:var(--ok);box-shadow:0 0 0 5px color-mix(in srgb,var(--ok) 15%,transparent)}
 .live-dot.down{background:var(--bad)}
 @media(max-width:680px){nav{top:8px;margin-top:8px}.pill{gap:8px;padding:7px 8px 7px 12px}.pill .status{display:none}.sound-button{font-size:11px;padding:6px 9px}.app-dock{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:0 12px}.app-shortcut{display:grid;justify-items:center;gap:7px;padding:11px 5px;text-align:center;border-radius:17px}.app-glyph{width:38px;height:38px;border-radius:12px}.app-copy b{font-size:12px}.app-copy small{display:none}.verified-badge{flex-wrap:wrap;justify-content:center;gap:6px}.verified-note{flex-basis:100%}.app-shell{padding:0 10px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-window{min-height:250px}}
-@media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}}
+@media(max-width:680px){.local-time-card{padding:15px 16px}.time-zone{font-size:9px;max-width:105px}.official-guide{grid-template-columns:1fr;padding:15px}.music-panel{right:10px;bottom:10px}}
+@media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}.phone-demo-mark,.phone-three{animation:none!important}}
 </style>
 </head>
 <body>
 <div id="sp"></div><div id="spot"></div><canvas id="net" aria-hidden="true"></canvas><canvas id="fx" aria-hidden="true"></canvas>
 <div id="toast" role="status"></div><div class="hudc" aria-hidden="true"><span>NEURAL-LINK // ONLINE</span><span id="hudt"></span></div>
+<aside class="music-panel" id="musicPanel" hidden aria-label="MADEAWISH background music player">
+  <div class="music-panel-head"><b>MADEAWISH · KEVNN C.</b><button id="musicClose" type="button" aria-label="Close music player">Close</button></div>
+  <div id="musicFrame"></div>
+  <p class="music-credit">YouTube player · loops while open · tap Play in the player if your browser blocks autoplay.</p>
+</aside>
 <nav><div class="pill">
   <a class="logo" href="#top"><span class="dot"></span><span id="brand">ZEN X</span></a>
   <div class="links"><a href="#how">How it works</a><a href="#faq">FAQ</a></div>
   <div class="status"><i></i>ZEN X workspace</div>
-  <button class="sound-button" id="musicToggle" type="button" aria-pressed="false" title="Ambient sound starts after your first scroll">Sound: Auto</button>
+  <button class="sound-button" id="musicToggle" type="button" aria-pressed="false" title="Play the MADEAWISH YouTube soundtrack">Play MADEAWISH</button>
 </div></nav>
 
 <div class="app-dock" role="tablist" aria-label="ZEN X apps">
@@ -326,6 +365,11 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
     <span class="verified-shield" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.8 19.2 5v5.7c0 4.7-2.9 8.2-7.2 10.5-4.3-2.3-7.2-5.8-7.2-10.5V5L12 2.8Z"/><path d="m8.5 11.8 2.3 2.3 4.8-5"/></svg></span>
     <b>ZEN X Verified</b><span class="verified-note">Official ZEN X website</span>
   </div>
+  <section class="local-time-card" aria-label="Your local country time">
+    <div class="time-copy"><span class="time-kicker">YOUR LOCAL TIME · 12-HOUR</span><b id="visitorTime">--:--:-- AM</b><span id="visitorCountry">Detecting your country…</span><span class="time-date" id="visitorDate">Loading your local date…</span></div>
+    <span class="time-zone" id="visitorZone">Finding timezone</span>
+  </section>
+  <p class="location-disclosure">Country and timezone are estimated from your IP through public lookup services, with your browser’s locale and timezone as fallbacks. This page never requests GPS location.</p>
   <h1>Link your WhatsApp to the future.</h1>
   <p class="lead">Type your number and watch the pairing core wake up. You get a one-time code and a guided phone walkthrough, all in one place.</p>
 
@@ -354,22 +398,56 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
   <div class="chips"><span>Under a minute</span><span>One-time code</span><span>Native WhatsApp linking</span></div>
 </header>
 <section id="demo">
-  <h2>Now, on your phone</h2>
-  <p class="sub">Follow along step by step. When your code is ready it appears right on this phone screen.</p>
+  <h2>Walk through the phone steps</h2>
+  <p class="sub">A tap-through guide to the chat menu, Linked devices, and phone-number code entry.</p>
+  <span class="demo-label">Illustration only · not a live WhatsApp screen · sample code cannot pair an account</span>
   <div class="demo">
     <div class="dsteps">
-      <button class="ds on"><b>1 · Open Settings</b><span>Settings on iPhone, or the ⋮ menu on Android.</span><i></i></button>
-      <button class="ds"><b>2 · Linked devices</b><span>Choose Linked devices, then Link a device.</span><i></i></button>
-      <button class="ds"><b>3 · Use your number</b><span>Tap “Link with phone number instead”.</span><i></i></button>
-      <button class="ds"><b>4 · Type the code</b><span>Enter the 8 characters from this page.</span><i></i></button>
+      <button class="ds on"><b>1 · Start in Chats</b><span>Open WhatsApp on the phone that owns the account.</span><i></i></button>
+      <button class="ds"><b>2 · Open Linked devices</b><span>On Android, tap ⋮ then Linked devices. On iPhone, use Settings.</span><i></i></button>
+      <button class="ds"><b>3 · Tap Link a device</b><span>Unlock the phone if WhatsApp asks you to confirm.</span><i></i></button>
+      <button class="ds"><b>4 · Choose phone number</b><span>Tap “Link with phone number instead”.</span><i></i></button>
+      <button class="ds"><b>5 · Enter your real code</b><span>Use only the one-time code shown in the pairing panel above.</span><i></i></button>
     </div>
-    <div class="phone" aria-hidden="true">
-      <div class="scr on"><h4>Settings</h4><div class="li">Account</div><div class="li hl">Linked devices</div><div class="li">Privacy</div><div class="li">Chats</div><div class="li">Notifications</div></div>
-      <div class="scr"><h4>Linked devices</h4><div class="ghost">No devices linked yet</div><div class="pbtn">Link a device</div></div>
-      <div class="scr"><h4>Link a device</h4><div class="qr"></div><div class="lnk">Link with phone number instead</div></div>
-      <div class="scr"><h4>Enter code</h4><div class="ghost" style="margin:6px 0 0;text-align:left">Type the 8-character code</div><div class="boxes" id="bx"></div></div>
+    <div class="phone" role="img" aria-label="Nonfunctional sample phone walkthrough. The demo code is not valid.">
+      <div class="phone-demo-mark">SIMULATION · NOT CONNECTED</div>
+      <div class="scr on">
+        <div class="phone-top"><h4>Chats</h4><span class="phone-three">⋮</span></div>
+        <div class="mock-chats">
+          <div class="mock-chat"><span class="mock-avatar">M</span><span class="mock-chat-copy"><b>Maya</b><span>See you soon 👋</span></span></div>
+          <div class="mock-chat"><span class="mock-avatar">J</span><span class="mock-chat-copy"><b>Jordan</b><span>Thanks for the update</span></span></div>
+          <div class="mock-chat"><span class="mock-avatar">G</span><span class="mock-chat-copy"><b>Weekend group</b><span>Alex: Sounds good</span></span></div>
+        </div>
+      </div>
+      <div class="scr">
+        <div class="phone-top"><h4>Chat menu</h4><span class="phone-three">⋮</span></div>
+        <div class="phone-menu"><div class="phone-menu-item">New group <span>＋</span></div><div class="phone-menu-item">Starred messages</div><div class="phone-menu-item hl">Linked devices <span>›</span></div><div class="phone-menu-item">Settings</div></div>
+        <p class="phone-note">On iPhone, open WhatsApp Settings to find Linked devices.</p>
+      </div>
+      <div class="scr">
+        <div class="phone-top"><h4>Linked devices</h4><span>‹</span></div>
+        <p class="phone-note">Use WhatsApp on other devices while keeping your main phone available.</p>
+        <div class="phone-choice">＋ &nbsp; Link a device</div>
+      </div>
+      <div class="scr">
+        <div class="phone-top"><h4>Link a device</h4><span>‹</span></div>
+        <div class="qr" aria-hidden="true"></div>
+        <div class="phone-link">Link with phone number instead</div>
+        <p class="phone-note">Choose the phone-number option to enter the real one-time code.</p>
+      </div>
+      <div class="scr">
+        <div class="phone-top"><h4>Enter code</h4><span>‹</span></div>
+        <p class="phone-note">This sample is only here to show where a code entry screen appears.</p>
+        <div class="demo-code">DEMO ONLY<small>NOT A REAL CODE</small></div>
+        <p class="phone-note">Never share your real pairing code with anyone.</p>
+      </div>
     </div>
   </div>
+  <aside class="official-guide">
+    <div><span class="guide-tag">OFFICIAL WHATSAPP VIDEO</span><h3>How to link a device</h3><p>This official overview explains WhatsApp Linked devices. It demonstrates scanning a QR; the phone-number route is shown in the illustration above.</p></div>
+    <div class="guide-frame"><iframe title="WhatsApp official guide to linking a device" src="https://www.youtube-nocookie.com/embed/2PzIAa3M8rM?rel=0" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+  </aside>
+  <p class="app-note"><a href="https://www.youtube.com/watch?v=2PzIAa3M8rM" target="_blank" rel="noopener noreferrer">Open the official video on YouTube ↗</a></p>
 </section>
 <div class="marq" aria-hidden="true"><div><span>No QR scan</span><span>One-time pairing code</span><span>Works on iPhone and Android</span><span>Uses WhatsApp’s Linked devices</span><span>Ready in under a minute</span><span>Press / to jump to the input</span><span>No QR scan</span><span>One-time pairing code</span><span>Works on iPhone and Android</span><span>Uses WhatsApp’s Linked devices</span><span>Ready in under a minute</span><span>Press / to jump to the input</span></div></div>
 
@@ -482,7 +560,7 @@ const SEQ=[
 ];
 const setStat=t=>{$("tstat").textContent=t};
 const setPct=v=>{$("tprog").style.width=v+"%";$("gc").style.strokeDashoffset=CIRC*(1-v/100);$("gt").textContent=Math.round(v)+"%"};
-const botState=st=>document.querySelectorAll(".bot").forEach(b=>{b.classList.remove("scan","happy");if(st)b.classList.add(st)});
+const botState=st=>document.querySelectorAll(".bot").forEach(b=>{b.classList.remove("scan","happy","angry");if(st)b.classList.add(st)});
 const trim=()=>{while(tlog.children.length>9)tlog.firstChild.remove()};
 async function line(tag,text,ok,cls){
   const d=document.createElement("div"); d.innerHTML=`<span class="t-tag">[${tag}]</span> <span class="tx ${cls||""}"></span>`; tlog.appendChild(d); trim();
@@ -495,8 +573,36 @@ function morph(to){
   form.style.height="auto"; const h1=form.offsetHeight; form.style.height=h0+"px"; void form.offsetHeight; form.style.height=h1+"px";
   return sleep(420).then(()=>{form.style.height="";form.style.overflow=""});
 }
-function setPhoneCode(code){[...$("bx").children].forEach((b,k)=>b.textContent=code[k]||"")}
+function setPhoneCode(){const sample=$("demoCode");if(sample)sample.textContent="DEMO ONLY"}
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2000)}
+
+const PAIR_HTTP_MESSAGES={
+ 400:"That number format was rejected. Add the country code and enter digits only.",
+ 401:"The pairing service could not verify this request. Refresh the page and try again.",
+ 403:"The server refused this pairing request. Check access and try again later.",
+ 404:"The pairing route is unavailable. Refresh the page or contact ZEN X support.",
+ 409:"This number already has an active bot session. Use its existing session or remove it before pairing again.",
+ 422:"WhatsApp could not use this number for device linking. Check the account and retry.",
+ 429:"Pairing requests are temporarily limited. Wait a few minutes before trying again.",
+ 500:"The pairing server hit an internal error. Wait a moment and try again.",
+ 502:"The pairing gateway did not get a valid response. Try again shortly.",
+ 503:"The pairing service is temporarily unavailable or restarting. Try again shortly.",
+ 504:"The pairing service took too long to respond. Try again in a moment."
+};
+function makePairError(status,payload={}){
+  const raw=String(payload.error||payload.message||"");
+  const alreadyConnected=payload.connected===true||/already (?:exists|connected)|active session/i.test(raw)||String(payload.code||"").toUpperCase()==="ALREADY_CONNECTED";
+  const code=alreadyConnected?409:Number(status)||502;
+  const error=new Error(PAIR_HTTP_MESSAGES[code]||`The pairing service returned an unexpected response (HTTP ${code}). Try again later.`);
+  error.status=code;
+  return error;
+}
+function explainPairError(error){
+  if(error?.status)return error.message;
+  if(error?.name==="AbortError")return "The pairing request took too long. Check your connection and try again.";
+  if(error instanceof TypeError)return "Could not reach the pairing server. Check your internet connection and try again.";
+  return error?.message||"The pairing request could not finish. Please try again.";
+}
 
 form.addEventListener("submit",async e=>{
   e.preventDefault(); if(busy) return; $("err").textContent="";
@@ -511,9 +617,10 @@ form.addEventListener("submit",async e=>{
     const slot=pathSlot?.[1]||new URLSearchParams(location.search).get("slot");
     if(slot) params.set("slot",slot);
     const res=await fetch(CONFIG.apiUrl+"?"+params.toString(),{cache:"no-store",headers:{Accept:"application/json"}});
-    if(!res.ok) throw new Error("server answered "+res.status);
-    const d=await res.json(); const c=String(d.code||d.pairingCode||"").replace(/[^a-z0-9]/gi,"").toUpperCase();
-    if(!c) throw new Error(d.error||"no code returned"); return c;
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok) throw makePairError(res.status,d);
+    const c=String(d.code||d.pairingCode||"").replace(/[^a-z0-9]/gi,"").toUpperCase();
+    if(!c) throw makePairError(d.statusCode||d.httpStatus||0,d); return c;
   })();
   req.catch(()=>{});
   await morph("vTerm");
@@ -529,9 +636,11 @@ form.addEventListener("submit",async e=>{
     if(location.protocol==="file:") $("dsub").textContent="Preview: this is a sample code, not a real one";
     scrollTo({top:Math.max(0,form.getBoundingClientRect().top+scrollY-92),behavior:"smooth"});
   }catch(ex){
-    setStat("FAILED"); botState(""); await line("err",ex.message,false,"t-e"); await sleep(1700);
+    const message=ex instanceof TypeError&&location.protocol==="file:"?"Open this page from the ZEN X website to request a real pairing code.":explainPairError(ex);
+    const status=Number(ex.status)||0;
+    setStat(status?`HTTP ${status}`:"REQUEST FAILED"); botState("angry"); await line(status?`HTTP ${status}`:"error",message,false,"t-e"); await sleep(1700);
     await morph("vIn"); form.classList.remove("run");
-    $("err").textContent="Couldn’t get a code ("+ex.message+"). Check the number and try again.";
+    $("err").textContent=message;
   }finally{document.body.classList.remove("think");busy=false}
 });
 $("again2").addEventListener("click",async()=>{clearInterval(tick);document.body.classList.remove("has-code");botState("");await morph("vIn");form.classList.remove("done");$("num").focus()});
@@ -598,14 +707,13 @@ function celebrate(){
 }
 
 /* phone walkthrough */
-const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".scr")]; let dt;
-$("bx").innerHTML=[...Array(8)].map((_,k)=>`<i style="--k:${k}"></i>`).join("");
-function dgo(n){
-  ds.forEach((b,k)=>{b.classList.toggle("on",k===n);const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
+const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".phone .scr")]; let dt,walkPaused=false;
+function dgo(n,{manual=false}={}){
+  ds.forEach((b,k)=>{b.classList.toggle("on",k===n);b.setAttribute("aria-pressed",String(k===n));const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
   scr.forEach((s,k)=>s.classList.toggle("on",k===n));
-  clearTimeout(dt); dt=setTimeout(()=>dgo((n+1)%4),3800);
+  clearTimeout(dt); if(manual)walkPaused=true; if(!walkPaused)dt=setTimeout(()=>dgo((n+1)%scr.length),5000);
 }
-ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k))); dgo(0);
+ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k,{manual:true}))); setPhoneCode(); dgo(0);
 
 /* small touches */
 addEventListener("keydown",e=>{if(e.key==="/"&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){e.preventDefault();scrollTo({top:0,behavior:"smooth"});$("num").focus({preventScroll:true})}});
@@ -615,7 +723,32 @@ const T0=document.title; document.addEventListener("visibilitychange",()=>{docum
 $("copy").addEventListener("click",()=>{ if(!$("copy").disabled){$("copy").classList.remove("pulse");toast("Code copied. Paste it into WhatsApp")} });
 addEventListener("pointermove",e=>{const x=(e.clientX/innerWidth-.5)*2,y=(e.clientY/innerHeight-.5)*2;
   document.querySelectorAll(".bot").forEach(b=>{b.style.setProperty("--ex",x.toFixed(2));b.style.setProperty("--ey",y.toFixed(2))})});
-const updateHudClock=()=>{$("hudt").textContent="LOCAL TIME · "+new Date().toLocaleTimeString()};updateHudClock();setInterval(updateHudClock,1000);
+const TIME_ZONE_COUNTRY={"Africa/Lagos":"Nigeria","Africa/Accra":"Ghana","Africa/Nairobi":"Kenya","Africa/Johannesburg":"South Africa","Africa/Cairo":"Egypt","Africa/Casablanca":"Morocco","Europe/London":"United Kingdom","Europe/Paris":"France","Europe/Berlin":"Germany","Europe/Rome":"Italy","Europe/Madrid":"Spain","Europe/Moscow":"Russia","Asia/Dubai":"United Arab Emirates","Asia/Kolkata":"India","Asia/Karachi":"Pakistan","Asia/Dhaka":"Bangladesh","Asia/Tokyo":"Japan","Asia/Seoul":"South Korea","Asia/Shanghai":"China","Asia/Singapore":"Singapore","Asia/Jakarta":"Indonesia","Australia/Sydney":"Australia","Pacific/Auckland":"New Zealand","America/New_York":"United States","America/Chicago":"United States","America/Denver":"United States","America/Los_Angeles":"United States","America/Toronto":"Canada","America/Vancouver":"Canada","America/Mexico_City":"Mexico","America/Sao_Paulo":"Brazil","America/Argentina/Buenos_Aires":"Argentina"};
+const validZone=value=>{try{new Intl.DateTimeFormat("en-US",{timeZone:value});return value}catch{return""}};
+function localeCountry(){try{const region=new Intl.Locale(navigator.language).region;if(region)return new Intl.DisplayNames([navigator.language],{type:"region"}).of(region)}catch{}return""}
+let visitorTimeZone=validZone(Intl.DateTimeFormat().resolvedOptions().timeZone)||"UTC";
+let visitorCountryName=localeCountry()||TIME_ZONE_COUNTRY[visitorTimeZone]||"Your local time";
+function renderVisitorTime(){
+  const now=new Date();
+  $("visitorTime").textContent=new Intl.DateTimeFormat("en-US",{timeZone:visitorTimeZone,hour:"numeric",minute:"2-digit",second:"2-digit",hour12:true}).format(now);
+  $("visitorDate").textContent=new Intl.DateTimeFormat("en-US",{timeZone:visitorTimeZone,weekday:"long",month:"long",day:"numeric",year:"numeric"}).format(now);
+  $("visitorCountry").textContent=visitorCountryName;
+  $("visitorZone").textContent=visitorTimeZone;
+  $("hudt").textContent=visitorTimeZone+" · "+new Intl.DateTimeFormat("en-US",{timeZone:visitorTimeZone,hour:"numeric",minute:"2-digit",hour12:true}).format(now);
+}
+renderVisitorTime();setInterval(renderVisitorTime,1000);
+async function detectVisitorCountry(){
+  const providers=[
+    async signal=>{const response=await fetch("https://ipapi.co/json/",{cache:"no-store",signal});if(!response.ok)throw Error("ipapi unavailable");const data=await response.json();if(data.error||!data.country_name)throw Error("country unavailable");return{country:data.country_name,zone:data.timezone}},
+    async signal=>{const response=await fetch("https://ipwho.is/",{cache:"no-store",signal});if(!response.ok)throw Error("ipwho unavailable");const data=await response.json();if(!data.success||!data.country)throw Error("country unavailable");return{country:data.country,zone:data.timezone?.id}}
+  ];
+  for(const provider of providers){
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),2200);
+    try{const place=await provider(controller.signal);visitorCountryName=place.country;if(validZone(place.zone))visitorTimeZone=place.zone;renderVisitorTime();return}
+    catch{}finally{clearTimeout(timeout)}
+  }
+}
+detectVisitorCountry();
 
 /* App switching: pairing, Zenny AI, and aggregate bot status. */
 const appButtons=[...document.querySelectorAll(".app-shortcut")];
@@ -629,7 +762,6 @@ function showApp(screenId,{fromUser=false}={}){
     const hash={"screen-pair":"app-pair","screen-ai":"app-ai","screen-bot":"app-bot"}[screenId];
     if(hash)history.replaceState(null,"",location.pathname+location.search+"#"+hash);
     window.scrollTo({top:0,behavior:reduce?"auto":"smooth"});
-    startAmbient();
   }
   clearInterval(botRefreshTimer);botRefreshTimer=null;
   if(screenId==="screen-bot"){
@@ -683,51 +815,27 @@ async function refreshBotStatus(){
     const slotCount=Number(slots.slotCount??slots.slots?.length??0),capacity=slots.capacity;
     $("botSlots").textContent=slotCount?`${slotCount} slots${capacity?` · ${capacity} each`:""}`:"—";
     $("botCommands").textContent=String(info.commandCount??"—");
-    $("botUpdated").textContent=" · Updated "+new Date().toLocaleTimeString();
+    $("botUpdated").textContent=" · Updated "+new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
   }catch(error){
     $("botLiveDot").classList.remove("up");$("botLiveDot").classList.add("down");$("botLiveState").textContent="Could not reach the status API";$("botUpdated").textContent=" · "+error.message;
   }finally{botStatusBusy=false;$("statusRefresh").disabled=false}
 }
 $("statusRefresh").addEventListener("click",refreshBotStatus);
 
-/* Soft, original synthesized ambience loops after the visitor scrolls or taps an app.
-   Browsers require a user gesture before audio with sound can start. */
-let ambientEnabled=true,ambientStarted=false,ambientContext=null,ambientTimer=null,ambientNote=0;
-const ambientChords=[[220,164.81],[246.94,185],[196,146.83],[174.61,130.81],[196,146.83],[246.94,185]];
-try{ambientEnabled=localStorage.getItem("zenx_ambient_off")!=="1"}catch{}
-function updateMusicButton(){
-  const live=ambientEnabled&&ambientContext?.state==="running";
-  $("musicToggle").textContent=!ambientEnabled?"Sound: Off":live?"Sound: On":"Sound: Auto";
-  $("musicToggle").setAttribute("aria-pressed",String(!!live));
+/* YouTube soundtrack: start only after the visitor presses Play (browser audio policy). */
+const MUSIC_VIDEO_ID="XUrmskUYoas";
+const musicPanel=$("musicPanel"),musicFrame=$("musicFrame"),musicToggle=$("musicToggle");
+function stopMusic(){musicFrame.replaceChildren();musicPanel.hidden=true;musicToggle.textContent="Play MADEAWISH";musicToggle.setAttribute("aria-pressed","false")}
+function startMusic(){
+  const iframe=document.createElement("iframe"),query=new URLSearchParams({autoplay:"1",controls:"1",loop:"1",playlist:MUSIC_VIDEO_ID,playsinline:"1",rel:"0"});
+  iframe.src=`https://www.youtube-nocookie.com/embed/${MUSIC_VIDEO_ID}?${query}`;
+  iframe.title="MADEAWISH by KEVNN C. — YouTube music player";
+  iframe.allow="autoplay; encrypted-media; picture-in-picture; clipboard-write";
+  iframe.referrerPolicy="strict-origin-when-cross-origin";iframe.allowFullscreen=true;
+  musicFrame.replaceChildren(iframe);musicPanel.hidden=false;musicToggle.textContent="Stop MADEAWISH";musicToggle.setAttribute("aria-pressed","true");
 }
-function startAmbientLoop(){
-  if(ambientTimer||!ambientContext?.__zenxTones)return;
-  const {upper,lower}=ambientContext.__zenxTones;
-  const setChord=()=>{if(!ambientContext||ambientContext.state==="closed")return;const [a,b]=ambientChords[ambientNote++%ambientChords.length],now=ambientContext.currentTime;upper.frequency.setTargetAtTime(a,now,.8);lower.frequency.setTargetAtTime(b,now,.9)};
-  setChord();ambientTimer=setInterval(setChord,2600);
-}
-async function startAmbient(){
-  if(!ambientEnabled)return;
-  try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)throw new Error("Audio is not supported in this browser.");
-    if(!ambientContext){
-      ambientContext=new AudioCtx();const filter=ambientContext.createBiquadFilter(),master=ambientContext.createGain();
-      filter.type="lowpass";filter.frequency.value=620;master.gain.value=.075;filter.connect(master);master.connect(ambientContext.destination);
-      const upper=ambientContext.createOscillator(),lower=ambientContext.createOscillator(),upperGain=ambientContext.createGain(),lowerGain=ambientContext.createGain();
-      upper.type="triangle";lower.type="sine";upperGain.gain.value=.17;lowerGain.gain.value=.10;upper.connect(upperGain);lower.connect(lowerGain);upperGain.connect(filter);lowerGain.connect(filter);
-      upper.start();lower.start();ambientContext.__zenxTones={upper,lower};
-    }
-    await ambientContext.resume();ambientStarted=ambientContext.state==="running";if(ambientStarted)startAmbientLoop();updateMusicButton();
-  }catch(error){updateMusicButton();console.info("[AMBIENT]",error.message)}
-}
-function startAmbientOnScroll(){if(ambientEnabled&&!ambientStarted)startAmbient()}
-addEventListener("scroll",startAmbientOnScroll,{passive:true});addEventListener("wheel",startAmbientOnScroll,{passive:true});addEventListener("touchmove",startAmbientOnScroll,{passive:true});
-$("musicToggle").addEventListener("click",async()=>{
-  ambientEnabled=!ambientEnabled;try{localStorage.setItem("zenx_ambient_off",ambientEnabled?"0":"1")}catch{}
-  if(ambientEnabled)await startAmbient();else{clearInterval(ambientTimer);ambientTimer=null;if(ambientContext)await ambientContext.suspend();ambientStarted=false;updateMusicButton()}
-});
-document.addEventListener("visibilitychange",()=>{if(!ambientContext)return;if(document.hidden)ambientContext.suspend().finally(updateMusicButton);else if(ambientEnabled&&ambientStarted)ambientContext.resume().finally(updateMusicButton);else updateMusicButton()});
-updateMusicButton();
+musicToggle.addEventListener("click",()=>musicPanel.hidden?startMusic():stopMusic());
+$("musicClose").addEventListener("click",stopMusic);
 showApp(initialScreen);
 </script>
 </body>
