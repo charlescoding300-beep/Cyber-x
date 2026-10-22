@@ -2030,17 +2030,27 @@ async function handleAntilinkInline(sock, msg, phone) {
       normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
     if (isSenderAdmin) return
 
+    const action = antilinkGetAction(phone, groupId)
     const botNorm = normalizeNum(sock.user?.id || "")
     const botIsAdmin = groupMeta.participants?.some(p =>
       normalizeNum(p.id) === botNorm && (p.admin === "admin" || p.admin === "superadmin"))
-    if (!botIsAdmin) {
+    if (!botIsAdmin && action !== "warn") {
       console.log(`[ANTILINK:${phone}] link from ${senderNorm} in ${groupId} but bot isn't admin — skipping`)
       return
     }
 
-    const action = antilinkGetAction(phone, groupId)
     const tag = senderNorm
     const ocrNote = foundOcr ? "\n│ 🔍 *Detected via image scan (OCR)*" : ""
+
+    // Warning is its own mode: persist the count and send only the quoted
+    // warning. Do not append a delete notice or a kick panel.
+    if (action === "warn") {
+      const warns = antilinkAddWarning(phone, groupId, sender)
+      return sock.sendMessage(groupId, {
+        text: `┏━━━━━━━「 LINK WARNING 」━━━━━━━┓\n┃ ⚠️ Warning: Links are not allowed.\n┃ 👤 @${tag} • Warning ${Math.min(warns, 3)}/3\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
+        mentions: [sender],
+      }, { quoted: msg })
+    }
 
     await sock.sendMessage(groupId, { delete: msg.key })
 

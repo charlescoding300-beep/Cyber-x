@@ -44,7 +44,7 @@ function statusMessage(group, sender, id) {
   }
 }
 
-test('anti-status sends quoted real-result panels and retains per-member group warnings across store reloads', async () => {
+test('anti-status warning mode sends only a quoted warning and persists counts across store reloads', async () => {
   const dataDir = fs.mkdtempSync(path.join(ROOT, '.tmp-antistatus-'))
   const globals = [
     '__antistatusEnable', '__antistatusIsEnabled', '__antistatusGetMode',
@@ -90,27 +90,30 @@ test('anti-status sends quoted real-result panels and retains per-member group w
       await handleAntistatusGroup(sock, msg, phone)
       const reply = state.sent.find(item => typeof item.payload.text === 'string')
       assert.ok(reply, `warning ${count} should produce a response`)
+      assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
       assert.equal(reply.options.quoted, msg)
       assert.deepEqual(reply.payload.mentions, [sender])
-      assert.match(reply.payload.text, /STATUS REMOVED/)
       assert.match(reply.payload.text, new RegExp(`STATUS WARNING[\\s\\S]*Warning ${count}\\/3`))
-      assert.equal(state.sent.filter(item => item.payload.delete).length, 1)
+      assert.doesNotMatch(reply.payload.text, /STATUS REMOVED|STATUS VIOLATION/)
+      assert.equal(state.sent.filter(item => item.payload.delete).length, 0)
     }
 
     // Recreate the storage module to simulate a process restart; warning 3
-    // must continue from the local JSON file and kick at the threshold.
+    // must continue from the local JSON file and remain warning-only.
     store = makeStore(dataDir)
     bindStore(store)
     const third = statusMessage(group, sender, 'status-3')
     state.sent.length = 0
     await handleAntistatusGroup(sock, third, phone)
-    const kickedReply = state.sent.find(item => typeof item.payload.text === 'string')
-    assert.ok(kickedReply)
-    assert.equal(kickedReply.options.quoted, third)
-    assert.match(kickedReply.payload.text, /STATUS VIOLATION/)
-    assert.match(kickedReply.payload.text, /was removed from the group/)
-    assert.equal(state.removals.length, 1)
-    assert.equal(state.removals[0].action, 'remove')
+    const warning3Reply = state.sent.find(item => typeof item.payload.text === 'string')
+    assert.ok(warning3Reply)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
+    assert.equal(warning3Reply.options.quoted, third)
+    assert.ok(warning3Reply.payload.text.includes('STATUS WARNING'))
+    assert.ok(warning3Reply.payload.text.includes('Warning 3/3'))
+    assert.doesNotMatch(warning3Reply.payload.text, /STATUS REMOVED|STATUS VIOLATION/)
+    assert.equal(state.sent.filter(item => item.payload.delete).length, 0)
+    assert.equal(state.removals.length, 0)
 
     const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'data', 'antistatus', `${phone}.json`), 'utf8'))
     assert.equal(saved.warnings[group][sender], 3)
@@ -127,6 +130,20 @@ test('anti-status sends quoted real-result panels and retains per-member group w
     assert.equal(failedReply.options.quoted, failed)
     assert.match(failedReply.payload.text, /STATUS DELETE FAILED/)
     assert.doesNotMatch(failedReply.payload.text, /STATUS REMOVED/)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
+
+    state.deleteFails = false
+    store.enable(phone, group, 'kick')
+    state.sent.length = 0
+    const kicked = statusMessage(group, sender, 'status-kick')
+    await handleAntistatusGroup(sock, kicked, phone)
+    const kickReply = state.sent.find(item => typeof item.payload.text === 'string')
+    assert.ok(kickReply)
+    assert.equal(kickReply.options.quoted, kicked)
+    assert.match(kickReply.payload.text, /STATUS VIOLATION/)
+    assert.doesNotMatch(kickReply.payload.text, /STATUS REMOVED|STATUS ACTION FAILED/)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
+    assert.equal(state.removals.length, 1)
   } finally {
     for (const key of globals) {
       if (oldGlobals.get(key) === undefined) delete global[key]

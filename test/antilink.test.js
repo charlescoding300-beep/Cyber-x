@@ -13,13 +13,23 @@ function isolatedApp() {
   for (const file of [
     'commands/antilink.js',
     'lib/antilink.js',
-    'lib/userDb.js',
-    'database/database.js',
+    'lib/groupAdminNotice.js',
   ]) {
     const destination = path.join(dir, file)
     fs.mkdirSync(path.dirname(destination), { recursive: true })
     fs.copyFileSync(path.join(ROOT, file), destination)
   }
+  fs.writeFileSync(path.join(dir, 'lib/userDb.js'), [
+    "'use strict'",
+    "const fs = require('node:fs')",
+    "const path = require('node:path')",
+    "const file = path.join(__dirname, '..', 'test-userdb.json')",
+    "let data = {}",
+    "try { data = JSON.parse(fs.readFileSync(file, 'utf8')) } catch {}",
+    "function getSection(phone, name) { return data[phone]?.[name] }",
+    "function setSection(phone, name, value) { data[phone] ||= {}; data[phone][name] = value; fs.writeFileSync(file, JSON.stringify(data)) }",
+    "module.exports = { getSection, setSection }",
+  ].join('\n'))
   return dir
 }
 
@@ -66,18 +76,15 @@ function textReply(state) {
   return state.sent.find(item => typeof item.payload.text === 'string')
 }
 
-test('anti-link defaults to delete, quotes outputs, and persists strike escalation', async () => {
+test('anti-link modes send separate quoted notices and warning counts survive process restarts', async () => {
   const appDir = isolatedApp()
   const phone = '999000000001'
   const group = '120363000000000001@g.us'
   const sender = '234800000001@s.whatsapp.net'
   const state = { sender: sender.split('@')[0], sent: [], removals: [], deleteFails: false, removalFails: false }
-  let database
-
   try {
     const command = require(path.join(appDir, 'commands/antilink.js'))
     const engine = require(path.join(appDir, 'lib/antilink.js'))
-    database = require(path.join(appDir, 'database/database.js'))
     const sock = makeSocket(phone, state)
     engine.setConfig(phone, group, { enabled: false, action: 'warn' })
     const commandMessage = {
@@ -100,7 +107,7 @@ test('anti-link defaults to delete, quotes outputs, and persists strike escalati
 
     engine.setConfig(phone, group, {
       enabled: true,
-      action: 'delete',
+      action: 'warn',
       maxWarns: 3,
       applyToAdmins: false,
     })
@@ -115,20 +122,31 @@ test('anti-link defaults to delete, quotes outputs, and persists strike escalati
 
       const reply = textReply(state)
       assert.ok(reply, `strike ${strike} should receive a notice`)
+      assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
       assert.equal(reply.options.quoted, message)
       assert.deepEqual(reply.payload.mentions, [sender])
       assert.match(reply.payload.text, new RegExp(`Warning ${strike}/3`))
-      assert.match(reply.payload.text, /LINK DELETED/)
-      assert.match(reply.payload.text, /message was deleted/)
-      if (strike === 3) {
-        assert.match(reply.payload.text, /LINK VIOLATION/)
-        assert.match(reply.payload.text, /was removed from the group/)
-        assert.equal(state.removals.at(-1).action, 'remove')
-      }
+      assert.match(reply.payload.text, /LINK WARNING/)
+      assert.doesNotMatch(reply.payload.text, /LINK DELETED|LINK VIOLATION/)
+      assert.equal(state.sent.filter(item => item.payload.delete).length, 0)
+      assert.equal(state.removals.length, 0)
       if (strike === 1) {
         assert.equal(countAfterProcessRestart(appDir, phone, group, sender), 1)
       }
     }
+
+    engine.setConfig(phone, group, { enabled: true, action: 'delete', maxWarns: 3, applyToAdmins: false })
+    state.sent.length = 0
+    const deleteMessage = {
+      key: { remoteJid: group, participant: sender, participantPn: sender, id: 'link-delete-only' },
+      message: { conversation: 'Please visit https://delete-only.example' },
+    }
+    await engine.handleAntilinkInline(sock, deleteMessage, phone)
+    const deleteReply = textReply(state)
+    assert.equal(deleteReply.options.quoted, deleteMessage)
+    assert.match(deleteReply.payload.text, /LINK DELETED/)
+    assert.doesNotMatch(deleteReply.payload.text, /LINK WARNING|LINK VIOLATION/)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
 
     const statusMessage = {
       key: { remoteJid: group, participant: sender, participantPn: sender, id: 'status-link-1' },
@@ -174,14 +192,14 @@ test('anti-link defaults to delete, quotes outputs, and persists strike escalati
     assert.equal(failedReply.options.quoted, failedDelete)
     assert.match(failedReply.payload.text, /LINK DELETE FAILED/)
     assert.doesNotMatch(failedReply.payload.text, /message was deleted/)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
 
     const failedRemovalSender = '234800000003@s.whatsapp.net'
     state.sender = failedRemovalSender.split('@')[0]
     state.sent.length = 0
     state.deleteFails = false
     state.removalFails = true
-    engine.addWarn(phone, group, failedRemovalSender)
-    engine.addWarn(phone, group, failedRemovalSender)
+    engine.setConfig(phone, group, { enabled: true, action: 'delete', maxWarns: 3 })
     const failedRemoval = {
       key: { remoteJid: group, participant: failedRemovalSender, participantPn: failedRemovalSender, id: 'link-remove-failed' },
       message: { conversation: 'https://example.net' },
@@ -189,13 +207,27 @@ test('anti-link defaults to delete, quotes outputs, and persists strike escalati
     await engine.handleAntilinkInline(sock, failedRemoval, phone)
     const removalReply = textReply(state)
     assert.equal(removalReply.options.quoted, failedRemoval)
-    assert.match(removalReply.payload.text, /LINK ACTION FAILED/)
+    assert.match(removalReply.payload.text, /LINK DELETED/)
     assert.doesNotMatch(removalReply.payload.text, /LINK VIOLATION/)
+    assert.equal(state.removals.length, 0)
+
+    engine.setConfig(phone, group, { enabled: true, action: 'kick', maxWarns: 3 })
+    state.removalFails = true
+    state.sent.length = 0
+    const kickFailed = {
+      key: { remoteJid: group, participant: failedRemovalSender, participantPn: failedRemovalSender, id: 'link-kick-failed' },
+      message: { conversation: 'https://kick-failed.example' },
+    }
+    await engine.handleAntilinkInline(sock, kickFailed, phone)
+    const kickReply = textReply(state)
+    assert.equal(kickReply.options.quoted, kickFailed)
+    assert.match(kickReply.payload.text, /LINK ACTION FAILED/)
+    assert.doesNotMatch(kickReply.payload.text, /LINK DELETED|LINK VIOLATION/)
+    assert.equal(state.sent.filter(item => typeof item.payload.text === 'string').length, 1)
 
     engine.resetWarn(phone, group, sender)
     assert.equal(countAfterProcessRestart(appDir, phone, group, sender), 0)
   } finally {
-    if (database?.open) database.close()
     const resolved = path.resolve(appDir)
     if (!resolved.startsWith(ROOT + path.sep) || !path.basename(resolved).startsWith('.tmp-antilink-')) {
       throw new Error(`Refusing to remove test directory outside workspace: ${resolved}`)

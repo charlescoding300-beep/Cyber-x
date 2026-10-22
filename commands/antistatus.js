@@ -21,9 +21,9 @@ const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕�
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const MODES = {
-  warn:   '🗑️ Deletes the status + warns — 3 warnings = removed',
-  delete: '🗑️ Deletes the status + short notice (no warnings, no kick)',
-  kick:   '🗑️ Deletes the status + removes the member instantly',
+  warn:   '⚠️ Send one warning only; count persists until .resetwarn antistatus @user',
+  delete: '🗑️ Delete the shared status and send one deletion notice',
+  kick:   '👢 Delete the status and remove the sender with one notice',
 }
 
 const USAGE =
@@ -48,7 +48,7 @@ function sessionPhone(sock) {
 module.exports = {
   name: 'antistatus',
   aliases: [],
-  desc: 'Delete statuses shared in this group (warn / kick the sender)',
+  desc: 'Choose one action for statuses shared in this group',
   usage: '.antistatus on [warn|delete|kick] | off | status',
   category: 'group',
   adminOnly: true,

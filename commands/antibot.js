@@ -6,8 +6,8 @@
 // USAGE (owner must be a group admin to set this):
 //   .antibot on          → enable in this group, mode defaults to "kick"
 //   .antibot kick         → detect + kick foreign bots
-//   .antibot delete        → detect + delete their messages only
-//   .antibot warn          → detect + warn, auto-kick at 3 warnings
+//   .antibot delete        → detect + delete, send one deletion notice
+//   .antibot warn          → send one warning; persistent count, no delete/kick
 //   .antibot off            → disable in this group
 //   .antibot status         → show current mode + exempt list
 //   .antibot exempt <jid>   → add a JID to the "known ZENX bot" exempt list
@@ -81,7 +81,7 @@ module.exports = {
     const action = (args[0] || '').toLowerCase()
     const groupJid = from
 
-    const labels = { off: "❌ Disabled", kick: "🥾 Kick", delete: "🧹 Delete-only", warn: "⚠️ Warn (3 strikes)" }
+    const labels = { off: "❌ Disabled", kick: "🥾 Kick", delete: "🧹 Delete + notice", warn: "⚠️ Warn only" }
 
     if (action === 'on' || action === 'kick' || action === 'delete' || action === 'warn') {
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
@@ -132,8 +132,8 @@ module.exports = {
       text:
         `🛡️ *Antibot Commands*\n\n` +
         `• *.antibot kick* — kick detected bots\n` +
-        `• *.antibot delete* — delete bot messages only\n` +
-        `• *.antibot warn* — warn, auto-kick at 3 warnings\n` +
+        `• *.antibot delete* — delete the message and send one notice\n` +
+        `• *.antibot warn* — warn only; count persists until .resetwarn\n` +
         `• *.antibot off* — disable\n` +
         `• *.antibot status* — check mode + exempt list\n` +
         `• *.antibot exempt <jid>* — protect a known ZENX bot\n` +

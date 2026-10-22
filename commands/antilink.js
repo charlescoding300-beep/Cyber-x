@@ -42,9 +42,9 @@ function getWarnLimit(cfg) {
 }
 
 function actionDescription(action, warnLimit) {
-  if (action === 'warn') return `Warn + delete; remove after ${warnLimit} violations`
-  if (action === 'kick') return 'Remove link sharers immediately'
-  return `Delete + persistent warnings; remove after ${warnLimit} violations`
+  if (action === 'warn') return `Warn only; persistent count (limit ${warnLimit})`
+  if (action === 'kick') return 'Delete the link message and remove the sender immediately'
+  return 'Delete the link message and send one deletion notice'
 }
 
 module.exports = {
@@ -86,10 +86,10 @@ module.exports = {
             'Warning counts: saved across VPS restarts',
           ])}\n\n` +
           `*Settings*\n` +
-          `.antilink on — default delete mode; persistent strikes, remove at ${warnLimit}\n` +
+          `.antilink on — default delete mode\n` +
           `.antilink off — turn protection off\n` +
-          `.antilink delete — delete + persistent warnings; remove at ${warnLimit}\n` +
-          `.antilink warn — warn + delete; remove at ${warnLimit} warnings\n` +
+          `.antilink delete — delete and send one notice\n` +
+          `.antilink warn — send one warning; count persists until reset\n` +
           `.antilink kick — remove a member immediately\n` +
           `.resetwarn antilink — reset a member's saved count (reply or mention)`,
       }, { quoted: msg })
