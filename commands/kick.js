@@ -151,8 +151,8 @@ module.exports = {
 
       const number = targetJid.split('@')[0].replace(/\D/g, '')
       return sock.sendMessage(from, {
-        text: `╭───「 KICK 」───╮\n│ ✅ @${number} was removed from the group.\n│ By: @${String(sender || '').split('@')[0].replace(/\D/g, '') || 'admin'}\n╰────────────────╯\n\n${CREDIT}`,
-        mentions: [targetJid, sender].filter(Boolean),
+        text: `┏━━━━━━━「 KICK 」━━━━━━━┓\n┃ 🚫 @${number} was removed from the group.\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n${CREDIT}`,
+        mentions: [targetJid],
       }, { quoted: msg })
     } catch (error) {
       console.error('[KICK]', error?.message || error)

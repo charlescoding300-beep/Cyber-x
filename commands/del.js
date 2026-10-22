@@ -1,116 +1,80 @@
 'use strict'
 
+const adminLib = require('../lib/isAdmin')
+
+const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+
+function digits(jid) {
+  return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '')
+}
+
+function contextOf(msg) {
+  const message = msg?.message?.ephemeralMessage?.message ||
+    msg?.message?.viewOnceMessageV2?.message ||
+    msg?.message?.viewOnceMessage?.message ||
+    msg?.message || {}
+  return message.extendedTextMessage?.contextInfo ||
+    message.imageMessage?.contextInfo ||
+    message.videoMessage?.contextInfo ||
+    message.documentMessage?.contextInfo || null
+}
+
 module.exports = {
-  pattern: "del",
-  aliases: ["delete"],
-  category: "utility",
-  description: "Delete a replied message",
+  pattern: 'del',
+  aliases: ['delete'],
+  category: 'utility',
+  description: 'Delete a replied-to message',
 
-  run: async ({ sock, from, msg, isAdmin, isOwner, isGroup }) => {
+  run: async ({ sock, from, msg, isAdmin, isOwner, isGroup, isBotAdmin, groupCache }) => {
+    const reply = text => sock.sendMessage(from, {
+      text: `${text}\n\n${CREDIT}`,
+    }, { quoted: msg })
 
-    // React to the .del command itself
-    const react = async (emoji) => {
-      try {
-        await sock.sendMessage(from, {
-          react: {
-            text: emoji,
-            key: msg.key
-          }
-        })
-      } catch {}
+    const contextInfo = contextOf(msg)
+    if (!contextInfo?.quotedMessage || !contextInfo?.stanzaId) {
+      return reply('❌ Reply to a message with *.del* to delete it.')
+    }
+
+    const participant = contextInfo.participant || contextInfo.participantAlt || ''
+    const ownIds = new Set([sock.user?.id, sock.user?.lid].map(digits).filter(Boolean))
+    const isOwnMessage = contextInfo.fromMe === true ||
+      contextInfo.quotedMessage?.key?.fromMe === true ||
+      [contextInfo.participant, contextInfo.participantAlt].some(id => id && ownIds.has(digits(id)))
+
+    if (isGroup && !isOwnMessage) {
+      if (!isAdmin && !isOwner) {
+        return reply('⚠️ Only a group admin or the bot owner can request deletion of another member’s message.')
+      }
+
+      // Recompute from the cached participant list. The owner override used by
+      // command authorization does not grant the WhatsApp account admin rights.
+      const botHasGroupAdmin = adminLib.isBotAdmin(groupCache, from, sock) ||
+        (isBotAdmin && !isOwner)
+      if (!botHasGroupAdmin) {
+        return reply('⚠️ WhatsApp requires the bot itself to be a group admin to delete another member’s message. Bot-owner access cannot override this. I can still delete messages sent by this bot account.')
+      }
+      if (!participant) {
+        return reply('⚠️ I could not identify who sent that message. Reply to it again and retry.')
+      }
     }
 
     try {
-      // ── Get the replied message ────────────────────────────
-      const message =
-        msg.message?.extendedTextMessage ||
-        msg.message?.imageMessage ||
-        msg.message?.videoMessage ||
-        msg.message?.documentMessage ||
-        msg.message?.conversation
-
-      const contextInfo = message?.contextInfo
-
-      if (!contextInfo?.quotedMessage || !contextInfo?.stanzaId) {
-        return await react("❌")
-      }
-
-      const quotedMessage = contextInfo.quotedMessage
-      const quotedStanzaId = contextInfo.stanzaId
-      const quotedParticipant = contextInfo.participant
-
-      // ── Detect whether the quoted message is from the bot ──
-      const botJid = sock.user?.id || ""
-      const botNumber = botJid.split(":")[0].split("@")[0]
-
-      const quotedNumber =
-        (quotedParticipant || "").split(":")[0].split("@")[0]
-
-      const isOwnMessage =
-        quotedMessage?.key?.fromMe === true ||
-        quotedParticipant === botJid ||
-        (quotedNumber && botNumber && quotedNumber === botNumber)
-
-      // ── PRIVATE CHAT ───────────────────────────────────────
-      // In a DM, deletion follows WhatsApp's normal permissions.
-      if (!isGroup) {
-        await sock.sendMessage(from, {
-          delete: {
-            remoteJid: from,
-            fromMe: isOwnMessage,
-            id: quotedStanzaId,
-            ...(quotedParticipant
-              ? { participant: quotedParticipant }
-              : {})
-          }
-        })
-
-        return await react("🗑️")
-      }
-
-      // ── GROUP ──────────────────────────────────────────────
-      //
-      // Own message:
-      // Allowed even when the bot is NOT a group admin.
-      //
-      // Somebody else's message:
-      // Bot MUST be a group admin.
-      //
-
-      if (isOwnMessage) {
-        await sock.sendMessage(from, {
-          delete: {
-            remoteJid: from,
-            fromMe: true,
-            id: quotedStanzaId
-          }
-        })
-
-        return await react("🗑️")
-      }
-
-      // Someone else's message requires bot admin.
-      if (!isAdmin) {
-        return await react("❌")
-      }
-
-      // Bot is admin — delete the other person's message.
       await sock.sendMessage(from, {
         delete: {
           remoteJid: from,
-          fromMe: false,
-          id: quotedStanzaId,
-          participant: quotedParticipant
-        }
+          fromMe: isOwnMessage,
+          id: contextInfo.stanzaId,
+          ...(participant ? { participant } : {}),
+        },
       })
 
-      return await react("🗑️")
-
+      return reply('✅ Deleted the replied-to message.')
     } catch (error) {
-      console.error("[DEL ERROR]", error.message)
-
-      // No text — only ❌ on the .del command.
-      await react("❌")
+      console.error('[DEL ERROR]', error?.message || error)
+      const explanation = isGroup && !isOwnMessage
+        ? '⚠️ WhatsApp did not delete that message. Check that the bot account is still a group admin, then try again.'
+        : '⚠️ WhatsApp could not delete that message. It may be too old or outside this account’s permissions.'
+      return reply(explanation)
     }
-  }
+  },
 }
