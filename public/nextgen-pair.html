@@ -369,6 +369,8 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 .phone-demo-mark{background:#4b3511;color:#ffe4a3;box-shadow:0 4px 14px #0005}
 .sim-pointer-ring{position:absolute;z-index:6;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:34px;height:34px;border:2px solid #25d366;border-radius:50%;box-shadow:0 0 0 5px #25d36635;transform:translate(-50%,-50%);pointer-events:none;animation:simPointerPulse 1.25s ease-out infinite}
 .sim-pointer{position:absolute;z-index:8;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:26px;height:32px;transform:translate(-3px,-4px);pointer-events:none;filter:drop-shadow(0 2px 2px #0009);transition:left .65s cubic-bezier(.2,.8,.2,1),top .65s cubic-bezier(.2,.8,.2,1);animation:simCursorTap 1.25s ease-in-out infinite}
+.phone[data-pointer-ready="false"] .sim-pointer,.phone[data-pointer-ready="false"] .sim-pointer-ring{visibility:hidden}
+.scr .guide-target{outline:2px solid #25d366;outline-offset:2px}
 .sim-pointer svg{display:block;width:26px;height:32px;overflow:visible}
 .sim-pointer-hint{position:absolute;z-index:9;left:12px;right:12px;bottom:11px;padding:8px 10px;border:1px solid #ffffff38;border-radius:11px;background:#071b14eF;color:#d9ffe9;text-align:center;font:600 9px/1.35 var(--mono);letter-spacing:.08em;box-shadow:0 5px 18px #0005;pointer-events:none}
 @keyframes simPointerPulse{0%{box-shadow:0 0 0 2px #25d36655;opacity:.9}75%,100%{box-shadow:0 0 0 13px #25d36600;opacity:.35}}
@@ -764,24 +766,36 @@ function celebrate(){
 }
 
 /* phone walkthrough */
-const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".phone .scr")]; let dt,walkPaused=false;
+const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".phone .scr")]; let dt,walkPaused=false,pointerTimer,resizeTimer,pointerStep=0;
 const phoneDemo=$("phoneDemo"),simPointerHint=$("simPointerHint");
 const pointerGuide=[
-  {x:218,y:78,hint:"POINTER GUIDE · TAP THE THREE-DOT MENU"},
-  {x:128,y:208,hint:"POINTER GUIDE · CHOOSE LINKED DEVICES"},
-  {x:128,y:177,hint:"POINTER GUIDE · TAP LINK A DEVICE"},
-  {x:128,y:276,hint:"POINTER GUIDE · CHOOSE PHONE-NUMBER LINKING"},
-  {x:49,y:230,hint:"POINTER GUIDE · CODE ENTRY IS ILLUSTRATIVE ONLY"}
+  {target:()=>scr[0]?.querySelector(".phone-three"),hint:"CURSOR TARGET · THREE-DOT MENU"},
+  {target:()=>scr[1]?.querySelector(".phone-menu-item.hl"),hint:"CURSOR TARGET · LINKED DEVICES"},
+  {target:()=>scr[2]?.querySelector(".phone-choice"),hint:"CURSOR TARGET · LINK A DEVICE"},
+  {target:()=>scr[3]?.querySelector(".phone-link"),hint:"CURSOR TARGET · PHONE-NUMBER LINKING"},
+  {target:()=>scr[4]?.querySelector(".demo-code-cells i:first-child"),hint:"CURSOR TARGET · FIRST SAMPLE CODE SLOT"}
 ];
+function positionPhonePointer(){
+  const guide=pointerGuide[pointerStep],target=guide?.target(),phoneRect=phoneDemo.getBoundingClientRect();
+  scr.forEach(s=>s.querySelectorAll(".guide-target").forEach(el=>el.classList.remove("guide-target")));
+  if(!target||!phoneRect.width||!phoneRect.height){phoneDemo.dataset.pointerReady="false";return}
+  const targetRect=target.getBoundingClientRect(),style=getComputedStyle(phoneDemo);
+  const x=targetRect.left+targetRect.width/2-phoneRect.left-parseFloat(style.borderLeftWidth||"0");
+  const y=targetRect.top+targetRect.height/2-phoneRect.top-parseFloat(style.borderTopWidth||"0");
+  phoneDemo.style.setProperty("--pointer-x",`${x}px`);phoneDemo.style.setProperty("--pointer-y",`${y}px`);
+  target.classList.add("guide-target");phoneDemo.dataset.pointerReady="true";
+}
+function schedulePhonePointer(){clearTimeout(pointerTimer);phoneDemo.dataset.pointerReady="false";pointerTimer=setTimeout(positionPhonePointer,matchMedia("(prefers-reduced-motion: reduce)").matches?0:600)}
 function updatePhoneClock(){const clock=$("phoneClock");if(clock)clock.textContent=new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit",hour12:true}).format(new Date())}
 updatePhoneClock();setInterval(updatePhoneClock,30000);
 function dgo(n,{manual=false}={}){
+  pointerStep=n;
   ds.forEach((b,k)=>{b.classList.toggle("on",k===n);b.setAttribute("aria-pressed",String(k===n));const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
   scr.forEach((s,k)=>s.classList.toggle("on",k===n));
-  const guide=pointerGuide[n]||pointerGuide[0];phoneDemo.style.setProperty("--pointer-x",`${guide.x}px`);phoneDemo.style.setProperty("--pointer-y",`${guide.y}px`);phoneDemo.dataset.step=String(n);simPointerHint.textContent=guide.hint;
+  phoneDemo.dataset.step=String(n);simPointerHint.textContent=pointerGuide[n]?.hint||pointerGuide[0].hint;schedulePhonePointer();
   clearTimeout(dt); if(manual)walkPaused=true; if(!walkPaused)dt=setTimeout(()=>dgo((n+1)%scr.length),5000);
 }
-ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k,{manual:true}))); setPhoneCode(); dgo(0);
+ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k,{manual:true}))); addEventListener("resize",()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(positionPhonePointer,100)},{passive:true}); setPhoneCode(); dgo(0);
 
 /* small touches */
 addEventListener("keydown",e=>{if(e.key==="/"&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){e.preventDefault();scrollTo({top:0,behavior:"smooth"});$("num").focus({preventScroll:true})}});
