@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Link your WhatsApp</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="ZEN X · WhatsApp Pairing">
+<meta property="og:description" content="Pair your WhatsApp device with a one-time code and guided phone walkthrough.">
+<meta property="og:image" content="https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
@@ -329,6 +335,33 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
 @media(max-width:680px){.local-time-card{padding:15px 16px}.time-zone{font-size:9px;max-width:105px}.official-guide{grid-template-columns:1fr;padding:15px}.music-panel{right:10px;bottom:10px}}
 @media(prefers-reduced-motion:reduce){.app-screen.active{animation:none}.app-shortcut{transition:none}.phone-demo-mark,.phone-three{animation:none!important}}
 </style>
+<style id="pairing-simulator-upgrade">
+/* Guided phone mockup: familiar WhatsApp colors, always marked as a simulation. */
+.brand-bot-image{display:block;width:28px;height:28px;flex:none;object-fit:cover;border-radius:50%;border:1px solid color-mix(in srgb,var(--o3) 65%,white);box-shadow:0 0 16px color-mix(in srgb,var(--o3) 40%,transparent)}
+.phone{--wa-green:#075e54;--wa-light:#25d366;background:#f3f1e9;color:#17211c;border-color:#1d2423;box-shadow:0 44px 90px -30px rgba(30,80,65,.45),0 0 0 1px rgba(255,255,255,.08)}
+.scr{background:#f3f1e9;color:#17211c}
+.phone-top{margin:-54px -18px 16px;padding:42px 16px 11px;background:var(--wa-green);color:#fff;border:0;min-height:94px}
+.phone-top h4{font-size:18px}
+.phone-three{border-color:#ffffff30;color:#fff;background:#ffffff10}
+.mock-chats{gap:0}.mock-chat{padding:11px 0;border-bottom-color:#17211c16}
+.mock-avatar{background:#d9eee4;color:#17664c}.mock-chat-copy span{color:#66746d}
+.phone-menu{background:#fff;border-color:#15221b12;box-shadow:0 16px 34px #12251b30}
+.phone-menu-item{color:#1b2821}.phone-menu-item.hl{background:#e4f6eb;color:#09663d;box-shadow:inset 3px 0 #25d366}
+.phone-note{background:#ffffffd9;border-color:#12251b16;color:#53625a}
+.phone-choice{background:#075e54;color:#fff;box-shadow:0 8px 20px #075e5433}
+.phone-link{color:#087c4d;font-weight:700}
+.demo-code{background:#fff;border:1px dashed #13a86b;color:#075e54;box-shadow:0 8px 22px #075e5418}
+.demo-code small{color:#a54a1c}
+.phone-demo-mark{background:#4b3511;color:#ffe4a3;box-shadow:0 4px 14px #0005}
+.sim-pointer-ring{position:absolute;z-index:6;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:34px;height:34px;border:2px solid #25d366;border-radius:50%;box-shadow:0 0 0 5px #25d36635;transform:translate(-50%,-50%);pointer-events:none;animation:simPointerPulse 1.25s ease-out infinite}
+.sim-pointer{position:absolute;z-index:8;left:var(--pointer-x,218px);top:var(--pointer-y,78px);width:26px;height:32px;transform:translate(-3px,-4px);pointer-events:none;filter:drop-shadow(0 2px 2px #0009);transition:left .65s cubic-bezier(.2,.8,.2,1),top .65s cubic-bezier(.2,.8,.2,1);animation:simCursorTap 1.25s ease-in-out infinite}
+.sim-pointer svg{display:block;width:26px;height:32px;overflow:visible}
+.sim-pointer-hint{position:absolute;z-index:9;left:12px;right:12px;bottom:11px;padding:8px 10px;border:1px solid #ffffff38;border-radius:11px;background:#071b14eF;color:#d9ffe9;text-align:center;font:600 9px/1.35 var(--mono);letter-spacing:.08em;box-shadow:0 5px 18px #0005;pointer-events:none}
+@keyframes simPointerPulse{0%{box-shadow:0 0 0 2px #25d36655;opacity:.9}75%,100%{box-shadow:0 0 0 13px #25d36600;opacity:.35}}
+@keyframes simCursorTap{0%,100%{scale:1}45%{scale:.88}}
+.creator-credit{color:var(--ink);font-size:15px;font-weight:850;letter-spacing:.015em}
+@media(prefers-reduced-motion:reduce){.sim-pointer,.sim-pointer-ring{animation:none!important;transition:none!important}}
+</style>
 </head>
 <body>
 <div id="sp"></div><div id="spot"></div><canvas id="net" aria-hidden="true"></canvas><canvas id="fx" aria-hidden="true"></canvas>
@@ -339,7 +372,7 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
   <p class="music-credit">Starts with your first touch, click, or scroll gesture · loops while open · tap Play here if your browser blocks autoplay.</p>
 </aside>
 <nav><div class="pill">
-  <a class="logo" href="#top"><span class="dot"></span><span id="brand">ZEN X</span></a>
+  <a class="logo" href="#top"><img class="brand-bot-image" src="https://img.magnific.com/premium-photo/blue-holographic-human-face-made-up-digital-pixels-surrounded-by-network-nodes_1279828-3025.jpg?w=2000" alt=""><span id="brand">ZEN X</span></a>
   <div class="links"><a href="#how">How it works</a><a href="#faq">FAQ</a></div>
   <div class="status"><i></i>ZEN X workspace</div>
   <button class="sound-button" id="musicToggle" type="button" aria-pressed="false" title="Play the MADEAWISH YouTube soundtrack">Play MADEAWISH</button>
@@ -409,8 +442,11 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
       <button class="ds"><b>4 · Choose phone number</b><span>Tap “Link with phone number instead”.</span><i></i></button>
       <button class="ds"><b>5 · Enter your real code</b><span>Use only the one-time code shown in the pairing panel above.</span><i></i></button>
     </div>
-    <div class="phone" role="img" aria-label="Nonfunctional sample phone walkthrough. The demo code is not valid.">
+    <div class="phone" id="phoneDemo" data-step="0" role="img" aria-label="Illustrated WhatsApp-style phone guide. The sample code is not real.">
       <div class="phone-demo-mark">SIMULATION · NOT CONNECTED</div>
+      <div class="sim-pointer-ring" aria-hidden="true"></div>
+      <div class="sim-pointer" id="simPointer" aria-hidden="true"><svg viewBox="0 0 32 40"><path d="M4 2v29l8-8 6 13 5-2-6-13h11L4 2Z" fill="#fff" stroke="#10231a" stroke-width="2" stroke-linejoin="round"/></svg></div>
+      <div class="sim-pointer-hint" id="simPointerHint" aria-hidden="true">POINTER GUIDE · TAP THE THREE-DOT MENU</div>
       <div class="scr on">
         <div class="phone-top"><h4>Chats</h4><span class="phone-three">⋮</span></div>
         <div class="mock-chats">
@@ -511,7 +547,7 @@ body.has-code .phone{box-shadow:0 0 0 2px color-mix(in srgb,var(--o3) 70%,transp
   </div>
 </section>
 
-<footer><span id="foot">© ZEN X</span><span>Terminal output is a visual simulation. Not affiliated with WhatsApp or Meta.</span></footer>
+<footer><span id="foot">© ZEN X</span><span>Phone walkthrough is a simulation, not a live WhatsApp screen. Not affiliated with WhatsApp or Meta.</span><strong class="creator-credit">Charles chukwu</strong></footer>
 </main>
 
 <script>
@@ -708,9 +744,18 @@ function celebrate(){
 
 /* phone walkthrough */
 const ds=[...document.querySelectorAll(".ds")], scr=[...document.querySelectorAll(".phone .scr")]; let dt,walkPaused=false;
+const phoneDemo=$("phoneDemo"),simPointerHint=$("simPointerHint");
+const pointerGuide=[
+  {x:218,y:78,hint:"POINTER GUIDE · TAP THE THREE-DOT MENU"},
+  {x:128,y:208,hint:"POINTER GUIDE · CHOOSE LINKED DEVICES"},
+  {x:128,y:177,hint:"POINTER GUIDE · TAP LINK A DEVICE"},
+  {x:128,y:276,hint:"POINTER GUIDE · CHOOSE PHONE-NUMBER LINKING"},
+  {x:128,y:226,hint:"POINTER GUIDE · ENTER YOUR REAL ONE-TIME CODE"}
+];
 function dgo(n,{manual=false}={}){
   ds.forEach((b,k)=>{b.classList.toggle("on",k===n);b.setAttribute("aria-pressed",String(k===n));const i=b.querySelector("i");i.style.animation="none";void i.offsetWidth;i.style.animation=""});
   scr.forEach((s,k)=>s.classList.toggle("on",k===n));
+  const guide=pointerGuide[n]||pointerGuide[0];phoneDemo.style.setProperty("--pointer-x",`${guide.x}px`);phoneDemo.style.setProperty("--pointer-y",`${guide.y}px`);phoneDemo.dataset.step=String(n);simPointerHint.textContent=guide.hint;
   clearTimeout(dt); if(manual)walkPaused=true; if(!walkPaused)dt=setTimeout(()=>dgo((n+1)%scr.length),5000);
 }
 ds.forEach((b,k)=>b.addEventListener("click",()=>dgo(k,{manual:true}))); setPhoneCode(); dgo(0);
@@ -826,7 +871,7 @@ $("statusRefresh").addEventListener("click",refreshBotStatus);
 const MUSIC_VIDEO_ID="XUrmskUYoas";
 const musicPanel=$("musicPanel"),musicFrame=$("musicFrame"),musicToggle=$("musicToggle");
 let musicGestureArmed=true;
-const musicGestureEvents=["pointerdown","touchstart","wheel","keydown"];
+const musicGestureEvents=["pointerdown","touchstart","wheel","scroll","keydown"];
 function disarmMusicGesture(){if(!musicGestureArmed)return;for(const type of musicGestureEvents)window.removeEventListener(type,startMusicOnGesture);musicGestureArmed=false}
 function stopMusic(){disarmMusicGesture();musicFrame.replaceChildren();musicPanel.hidden=true;musicToggle.textContent="Play MADEAWISH";musicToggle.setAttribute("aria-pressed","false")}
 function startMusic(){
