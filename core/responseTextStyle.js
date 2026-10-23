@@ -4,6 +4,10 @@
 // shared WhatsApp send boundary, including replies from future commands.
 const MONOSPACE_CAPITAL_A = 0x1D670
 const PROTECTED_TEXT = /```[\s\S]*?```|`[^`\r\n]*`|(?:https?:\/\/|www\.)[^\s<>{}]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:[A-Z0-9-]+\.)+[A-Z]{2,}(?:\/[^\s<>{}]*)?|@[A-Z0-9._+-]+|[.!/#?][A-Z][A-Z0-9_-]*/giu
+const BOLD_PROTECTED_TEXT = new RegExp(
+  String.raw`(?:\*[^*\r\n]+\*|_[^_\r\n]+_|~[^~\r\n]+~|${PROTECTED_TEXT.source})`,
+  'giu',
+)
 const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
 
 function compactLayout(text) {
@@ -29,10 +33,24 @@ function stylizeSegment(text) {
   }).join('')
 }
 
+function boldWords(text) {
+  return text.replace(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu, word => `*${word}*`)
+}
+
+function boldText(text) {
+  let output = ''
+  let cursor = 0
+  for (const match of text.matchAll(BOLD_PROTECTED_TEXT)) {
+    output += boldWords(text.slice(cursor, match.index)) + match[0]
+    cursor = match.index + match[0].length
+  }
+  return output + boldWords(text.slice(cursor))
+}
+
 function stylizeText(text) {
   if (typeof text !== 'string' || !text) return text
 
-  text = compactLayout(text)
+  text = boldText(compactLayout(text))
 
   let output = ''
   let cursor = 0
