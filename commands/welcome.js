@@ -305,7 +305,7 @@ module.exports = {
     desc:     'Enable or disable the join welcome message for this group',
     usage:    '.welcome on | .welcome off',
 
-    run: async ({ sock, from, msg, args }) => {
+    run: async ({ sock, from, msg, args, isAdmin, isOwner }) => {
         const isGroup = from.endsWith('@g.us')
         if (!isGroup) {
             return sock.sendMessage(from, { text: '*This command only works inside a group.*' }, { quoted: msg })
@@ -318,6 +318,12 @@ module.exports = {
             const state = loadGreet(phone, from).welcome.enabled ? 'ON ✅' : 'OFF ❌'
             return sock.sendMessage(from, {
                 text: `*Welcome is currently: ${state}*\n\nUse *.welcome on* or *.welcome off*`,
+            }, { quoted: msg })
+        }
+
+        if (!isAdmin && !isOwner) {
+            return sock.sendMessage(from, {
+                text: 'Only a group admin or the bot owner can change welcome settings.',
             }, { quoted: msg })
         }
 

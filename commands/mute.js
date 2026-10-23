@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 // Active mute timers — shared with unmute.js via lib or module cache
@@ -73,20 +74,22 @@ module.exports = {
     // fresh group metadata here and verify the sender is actually listed
     // as admin/superadmin. This protects against a stale or incorrect
     // upstream isAdmin flag (e.g. cached groupCache, JID mismatch).
-    let verifiedAdmin = isOwner
-    if (!verifiedAdmin) {
-      try {
-        const meta = await sock.groupMetadata(from)
-        const senderNum = (sender || "").split("@")[0].split(":")[0]
-        verifiedAdmin = meta.participants.some(p => {
-          const pNum = (p.id || "").split("@")[0].split(":")[0]
-          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
-        })
-      } catch (e) {
-        // Can't verify → fail closed, do NOT allow the mute.
-        verifiedAdmin = false
-      }
+    let adminContext
+    try {
+      adminContext = await adminLib.getGroupAdminContext(
+        sock, from, sender,
+        msg.key?.participantPn || msg.key?.participantAlt || msg.participantPn || msg.participantAlt,
+      )
+    } catch (e) {
+      console.error('[MUTE] group role check failed:', e.message)
     }
+    if (!adminContext?.available) {
+      return sock.sendMessage(from, {
+        text: `> ⚠️ *I could not verify current group permissions. Please try again.*\n>\n${CREDIT}`,
+        quoted: msg,
+      })
+    }
+    const verifiedAdmin = isOwner || adminContext.senderAdmin
 
     if (!verifiedAdmin) {
       return sock.sendMessage(from, {
@@ -95,7 +98,7 @@ module.exports = {
       })
     }
 
-    if (!isBotAdmin) {
+    if (!adminContext.botAdmin) {
       return sendBotNotAdmin(sock, from, msg)
     }
 

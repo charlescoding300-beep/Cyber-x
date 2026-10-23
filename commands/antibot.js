@@ -26,6 +26,7 @@
 
 const BRAND = "> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦"
 const antibotEngine = require('../lib/antibot')
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 function normalizeJid(id) {
@@ -37,29 +38,6 @@ function normalizeJid(id) {
   }
 }
 
-function getGroupState(lib, phone, groupJid) {
-  try {
-    const section = lib.userDb?.getSection?.(phone, "antibot") || { groups: {} }
-    return section.groups?.[groupJid] || { mode: "off", exemptJids: [], warnings: {} }
-  } catch {
-    return { mode: "off", exemptJids: [], warnings: {} }
-  }
-}
-
-function setGroupState(lib, phone, groupJid, patch) {
-  try {
-    const section = lib.userDb?.getSection?.(phone, "antibot") || { groups: {} }
-    const groups = section.groups || {}
-    const current = groups[groupJid] || { mode: "off", exemptJids: [], warnings: {} }
-    groups[groupJid] = { ...current, ...patch }
-    lib.userDb?.setSection?.(phone, "antibot", { groups })
-    return groups[groupJid]
-  } catch (e) {
-    console.error("[ANTIBOT] setGroupState error:", e.message)
-    return null
-  }
-}
-
 module.exports = {
   pattern:  'antibot',
   alias:    [],
@@ -67,7 +45,7 @@ module.exports = {
   usage:    '.antibot kick|delete|warn|off|status|exempt <jid>|unexempt <jid>',
   category: 'group',
 
-  async run({ sock, from, msg, args, settings, isOwner, isAdmin, isBotAdmin, isGroup, lib }) {
+  async run({ sock, from, msg, args, isOwner, isAdmin, isBotAdmin, isGroup }) {
     if (!isGroup) {
       return sock.sendMessage(from, { text: `❌ This command only works in groups.\n\n${BRAND}` }, { quoted: msg })
     }
@@ -77,26 +55,31 @@ module.exports = {
       return sock.sendMessage(from, { text: `❌ Only group admins or the bot owner can configure antibot.\n\n${BRAND}` }, { quoted: msg })
     }
 
-    const phone = settings?.get?.('__ownerPhone') || sock.user?.id?.split('@')[0]?.split(':')[0]
+    // Keep settings and warning counts under the linked WhatsApp session's
+    // own database key. A global owner setting can point at a different bot.
+    const phone = adminLib.sessionPhoneOf(sock)
+    if (!phone) {
+      return sock.sendMessage(from, { text: `⚠️ Could not identify this bot session.\n\n${BRAND}` }, { quoted: msg })
+    }
     const action = (args[0] || '').toLowerCase()
     const groupJid = from
 
     const labels = { off: "❌ Disabled", kick: "🥾 Kick", delete: "🧹 Delete + notice", warn: "⚠️ Warn only" }
 
     if (action === 'on' || action === 'kick' || action === 'delete' || action === 'warn') {
-      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       const mode = action === 'on' ? 'kick' : action
-      setGroupState(lib, phone, groupJid, { mode })
+      if (mode !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
+      antibotEngine.setGroupState(phone, groupJid, { mode })
       return sock.sendMessage(from, { text: `✅ Antibot mode set to: *${labels[mode]}*\n\n${BRAND}` }, { quoted: msg })
     }
 
     if (action === 'off') {
-      setGroupState(lib, phone, groupJid, { mode: 'off' })
+      antibotEngine.setGroupState(phone, groupJid, { mode: 'off' })
       return sock.sendMessage(from, { text: `🤖 Antibot disabled for this group.\n\n${BRAND}` }, { quoted: msg })
     }
 
     if (action === 'status') {
-      const state = getGroupState(lib, phone, groupJid)
+      const state = antibotEngine.getGroupState(phone, groupJid)
       const exemptList = (state.exemptJids || []).map(j => `@${j.split('@')[0]}`).join(', ') || 'none'
       return sock.sendMessage(from, {
         text: `🤖 *Antibot Status*\n\nMode: ${labels[state.mode] || state.mode}\nExempt bots: ${exemptList}\n\n${BRAND}`,
@@ -110,24 +93,24 @@ module.exports = {
         return sock.sendMessage(from, { text: `❌ Usage: .antibot ${action} <jid or number>\n\n${BRAND}` }, { quoted: msg })
       }
       const targetJid = targetRaw.includes('@') ? targetRaw : `${targetRaw.replace(/\D/g, '')}@s.whatsapp.net`
-      const state = getGroupState(lib, phone, groupJid)
+      const state = antibotEngine.getGroupState(phone, groupJid)
       let exemptJids = state.exemptJids || []
 
       if (action === 'exempt') {
         if (!exemptJids.some(j => normalizeJid(j) === normalizeJid(targetJid))) {
           exemptJids = [...exemptJids, targetJid]
         }
-        setGroupState(lib, phone, groupJid, { exemptJids })
+        antibotEngine.setGroupState(phone, groupJid, { exemptJids })
         return sock.sendMessage(from, { text: `✅ Added @${targetJid.split('@')[0]} to the ZENX exempt bot list.\n\n${BRAND}`, mentions: [targetJid] }, { quoted: msg })
       } else {
         exemptJids = exemptJids.filter(j => normalizeJid(j) !== normalizeJid(targetJid))
-        setGroupState(lib, phone, groupJid, { exemptJids })
+        antibotEngine.setGroupState(phone, groupJid, { exemptJids })
         return sock.sendMessage(from, { text: `✅ Removed @${targetJid.split('@')[0]} from the exempt bot list.\n\n${BRAND}`, mentions: [targetJid] }, { quoted: msg })
       }
     }
 
     // default / help
-    const state = getGroupState(lib, phone, groupJid)
+    const state = antibotEngine.getGroupState(phone, groupJid)
     return sock.sendMessage(from, {
       text:
         `🛡️ *Antibot Commands*\n\n` +

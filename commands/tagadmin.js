@@ -3,6 +3,7 @@
 // commands/tagadmin.js — ZEN X | .tagadmin <message>
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+const adminLib = require('../lib/isAdmin')
 
 module.exports = {
   pattern: '.tagadmin',
@@ -34,7 +35,7 @@ module.exports = {
     try {
       const metadata = await sock.groupMetadata(from)
       const admins = (metadata.participants || [])
-        .filter(p => p && (p.admin === 'admin' || p.admin === 'superadmin'))
+        .filter(adminLib.isAdminParticipant)
         .map(p => {
           const jid = [p.id, p.jid, p.phoneNumber]
             .find(value => typeof value === 'string' && value.includes('@'))

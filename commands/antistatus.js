@@ -73,9 +73,9 @@ module.exports = {
 
     // ── ON (".antistatus on kick" or the shortcut ".antistatus kick") ──
     if (action === 'on' || MODES[action]) {
-      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       if (action === 'on' && modeArg && !MODES[modeArg]) return reply(USAGE)
       const mode = MODES[action] ? action : (MODES[modeArg] ? modeArg : 'warn')
+      if (mode !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
 
       enable(phone, from, mode)
 

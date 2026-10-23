@@ -14,7 +14,7 @@
  * ✅ Quoted reply + instant reaction
  */
 
-const { getAdmins, toNum } = require('../lib/isAdmin')
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
@@ -26,7 +26,7 @@ function getTarget(msg) {
 
   // Priority 2: reply-to quoted message sender
   const ctx = msg.message?.extendedTextMessage?.contextInfo
-  if (ctx?.participant) return ctx.participant
+  if (ctx?.participantPn || ctx?.participantAlt || ctx?.participant) return ctx.participantPn || ctx.participantAlt || ctx.participant
   if (ctx?.remoteJid?.endsWith('@s.whatsapp.net')) return ctx.remoteJid
 
   return null
@@ -52,10 +52,6 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    if (!isBotAdmin) {
-      return sendBotNotAdmin(sock, from, msg)
-    }
-
     const target = getTarget(msg)
     if (!target) {
       return sock.sendMessage(from, {
@@ -63,11 +59,25 @@ module.exports = {
       }, { quoted: msg })
     }
 
-    const targetNum = `@${target.split('@')[0]}`
-    const byNum     = `@${sender.split('@')[0]}`
+    let context
+    try { context = await adminLib.getGroupAdminContext(sock, from, sender, msg.key?.participantPn || msg.key?.participantAlt) }
+    catch (error) { console.error('[PROMOTE] admin lookup failed:', error.message) }
+    if (!context?.available) {
+      return sock.sendMessage(from, { text: `⚠️ I could not verify current group permissions. Please try again.\n\n${CREDIT}` }, { quoted: msg })
+    }
+    if (!context.botAdmin && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
+    if (!isOwner && !context.senderAdmin && !isAdmin) {
+      return sock.sendMessage(from, { text: `❌ You need to be a group admin to promote members.\n\n${CREDIT}` }, { quoted: msg })
+    }
+    const targetParticipant = context.meta.participants.find(p => adminLib.participantMatches(p, target))
+    if (!targetParticipant) {
+      return sock.sendMessage(from, { text: `⚠️ I could not find that member in this group.\n\n${CREDIT}` }, { quoted: msg })
+    }
+    const targetJid = targetParticipant.id || targetParticipant.jid || targetParticipant.lid || target
+    const targetNum = `@${(targetParticipant.phoneNumber || targetJid).split('@')[0].split(':')[0]}`
+    const byNum     = `@${String(sender || '').split('@')[0].split(':')[0]}`
 
-    const admins = getAdmins(from)
-    if (admins.has(toNum(target))) {
+    if (adminLib.isAdminParticipant(targetParticipant)) {
       return sock.sendMessage(from, {
         text: `⚠️ ${targetNum} is *already an admin!*\n\n${CREDIT}`,
         mentions: [target],
@@ -79,7 +89,7 @@ module.exports = {
       react: { text: '⬆️', key: msg.key }
     }).catch(() => {})
 
-    await sock.groupParticipantsUpdate(from, [target], 'promote')
+    await sock.groupParticipantsUpdate(from, [targetJid], 'promote')
 
     await sock.sendMessage(from, {
       text:
@@ -93,7 +103,7 @@ module.exports = {
 ✅ Now has *admin privileges*
 
 ${CREDIT}`,
-      mentions: [target, sender],
+      mentions: [targetJid, sender],
     }, { quoted: msg })
   },
 }

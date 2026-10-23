@@ -1,5 +1,7 @@
 'use strict'
 
+const adminLib = require('../lib/isAdmin')
+
 module.exports = {
   pattern: 'groupinfo',
   media: true,
@@ -32,7 +34,7 @@ module.exports = {
       } catch (_) {}
 
       const totalMembers = meta.participants.length
-      const admins = meta.participants.filter(p => p.admin === 'admin' || p.admin === 'superadmin')
+      const admins = meta.participants.filter(adminLib.isAdminParticipant)
       const totalAdmins = admins.length
       const totalRegular = totalMembers - totalAdmins
 

@@ -146,10 +146,6 @@ module.exports = {
       return sock.sendMessage(from, { text: '❌ This command only works in groups.' }, { quoted: msg })
     }
 
-    if (!isBotAdmin) {
-      return sendBotNotAdmin(sock, from, msg)
-    }
-
     if (!isAdmin) {
       return sock.sendMessage(from, { text: '❌ Only group admins can use this command.' }, { quoted: msg })
     }
@@ -177,6 +173,7 @@ Action : *${cfg.action || 'delete'}*
 
     if (sub === 'on') {
       const cfg = getGroupConfig(ownerPhone, from)
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setGroupConfig(ownerPhone, from, { enabled: true, action: cfg.action || 'delete' })
       return sock.sendMessage(from, {
         text: `✅ AntiBadword *ON*\nAction: *${cfg.action || 'delete'}*`,
@@ -189,6 +186,7 @@ Action : *${cfg.action || 'delete'}*
     }
 
     if (['delete', 'warn', 'kick'].includes(sub)) {
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setGroupConfig(ownerPhone, from, { enabled: true, action: sub })
       const desc = {
         delete: 'Message will be deleted only',
@@ -196,7 +194,7 @@ Action : *${cfg.action || 'delete'}*
         kick:   'Kick immediately',
       }[sub]
       return sock.sendMessage(from, {
-        text: `✅ AntiBadword *ON*\nAction set to: *\( {sub}*\n \){desc}`,
+        text: `✅ AntiBadword *ON*\nAction set to: *${sub}*\n${desc}`,
       }, { quoted: msg })
     }
 
@@ -207,6 +205,7 @@ Action : *${cfg.action || 'delete'}*
           text: '❌ Use: *.antibadword delete / warn / kick*',
         }, { quoted: msg })
       }
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setGroupConfig(ownerPhone, from, { enabled: true, action })
       return sock.sendMessage(from, {
         text: `✅ AntiBadword *ON*\nAction set to: *${action}*`,
@@ -243,34 +242,23 @@ async function handleBadword(sock, msg, extractBody) {
   if (!wordHit) wordHit = 'bad language'
 
   const sender = msg.key.participant || from
-  const senderAlt = msg.key.participantPn || null
+  const senderAlt = msg.key.participantPn || msg.key.participantAlt || msg.participantPn || msg.participantAlt || null
   const tag = String(sender.split('@')[0] || '').replace(/:\d+$/, '')
 
   let isBotAdmin = false
   let isSenderAdmin = false
 
-  if (isAdminLib) {
-    try {
-      const meta = await sock.groupMetadata(from)
-      const groupCache = { [from]: meta }
-      isBotAdmin    = isAdminLib.isBotAdmin(groupCache, from, sock)
-      isSenderAdmin = isAdminLib.isAdmin(groupCache, from, sender, sock, null, senderAlt)
-    } catch (e) {
-      console.error('[ANTIBADWORD] isAdmin check failed:', e.message)
+  try {
+    const context = await isAdminLib.getGroupAdminContext(sock, from, sender, senderAlt, ownerPhone)
+    if (!context.available) {
+      console.error('[ANTIBADWORD] group roles unavailable; skipped moderation action')
       return
     }
-  } else {
-    try {
-      const meta = await sock.groupMetadata(from)
-      const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net'
-      const bot = meta.participants.find(p => p.id === botId)
-      const participant = meta.participants.find(p => p.id === sender)
-      isBotAdmin    = !!bot?.admin
-      isSenderAdmin = !!participant?.admin
-    } catch (e) {
-      console.error('[ANTIBADWORD] metadata fetch failed:', e.message)
-      return
-    }
+    isBotAdmin = context.botAdmin
+    isSenderAdmin = context.senderAdmin
+  } catch (e) {
+    console.error('[ANTIBADWORD] admin check failed:', e.message)
+    return
   }
 
   // Admins exempt

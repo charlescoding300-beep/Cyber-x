@@ -2,7 +2,9 @@
 
 const fs   = require('fs');
 const path = require('path');
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
 // ── Database ────────────────────────────────────────────────────
 const DATA_DIR  = path.join(__dirname, '../data');
@@ -26,8 +28,18 @@ function saveDB(db) {
   const snapshot = JSON.stringify(db, null, 2)
   dbSaveQueue = dbSaveQueue.catch(() => {}).then(async () => {
     await fs.promises.mkdir(DATA_DIR, { recursive: true })
-    await fs.promises.writeFile(DATA_FILE, snapshot, 'utf8')
-  }).catch(e => console.error('[WARN] save failed:', e.message))
+    const temporary = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`
+    try {
+      await fs.promises.writeFile(temporary, snapshot, { encoding: 'utf8', mode: 0o600 })
+      await fs.promises.rename(temporary, DATA_FILE)
+    } catch (error) {
+      await fs.promises.rm(temporary, { force: true }).catch(() => {})
+      throw error
+    }
+  }).catch(e => {
+    console.error('[WARN] save failed:', e.message)
+    throw e
+  })
   return dbSaveQueue
 }
 
@@ -77,26 +89,43 @@ function getQuoted(msg) {
     msg.message?.stickerMessage?.contextInfo      ||
     null;
   if (!ctx?.quotedMessage) return null;
-  const raw = ctx.participant || ctx.remoteJid || null;
+  const raw = ctx.participantPn || ctx.participantAlt || ctx.participant || ctx.remoteJid || null;
   return raw ? normalizeJid(raw) : null;
 }
 
-// ── Get bot JID ─────────────────────────────────────────────────
-function getBotId(sock) {
-  return normalizeJid(sock.user?.id || '');
+function findParticipant(groupCache, groupJid, target) {
+  const participants = groupCache?.[groupJid]?.participants
+  if (!Array.isArray(participants)) return null
+  return participants.find(participant => adminLib.participantMatches(participant, target)) || null
+}
+
+function canonicalTarget(participant, fallback) {
+  const value = participant?.phoneNumber || participant?.id || participant?.jid || participant?.lid || fallback
+  return value ? normalizeJid(value) : null
+}
+
+function targetAliases(participant, target) {
+  return [...new Set([
+    target,
+    participant?.phoneNumber,
+    participant?.id,
+    participant?.jid,
+    participant?.lid,
+  ].filter(Boolean).map(normalizeJid))]
+}
+
+function matchingWarningKeys(members, aliases) {
+  return Object.keys(members).filter(key =>
+    aliases.some(alias => adminLib.participantMatches({ id: key }, alias))
+  )
 }
 
 // ── Group info ──────────────────────────────────────────────────
 async function getGroupInfo(sock, groupJid) {
-  const meta   = await sock.groupMetadata(groupJid);
-  const botId  = getBotId(sock);
-  const admins = meta.participants
-    .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
-    .map(p => normalizeJid(p.id || p.jid || ''));
-  const botIsAdmin = admins.some(id =>
-    id === botId || id.includes(botId.split('@')[0])
-  );
-  return { meta, admins, botIsAdmin };
+  const context = await adminLib.getGroupAdminContext(sock, groupJid)
+  if (!context.available) throw context.error || new Error('group role metadata unavailable')
+  const admins = context.meta.participants.filter(adminLib.isAdminParticipant)
+  return { meta: context.meta, admins, botIsAdmin: context.botAdmin }
 }
 
 // ── Usage card ───────────────────────────────────────────────────
@@ -144,7 +173,7 @@ module.exports = {
   pattern:  'warn',
   category: 'group',
 
-  run: async ({ sock, from, msg, sender, args, isGroup, isAdmin, isBotAdmin }) => {
+  run: async ({ sock, from, msg, sender, args, isGroup, isAdmin, isBotAdmin, groupCache }) => {
 
     if (!isGroup) {
       return sock.sendMessage(from, {
@@ -211,8 +240,16 @@ _Example: .warn set 5_`
         }, { quoted: msg });
       }
 
+      const previousLimit = g.maxwarn
       g.maxwarn = n;
-      await saveDB(db);
+      try {
+        await saveDB(db);
+      } catch {
+        g.maxwarn = previousLimit
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not save the new warning limit. The previous limit is still active.\n\n${CREDIT}`,
+        }, { quoted: msg });
+      }
 
       return sock.sendMessage(from, {
         text:
@@ -231,9 +268,17 @@ ${LINE}
 
     // ── .warn reset all ─────────────────────────────────────────
     if (sub === 'reset' && (args[1] || '').toLowerCase() === 'all') {
+      const previousMembers = { ...g.members }
       const total = Object.keys(g.members).length;
       g.members = {};
-      await saveDB(db);
+      try {
+        await saveDB(db);
+      } catch {
+        g.members = previousMembers
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not save the warning reset. No reset was confirmed.\n\n${CREDIT}`,
+        }, { quoted: msg });
+      }
 
       return sock.sendMessage(from, {
         text:
@@ -252,7 +297,8 @@ This group now has a clean slate.`
         msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
         (() => { const m = (args[1] || '').match(/\d{7,15}/); return m ? `${m[0]}@s.whatsapp.net` : null; })();
 
-      const target = raw ? normalizeJid(raw) : null;
+      const requested = raw ? normalizeJid(raw) : null;
+      const target = requested ? canonicalTarget(findParticipant(groupCache, from, requested), requested) : null;
 
       if (!target) {
         return sock.sendMessage(from, {
@@ -264,9 +310,21 @@ _Tag the member you want to clear._`
         }, { quoted: msg });
       }
 
-      const had = g.members[target] || 0;
-      delete g.members[target];
-      await saveDB(db);
+      const participant = findParticipant(groupCache, from, target);
+      const aliases = targetAliases(participant, target);
+      const keys = matchingWarningKeys(g.members, aliases);
+      const had = keys.reduce((total, key) => total + (Number(g.members[key]) || 0), 0);
+      const previousValues = Object.fromEntries(keys.map(key => [key, g.members[key]]));
+      for (const key of keys) delete g.members[key];
+      try {
+        await saveDB(db);
+      } catch {
+        Object.assign(g.members, previousValues)
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not save the warning reset. No reset was confirmed.\n\n${CREDIT}`,
+          mentions: [target],
+        }, { quoted: msg });
+      }
 
       return sock.sendMessage(from, {
         text:
@@ -287,7 +345,9 @@ ${DLINE}
         msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
         (() => { const m = (args[1] || '').match(/\d{7,15}/); return m ? `${m[0]}@s.whatsapp.net` : null; })();
 
-      const target = raw ? normalizeJid(raw) : null;
+      const requested = raw ? normalizeJid(raw) : null;
+      const participant = requested ? findParticipant(groupCache, from, requested) : null;
+      const target = requested ? canonicalTarget(participant, requested) : null;
 
       if (!target) {
         return sock.sendMessage(from, {
@@ -299,7 +359,8 @@ _Tag the member you want to inspect._`
         }, { quoted: msg });
       }
 
-      const count = g.members[target] || 0;
+      const keys = matchingWarningKeys(g.members, targetAliases(participant, target));
+      const count = keys.reduce((highest, key) => Math.max(highest, Number(g.members[key]) || 0), 0);
       const left  = Math.max(0, g.maxwarn - count);
       const bar   = progressBar(count, g.maxwarn);
 
@@ -330,29 +391,55 @@ ${count >= g.maxwarn
         return sock.sendMessage(from, { text: usageCard() }, { quoted: msg });
       }
 
-      // Block warning admins
+      // Verify the target against current LID/PN metadata before saving a
+      // warning; if metadata is unavailable, fail closed instead of warning
+      // an admin or writing a record against an unresolved identity.
+      let warnGroupInfo
+      let targetParticipant
       try {
-        const { admins } = await getGroupInfo(sock, from);
-        const targetNorm = normalizeJid(target);
-        if (admins.some(id => id === targetNorm || id.includes(targetNorm.split('@')[0]))) {
-          return sock.sendMessage(from, {
-            text:
+        warnGroupInfo = await getGroupInfo(sock, from)
+        targetParticipant = warnGroupInfo.meta.participants.find(p => adminLib.participantMatches(p, target))
+      } catch (error) {
+        console.error('[WARN] target role lookup failed:', error.message)
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not verify that member’s current group role. Please try again.\n\n${CREDIT}`,
+        }, { quoted: msg })
+      }
+      if (!targetParticipant) {
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not match that reply to a current group member. Please reply to their message again.\n\n${CREDIT}`,
+        }, { quoted: msg })
+      }
+      // Persist against the participant's phone JID when WhatsApp provides
+      // it, so later replies/resets using either PN or LID find one record.
+      target = canonicalTarget(targetParticipant, target)
+      if (adminLib.isAdminParticipant(targetParticipant)) {
+        return sock.sendMessage(from, {
+          text:
 `🛡️ *Cannot Warn Admin*
 ${LINE}
 ${fmt(target)} is a group admin.
 Warns cannot be issued to admins.`,
-            mentions: [target]
-          }, { quoted: msg });
-        }
-      } catch {}
+          mentions: [target]
+        }, { quoted: msg });
+      }
 
       // Increment warn
-      if (!g.members[target]) g.members[target] = 0;
-      g.members[target]++;
+      const previousCount = Number(g.members[target]) || 0
+      g.members[target] = previousCount + 1
       const count = g.members[target];
       const left  = Math.max(0, g.maxwarn - count);
       const bar   = progressBar(count, g.maxwarn);
-      await saveDB(db);
+      try {
+        await saveDB(db);
+      } catch {
+        if (previousCount) g.members[target] = previousCount
+        else delete g.members[target]
+        return sock.sendMessage(from, {
+          text: `⚠️ I could not save this warning to local storage, so it was not issued. Please check the server’s data folder permissions and try again.\n\n${CREDIT}`,
+          mentions: [target],
+        }, { quoted: msg });
+      }
 
       // DM the warned member
       try {
@@ -400,19 +487,13 @@ ${count >= g.maxwarn
         let kickTarget  = target;
 
         try {
-          const info = await getGroupInfo(sock, from);
+          const info = warnGroupInfo || await getGroupInfo(sock, from);
           botIsAdmin  = info.botIsAdmin;
 
-          const phoneNumber        = target.split('@')[0];
-          const matchedParticipant = info.meta.participants.find(p => {
-            const pid = normalizeJid(p.id || p.jid || '');
-            return pid === target ||
-                   pid.includes(phoneNumber) ||
-                   (p.lid && p.lid.includes(phoneNumber));
-          });
+          const matchedParticipant = info.meta.participants.find(p => adminLib.participantMatches(p, target));
 
           if (matchedParticipant) {
-            kickTarget = normalizeJid(matchedParticipant.id || matchedParticipant.jid);
+            kickTarget = normalizeJid(matchedParticipant.id || matchedParticipant.jid || matchedParticipant.lid || matchedParticipant.phoneNumber);
           }
 
           console.log(`[WARN] Kicking ${kickTarget} | botAdmin: ${botIsAdmin}`);
@@ -424,7 +505,6 @@ ${count >= g.maxwarn
           try {
             await new Promise(r => setTimeout(r, 1500));
             await sock.groupParticipantsUpdate(from, [kickTarget], 'remove');
-            delete g.members[target];
             await saveDB(db);
 
             console.log(`[WARN] ✅ Kicked ${kickTarget}`);
@@ -438,9 +518,9 @@ ${DLINE}
 📌 *Reason* : Reached *${g.maxwarn}* warns
 ✅ *Action* : Removed from group
 
-_Their warn record has been cleared._`,
+_Their warning record remains saved until an admin resets it._`,
               mentions: [target]
-            });
+            }, { quoted: msg });
           } catch (e) {
             console.error('[WARN] Kick failed:', e.message);
             await sock.sendMessage(from, {
@@ -453,7 +533,7 @@ _Error: ${e.message}_
 
 Make sure I'm *admin* with remove rights.`,
               mentions: [target]
-            });
+            }, { quoted: msg });
           }
         } else {
           await sendBotNotAdmin(sock, from, msg).catch(() => {})

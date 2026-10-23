@@ -645,27 +645,24 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
     // whether to show the owner-specific notice.
     try { meta = await getGroupMetaForCommand(sock, state.phone, from) } catch {}
   } else {
-    // Keep ordinary admin checks fast: use the existing cache and refresh stale
-    // data in the background. A cold cache still gets one awaited lookup.
+    // This path is used only for commands that explicitly need group roles.
+    // Reuse a recent cache; when it is stale, await one shared refresh before
+    // authorizing the command so a recent promotion/demotion is not hidden by
+    // an old cached admin flag. Ordinary commands never enter this path.
     meta = state.groupCache[from]
     if (!meta || !Array.isArray(meta.participants)) {
       try { meta = await refreshGroupMeta(state, sock, from) } catch {}
-    } else if (Date.now() - (meta._cachedAt || 0) > 5 * 60 * 1000) {
-      refreshGroupMeta(state, sock, from).catch(() => {})
+    } else if (Date.now() - (meta._cachedAt || 0) > 60 * 1000) {
+      try { meta = await refreshGroupMeta(state, sock, from) } catch {}
     }
   }
   const hasParticipants = Array.isArray(meta?.participants) && meta.participants.length > 0
   let isActualGroupAdmin = null
   if (hasParticipants) {
-    const actualAdminSet = new Set(
-      meta.participants
-        .filter(p => p.admin === "admin" || p.admin === "superadmin")
-        .flatMap(p => [p.id, p.lid, p.phoneNumber, p.jid])
-        .filter(Boolean)
-        .map(normalizeNum)
-        .filter(Boolean)
+    isActualGroupAdmin = meta.participants.some(p =>
+      isAdminLib.isAdminParticipant(p) &&
+      isAdminLib.participantMatches(p, ...candidates.filter(Boolean))
     )
-    isActualGroupAdmin = candidateNums.some(n => actualAdminSet.has(n))
   }
 
   // Bot-owner authorization does not grant the connected WhatsApp account
@@ -686,10 +683,10 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
   let isAdmin = false
   try { isAdmin = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt) } catch {}
   if (!isAdmin && meta?.participants) {
-    const adminSet = new Set(
-      meta.participants.filter(p => p.admin === "admin" || p.admin === "superadmin").map(p => normalizeNum(p.id))
+    isAdmin = meta.participants.some(p =>
+      isAdminLib.isAdminParticipant(p) &&
+      isAdminLib.participantMatches(p, ...candidates.filter(Boolean))
     )
-    isAdmin = candidateNums.some(n => adminSet.has(n))
   }
   return { isAdmin, isBotAdmin, isActualGroupAdmin }
 }
@@ -2216,13 +2213,21 @@ async function handleAntitagInline(sock, msg, phone) {
     if (senderNorm === sessionPhone) return
     if (OWNER_NUMBERS.includes(senderNorm)) return
 
+    const senderAlt = msg.key.participantPn || msg.key.participantAlt || msg.participantPn || msg.participantAlt
+    let adminContext
     try {
-      const groupMeta = await getGroupMetaCached(sock, phone, groupId)
-      const isSenderAdmin = groupMeta.participants?.some(p =>
-        normalizeNum(p.id) === senderNorm && (p.admin === "admin" || p.admin === "superadmin"))
-      if (isSenderAdmin) return
+      adminContext = await isAdminLib.getGroupAdminContext(sock, groupId, sender, senderAlt, phone)
     } catch (e) {
       console.error(`[ANTITAG:${phone}] admin check failed:`, e.message)
+      return
+    }
+    if (!adminContext.available) {
+      console.error(`[ANTITAG:${phone}] metadata unavailable; skipped automatic action in ${groupId}`)
+      return
+    }
+    if (adminContext.senderAdmin) return
+    if (!adminContext.botAdmin) {
+      return require("./lib/groupAdminNotice").sendBotNotAdmin(sock, groupId, msg).catch(() => {})
     }
 
     try {
@@ -2232,9 +2237,12 @@ async function handleAntitagInline(sock, msg, phone) {
       await sock.sendMessage(groupId, {
         text: '> *Tags are not allowed in this group*',
         mentions: [sender],
-      })
+      }, { quoted: msg })
     } catch (e) {
       console.error(`[ANTITAG:${phone}] delete failed (bot may not be admin):`, e.message)
+      await sock.sendMessage(groupId, {
+        text: '⚠️ I could not delete that tag message. Please confirm I still have group admin permission.',
+      }, { quoted: msg }).catch(() => {})
     }
   } catch (err) {
     console.error("[ANTITAG]", err.message)
@@ -2486,7 +2494,7 @@ function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
 // Keep this list conservative: only these and commands declaring permission
 // metadata need a synchronous metadata lookup before execution.
 const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
-  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker", "resetwarn",
+  "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker", "antitag", "welcome", "goodbye", "resetwarn",
   "del", "demote", "hidetag", "mute", "promote", "tagadmin", "tagall", "unban",
   "unmute", "vmute", "vunmute", "warn",
 ])

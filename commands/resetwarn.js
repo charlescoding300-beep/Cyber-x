@@ -7,6 +7,7 @@ const antibot = require('../lib/antibot')
 const antispam = require('../lib/antispam')
 const antisticker = require('../lib/antisticker')
 const userDb = require('../lib/userDb')
+const adminLib = require('../lib/isAdmin')
 
 const FEATURES = new Set(['antilink', 'antibot', 'antispam', 'antibadword', 'antistatus', 'antisticker'])
 const FEATURE_LABELS = {
@@ -72,13 +73,13 @@ module.exports = {
       return reply('Reply to the member’s message or mention them. Usage: *.resetwarn [feature] (reply or @mention)\nWithout a feature, all moderation warning counts are reset.')
     }
 
-    // Use the dispatcher’s already-loaded group metadata to include both the
-    // phone JID and LID, so a reply or mention clears the same member record.
-    const initialDigits = new Set(targets.map(digits).filter(Boolean))
+    // Use identity aliases from the same participant record (phone JID and
+    // LID). Do not equate unrelated PN and LID values just because their
+    // numeric portions happen to match.
     const participants = groupCache?.[from]?.participants || []
     for (const participant of participants) {
       const ids = [participant.id, participant.jid, participant.phoneNumber, participant.lid].filter(Boolean)
-      if (!ids.some(id => initialDigits.has(digits(id)))) continue
+      if (!targets.some(target => adminLib.participantMatches(participant, target))) continue
       for (const id of ids) {
         const stable = stableJid(id)
         if (stable && !targets.includes(stable)) targets.push(stable)

@@ -17,7 +17,7 @@ module.exports = {
     desc:     'Enable or disable the leave/goodbye message for this group',
     usage:    '.goodbye on | .goodbye off',
 
-    run: async ({ sock, from, msg, args }) => {
+    run: async ({ sock, from, msg, args, isAdmin, isOwner }) => {
         const isGroup = from.endsWith('@g.us')
         if (!isGroup) {
             return sock.sendMessage(from, { text: '*This command only works inside a group.*' }, { quoted: msg })
@@ -30,6 +30,12 @@ module.exports = {
             const state = loadGreet(phone, from).goodbye.enabled ? 'ON ✅' : 'OFF ❌'
             return sock.sendMessage(from, {
                 text: `*Goodbye is currently: ${state}*\n\nUse *.goodbye on* or *.goodbye off*`,
+            }, { quoted: msg })
+        }
+
+        if (!isAdmin && !isOwner) {
+            return sock.sendMessage(from, {
+                text: 'Only a group admin or the bot owner can change goodbye settings.',
             }, { quoted: msg })
         }
 

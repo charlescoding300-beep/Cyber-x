@@ -1,4 +1,5 @@
 'use strict'
+const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 // ════════════════════════════════════════════════════════════════════
 //  commands/antitag.js  —  ZEN X  |  Antitag Toggle
 //
@@ -22,7 +23,7 @@ module.exports = {
     desc:     'Enable or disable auto-delete of @all / tag-all and mention messages',
     usage:    '.antitag on | .antitag off',
 
-    run: async ({ sock, from, msg, args, sender }) => {
+    run: async ({ sock, from, msg, args, sender, isAdmin, isOwner, isBotAdmin }) => {
         // ── Who ran the command (to tag them) ────────────────────────────────
         const userJid = cleanJid(sender || msg?.key?.participant || msg?.participant || from)
         const userTag = userJid ? `@${userJid.split('@')[0]}` : ''
@@ -55,6 +56,9 @@ module.exports = {
             const state = global.__antitagIsEnabled(phone, from) ? 'ON ✅' : 'OFF ❌'
             return reply(`*Antitag is currently: ${state}*\n\nUse *.antitag on* or *.antitag off*`)
         }
+
+        if (!isAdmin && !isOwner) return reply('*Only a group admin or the bot owner can change anti-tag settings.*')
+        if (sub === 'on' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
 
         if (sub === 'on') {
             global.__antitagEnable(phone, from)

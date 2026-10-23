@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 module.exports = {
@@ -24,19 +25,22 @@ module.exports = {
     }
 
     // ── Independent admin re-check ─────────────────────────
-    let verifiedAdmin = isOwner
-    if (!verifiedAdmin) {
-      try {
-        const meta = await sock.groupMetadata(from)
-        const senderNum = (sender || "").split("@")[0].split(":")[0]
-        verifiedAdmin = meta.participants.some(p => {
-          const pNum = (p.id || "").split("@")[0].split(":")[0]
-          return pNum === senderNum && (p.admin === "admin" || p.admin === "superadmin")
-        })
-      } catch (e) {
-        verifiedAdmin = false
-      }
+    let adminContext
+    try {
+      adminContext = await adminLib.getGroupAdminContext(
+        sock, from, sender,
+        msg.key?.participantPn || msg.key?.participantAlt || msg.participantPn || msg.participantAlt,
+      )
+    } catch (e) {
+      console.error('[UNMUTE] group role check failed:', e.message)
     }
+    if (!adminContext?.available) {
+      return sock.sendMessage(from, {
+        text: `> ⚠️ *I could not verify current group permissions. Please try again.*\n>\n${CREDIT}`,
+        quoted: msg,
+      })
+    }
+    const verifiedAdmin = isOwner || adminContext.senderAdmin
 
     if (!verifiedAdmin) {
       return sock.sendMessage(from, {
@@ -45,7 +49,7 @@ module.exports = {
       })
     }
 
-    if (!isBotAdmin) {
+    if (!adminContext.botAdmin) {
       return sendBotNotAdmin(sock, from, msg)
     }
 
@@ -68,7 +72,7 @@ module.exports = {
       await sock.groupSettingUpdate(from, "not_announcement")
     } catch (e) {
       return sock.sendMessage(from, {
-        text: `> ❌ *Failed to unmute:* \( {e.message}\n>\n \){CREDIT}`,
+        text: `> ❌ *Failed to unmute:* ${e.message}\n>\n${CREDIT}`,
         quoted: msg
       })
     }

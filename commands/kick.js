@@ -6,6 +6,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
+const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 function getContextInfo(msg) {
@@ -53,14 +54,10 @@ function participantForms(participant) {
 }
 
 function findParticipant(participants, identities) {
-  const targets = jidForms(identities)
-  if (!targets.size) return null
-  return participants.find(participant => {
-    for (const form of participantForms(participant)) {
-      if (targets.has(form)) return true
-    }
-    return false
-  }) || null
+  return participants.find(participant => adminLib.participantMatches(
+    participant,
+    ...(Array.isArray(identities) ? identities : [identities]),
+  )) || null
 }
 
 function participantJid(participant) {
@@ -68,7 +65,7 @@ function participantJid(participant) {
 }
 
 function isAdminParticipant(participant) {
-  return participant?.admin === 'admin' || participant?.admin === 'superadmin'
+  return adminLib.isAdminParticipant(participant)
 }
 
 function getTargetIdentities(msg, args) {
@@ -77,8 +74,10 @@ function getTargetIdentities(msg, args) {
   if (mentioned.length) return mentioned
 
   const quoted = [
+    context?.participantPn,
     context?.participantAlt,
     context?.participant,
+    context?.quotedMessage?.key?.participantPn,
     context?.quotedMessage?.key?.participantAlt,
     context?.quotedMessage?.key?.participant,
   ].filter(Boolean)

@@ -44,6 +44,12 @@ module.exports = {
 
     const option = args[0].toLowerCase()
 
+    if (!isAdmin) {
+      return sock.sendMessage(jid, {
+        text: '❌ Only group admins can change Anti-Sticker settings.',
+      }, { quoted: sourceMessage })
+    }
+
     if (option !== 'off' && !isBotAdmin) return sendBotNotAdmin(sock, jid, sourceMessage)
 
     if (option === 'on') {

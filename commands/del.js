@@ -1,6 +1,5 @@
 'use strict'
 
-const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
@@ -20,13 +19,24 @@ function contextOf(msg) {
     message.documentMessage?.contextInfo || null
 }
 
+function isBotAdminError(error) {
+  const status = Number(error?.output?.statusCode || error?.statusCode || error?.status || 0)
+  if (status === 401 || status === 403) return true
+
+  const reason = [error?.message, error?.data?.content, error?.output?.payload?.message]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return /not[- ]authorized|not[- ]admin|admin(?:istrator)? (?:required|permission)|requires? admin|only admins?/.test(reason)
+}
+
 module.exports = {
   pattern: 'del',
   aliases: ['delete'],
   category: 'utility',
   description: 'Delete a replied-to message',
 
-  run: async ({ sock, from, msg, isAdmin, isOwner, isGroup, isBotAdmin, groupCache }) => {
+  run: async ({ sock, from, msg, isAdmin, isOwner, isGroup }) => {
     const reply = text => sock.sendMessage(from, {
       text: `${text}\n\n${CREDIT}`,
     }, { quoted: msg })
@@ -47,12 +57,6 @@ module.exports = {
         return reply('⚠️ Only a group admin or the bot owner can request deletion of another member’s message.')
       }
 
-      // Recompute from the cached participant list. The owner override used by
-      // command authorization does not grant the WhatsApp account admin rights.
-      const botHasGroupAdmin = adminLib.isBotAdmin(groupCache, from, sock) || isBotAdmin
-      if (!botHasGroupAdmin) {
-        return sendBotNotAdmin(sock, from, msg)
-      }
       if (!participant) {
         return reply('⚠️ I could not identify who sent that message. Reply to it again and retry.')
       }
@@ -68,13 +72,17 @@ module.exports = {
         },
       })
 
-      return reply('✅ Deleted the replied-to message.')
+      // Keep successful .del silent. A successful protocol response is the
+      // acknowledgement; no extra group message should be posted.
+      return
     } catch (error) {
       console.error('[DEL ERROR]', error?.message || error)
-      const explanation = isGroup && !isOwnMessage
-        ? '⚠️ WhatsApp did not delete that message. Check that the bot account is still a group admin, then try again.'
-        : '⚠️ WhatsApp could not delete that message. It may be too old or outside this account’s permissions.'
-      return reply(explanation)
+      if (isGroup && !isOwnMessage && isBotAdminError(error)) {
+        return sendBotNotAdmin(sock, from, msg)
+      }
+      // Other failures stay quiet too; log details for the operator instead of
+      // cluttering the group with an unrelated status message.
+      return
     }
   },
 }

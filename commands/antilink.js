@@ -60,9 +60,6 @@ module.exports = {
         text: 'Use *.antilink* inside a group.',
       }, { quoted: msg })
     }
-    if (!isBotAdmin) {
-      return sendBotNotAdmin(sock, from, msg)
-    }
     if (!isAdmin) {
       return sock.sendMessage(from, {
         text: 'Only group admins can change link protection settings.',
@@ -97,6 +94,7 @@ module.exports = {
 
     if (sub === 'on') {
       const defaultAction = 'delete'
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: defaultAction })
       return sock.sendMessage(from, {
         text: panel('ANTI-LINK', [
@@ -118,6 +116,7 @@ module.exports = {
     }
 
     if (ACTIONS.has(sub)) {
+      if (sub !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: sub })
       return sock.sendMessage(from, {
         text: panel('ANTI-LINK', [

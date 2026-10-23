@@ -1,10 +1,23 @@
 'use strict'
 
-// Apply the bot's monospace display font at the shared WhatsApp send boundary,
-// so current and future commands get the same text styling automatically.
+// Compact oversized message frames and apply the bot's display font at the
+// shared WhatsApp send boundary, including replies from future commands.
 const MONOSPACE_CAPITAL_A = 0x1D670
 const PROTECTED_TEXT = /```[\s\S]*?```|`[^`\r\n]*`|(?:https?:\/\/|www\.)[^\s<>{}]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:[A-Z0-9-]+\.)+[A-Z]{2,}(?:\/[^\s<>{}]*)?|@[A-Z0-9._+-]+|[.!/#?][A-Z][A-Z0-9_-]*/giu
 const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
+
+function compactLayout(text) {
+  return text
+    // Replace oversized title frames with one compact, consistent heading.
+    .replace(/[┏╭]([━─]{3,})「\s*([^」]+?)\s*」([━─]{3,})[┓╮]/gu,
+      (_match, _left, title) => `╭─「 ${title.trim()} 」─╮`)
+    // Convert legacy three-line boxes into a clean heading without changing
+    // the words inside the box.
+    .replace(/╔═{20,}╗[ \t]*\r?\n║[ \t]*(.*?)[ \t]*║[ \t]*\r?\n╚═{20,}╝/gu,
+      (_match, title) => `「 ${title.trim()} 」`)
+    // Keep dividers readable on WhatsApp without very wide runs of glyphs.
+    .replace(/[━═─]{22,}/gu, run => run[0].repeat(18))
+}
 
 function stylizeSegment(text) {
   return Array.from(text, character => {
@@ -18,6 +31,8 @@ function stylizeSegment(text) {
 
 function stylizeText(text) {
   if (typeof text !== 'string' || !text) return text
+
+  text = compactLayout(text)
 
   let output = ''
   let cursor = 0

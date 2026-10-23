@@ -56,6 +56,7 @@ const os = require("os")
 const path = require("path")
 const { spawn } = require("child_process")
 const Pino = require("pino")
+const { sendMessageUnstyled } = require("../core/responseTextStyle")
 
 const axios = require("axios")
 const baileys = require("@systemzero/baileys")
@@ -86,6 +87,15 @@ const STATUS_SOURCE_NAME = {
 }
 
 const SUPPORTED_MEDIA = new Set(["image", "video", "audio"])
+
+function statusReply(sock, msg, text) {
+  return sendMessageUnstyled(
+    sock,
+    msg?.key?.remoteJid,
+    { text },
+    { quoted: msg }
+  )
+}
 
 // ── BACKGROUND COLORS ────────────────────────────────────────────────────────
 // Every primary (RGB + CMY + RYB paint), every secondary (all three models),
@@ -262,6 +272,14 @@ function getContent(message) {
   if (m?.documentMessage) return { type: "document", node: m.documentMessage }
 
   return null
+}
+
+// Keep user-authored status text opaque: return the original text/caption
+// verbatim, including Unicode, spacing, and punctuation. Do not stylize it.
+function originalText(node) {
+  if (typeof node?.text === "string") return node.text
+  if (typeof node?.caption === "string") return node.caption
+  return ""
 }
 
 async function downloadMedia(sock, node, type, quoted, from) {
@@ -1309,7 +1327,7 @@ async function sendFlatMedia(sock, groupJid, content) {
 
   console.log("[GCSTATUS] Sending FLAT media (--flat engine)", { type: content.type, kind })
 
-  const sent = await sock.sendMessage(groupJid, input)
+  const sent = await sendMessageUnstyled(sock, groupJid, input)
   console.log("[GCSTATUS] flat send completed", sent?.key?.id)
   return sent
 }
@@ -1443,37 +1461,32 @@ async function publishPrepared(sock, groupJid, prep) {
   return status
 }
 
-async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg }) {
+async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
+  const reply = text => statusReply(sock, msg, text)
   const key = sessionKey(sock)
   const running = bulkJobs.get(key)
 
   // ── .gcstatus all stop ─────────────────────────────────────────────────────
   if (sub === "stop") {
-    if (!running) return helper.reply(sock, msg, "> ℹ️ *No bulk Group Status is running.*")
+    if (!running) return reply("> ℹ️ *No bulk Group Status is running.*")
     running.cancel = true
-    return helper.reply(sock, msg, `> 🛑 *Stopping after the current group…*\n> Done so far: *${running.done}/${running.total}*`)
+    return reply(`> 🛑 *Stopping after the current group…*\n> Done so far: *${running.done}/${running.total}*`)
   }
 
   if (running) {
-    return helper.reply(
-      sock,
-      msg,
-      `> ⏳ *A bulk Group Status is already running* (${running.done}/${running.total}).\n> Send *.gcstatus all stop* to cancel it.`
+    return reply(`> ⏳ *A bulk Group Status is already running* (${running.done}/${running.total}).\n> Send *.gcstatus all stop* to cancel it.`
     )
   }
 
   const quoted = getQuotedInfo(msg)
   if (!quoted) {
-    return helper.reply(sock, msg, "> ❌ *Reply to the content you want to post, then send .gcstatus all*")
+    return reply("> ❌ *Reply to the content you want to post, then send .gcstatus all*")
   }
 
   const content = getContent(quoted.quotedMessage)
-  if (!content) return helper.reply(sock, msg, "> ❌ *Unsupported quoted message.*")
+  if (!content) return reply("> ❌ *Unsupported quoted message.*")
   if (content.type !== "text" && !SUPPORTED_MEDIA.has(content.type)) {
-    return helper.reply(
-      sock,
-      msg,
-      `> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
+    return reply(`> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
     )
   }
 
@@ -1485,15 +1498,15 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg 
       .filter(g => g?.id?.endsWith("@g.us"))
       .sort((a, b) => String(a.subject || "").localeCompare(String(b.subject || ""), undefined, { sensitivity: "base" }))
   } catch (e) {
-    return helper.reply(sock, msg, `> ❌ *Couldn't fetch the group list.*\n> ${e.message}`)
+    return reply(`> ❌ *Couldn't fetch the group list.*\n> ${e.message}`)
   }
-  if (!groups.length) return helper.reply(sock, msg, "> ❌ *This account isn't in any groups.*")
+  if (!groups.length) return reply("> ❌ *This account isn't in any groups.*")
 
   // ── prepare ONCE (download / upload / link preview) ────────────────────────
   let publish
   try {
     if (content.type === "text") {
-      const textValue = content.node?.text || content.node?.caption || ""
+      const textValue = originalText(content.node)
       if (!textValue.trim()) throw new Error("The quoted text message is empty.")
 
       let preview = null
@@ -1520,7 +1533,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg 
     }
   } catch (e) {
     console.error("[GCSTATUS ALL] prepare failed", e)
-    return helper.reply(sock, msg, `> ❌ *Couldn't prepare the content.*\n> ${e.message}`)
+    return reply(`> ❌ *Couldn't prepare the content.*\n> ${e.message}`)
   }
 
   const job = { cancel: false, total: groups.length, done: 0 }
@@ -1529,10 +1542,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg 
   const delay = allDelayMs()
   const etaMin = Math.max(1, Math.round((groups.length * (delay + allJitterMs() / 2 + 700)) / 60000))
 
-  await helper.reply(
-    sock,
-    msg,
-    `> 📤 *Posting to ALL groups…*\n>\n> Groups: *${groups.length}*\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Estimated time: ~${etaMin} min\n>\n> Send *.gcstatus all stop* to cancel.\n>\n${CREDIT}`
+  await reply(`> 📤 *Posting to ALL groups…*\n>\n> Groups: *${groups.length}*\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Estimated time: ~${etaMin} min\n>\n> Send *.gcstatus all stop* to cancel.\n>\n${CREDIT}`
   ).catch(() => {})
 
   // ── run in the background so the command itself returns right away ─────────
@@ -1560,7 +1570,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg 
         if (streak >= MAX_CONSECUTIVE_FAILS) { aborted = true; break }
 
         if (job.done % 20 === 0 && job.done < groups.length && !job.cancel) {
-          helper.reply(sock, msg, `> ⏳ *Progress:* ${job.done}/${job.total}  (✅ ${ok.length}  ❌ ${failed.length})`).catch(() => {})
+          reply(`> ⏳ *Progress:* ${job.done}/${job.total}  (✅ ${ok.length}  ❌ ${failed.length})`).catch(() => {})
         }
 
         if (job.done < groups.length && !job.cancel) {
@@ -1586,7 +1596,7 @@ async function runAllGroups({ sock, from, msg, helper, sub, flat, noPreview, bg 
       `\n>\n${CREDIT}`
 
     console.log(`[GCSTATUS ALL] done — posted ${ok.length}/${job.total}, failed ${failed.length}`)
-    await helper.reply(sock, msg, summary).catch(() => {})
+    await reply(summary).catch(() => {})
   })().catch(e => console.error("[GCSTATUS ALL] crashed:", e))
 }
 
@@ -1605,9 +1615,10 @@ module.exports = {
 
   category: "owner",
 
-  async run({ sock, from, msg, text, isOwner, isGroup, helper }) {
+  async run({ sock, from, msg, text, isOwner, isGroup }) {
+    const reply = text => statusReply(sock, msg, text)
     if (!isOwner) {
-      return helper.reply(sock, msg, "> ❌ *Owner only.*")
+      return reply("> ❌ *Owner only.*")
     }
 
     let destination = String(text || "").trim()
@@ -1616,14 +1627,11 @@ module.exports = {
     if (destination.toLowerCase() === "check") {
       const report = await inspectLib()
       if (!report.length) {
-        return helper.reply(sock, msg, "> ⚠️ *Couldn't locate the baileys library files to inspect.*")
+        return reply("> ⚠️ *Couldn't locate the baileys library files to inspect.*")
       }
       const lines = report.map(r => `> ${r.fixed ? "✅" : "❌"} ${r.name}\n>    ${r.file.split("node_modules/")[1] || r.file}`)
       const allFixed = report.every(r => r.fixed)
-      return helper.reply(
-        sock,
-        msg,
-        `> 🔎 *Group Status library check*\n>\n${lines.join("\n")}\n>\n> ${allFixed ? "All good — media group status should work." : "Run: *node patch-gcstatus-lib.js* then restart the bot."}`
+      return reply(`> 🔎 *Group Status library check*\n>\n${lines.join("\n")}\n>\n> ${allFixed ? "All good — media group status should work." : "Run: *node patch-gcstatus-lib.js* then restart the bot."}`
       )
     }
 
@@ -1631,10 +1639,7 @@ module.exports = {
     if (destination.toLowerCase() === "colors") {
       const c = colorSummary()
       const names = Object.keys(STATUS_COLORS).sort().join(", ")
-      return helper.reply(
-        sock,
-        msg,
-        `> 🎨 *Group Status colors*\n>\n> Primary: *${c.primary}* | Secondary: *${c.secondary}* | Tertiary: *${c.tertiary}* | CSS named: *${c.css}*\n> Total names: *${c.names}* (${c.shades} unique shades, no black)\n>\n> Use: *--color=red*, *--color=#ff8800*, *--color=primary|secondary|tertiary|css*, or leave it out for random.\n>\n> ${names}`
+      return reply(`> 🎨 *Group Status colors*\n>\n> Primary: *${c.primary}* | Secondary: *${c.secondary}* | Tertiary: *${c.tertiary}* | CSS named: *${c.css}*\n> Total names: *${c.names}* (${c.shades} unique shades, no black)\n>\n> Use: *--color=red*, *--color=#ff8800*, *--color=primary|secondary|tertiary|css*, or leave it out for random.\n>\n> ${names}`
       )
     }
 
@@ -1648,16 +1653,13 @@ module.exports = {
     // .gcstatus all  /  .gcstatus all stop  → every group the bot is in
     const words = destination.split(/\s+/).filter(Boolean)
     if (words[0] && words[0].toLowerCase() === "all") {
-      return runAllGroups({ sock, from, msg, helper, sub: (words[1] || "").toLowerCase(), flat, noPreview, bg })
+      return runAllGroups({ sock, from, msg, sub: (words[1] || "").toLowerCase(), flat, noPreview, bg })
     }
 
     const quoted = getQuotedInfo(msg)
 
     if (!quoted) {
-      return helper.reply(
-        sock,
-        msg,
-        "> ❌ *Reply to the content you want to publish with .gcstatus.*"
+      return reply("> ❌ *Reply to the content you want to publish with .gcstatus.*"
       )
     }
 
@@ -1668,30 +1670,24 @@ module.exports = {
         group = await sock.groupMetadata(from)
       } else {
         if (!destination) {
-          return helper.reply(
-            sock,
-            msg,
-            "> ❌ *Give me a group name, GID, or WhatsApp group invite link.*"
+          return reply("> ❌ *Give me a group name, GID, or WhatsApp group invite link.*"
           )
         }
         group = await findGroup(sock, destination)
       }
     } catch (e) {
-      return helper.reply(sock, msg, `> ❌ *${e.message}*`)
+      return reply(`> ❌ *${e.message}*`)
     }
 
     if (!group?.id) {
-      return helper.reply(
-        sock,
-        msg,
-        "> ❌ *Group not found.*\n> Use *.gcjid* to see the available groups."
+      return reply("> ❌ *Group not found.*\n> Use *.gcjid* to see the available groups."
       )
     }
 
     const content = getContent(quoted.quotedMessage)
 
     if (!content) {
-      return helper.reply(sock, msg, "> ❌ *Unsupported quoted message.*")
+      return reply("> ❌ *Unsupported quoted message.*")
     }
 
     console.log("[GCSTATUS] Content detected", {
@@ -1708,7 +1704,7 @@ module.exports = {
 
       // ── TEXT ──────────────────────────────────────────────────────────────
       if (content.type === "text") {
-        const textValue = content.node?.text || content.node?.caption || ""
+        const textValue = originalText(content.node)
 
         if (!textValue.trim()) throw new Error("The quoted text message is empty.")
 
@@ -1729,10 +1725,7 @@ module.exports = {
       // ── IMAGE / VIDEO / AUDIO ─────────────────────────────────────────────
       else {
         if (!SUPPORTED_MEDIA.has(content.type)) {
-          return helper.reply(
-            sock,
-            msg,
-            `> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
+          return reply(`> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
           )
         }
 
@@ -1780,14 +1773,11 @@ module.exports = {
         return
       }
 
-      return helper.reply(
-        sock,
-        msg,
-        `> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}${previewNote}\n> Message ID: ${status?.key?.id || "unknown"}${warn}\n>\n${CREDIT}`
+      return reply(`> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}${previewNote}\n> Message ID: ${status?.key?.id || "unknown"}${warn}\n>\n${CREDIT}`
       )
     } catch (e) {
       console.error("[GCSTATUS FAILED]", e)
-      return helper.reply(sock, msg, `> ❌ *Group Status failed.*\n> ${e.message}`)
+      return reply(`> ❌ *Group Status failed.*\n> ${e.message}`)
     }
   },
 }
