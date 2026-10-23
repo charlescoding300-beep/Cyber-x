@@ -72,8 +72,17 @@ module.exports = {
         },
       })
 
-      // Keep successful .del silent. A successful protocol response is the
-      // acknowledgement; no extra group message should be posted.
+      // A reaction acknowledges success without posting another group message.
+      if (msg?.key) {
+        try {
+          await sock.sendMessage(from, {
+            react: { text: '🗑️', key: msg.key },
+          })
+        } catch (reactionError) {
+          // Deletion already succeeded; a failed reaction must not change that.
+          console.error('[DEL REACTION ERROR]', reactionError?.message || reactionError)
+        }
+      }
       return
     } catch (error) {
       console.error('[DEL ERROR]', error?.message || error)
