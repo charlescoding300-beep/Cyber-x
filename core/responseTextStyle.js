@@ -11,7 +11,19 @@ const BOLD_PROTECTED_TEXT = new RegExp(
 const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
 
 function compactLayout(text) {
-  return text
+  // Keep complete box panels intact. Compacting only their top and bottom
+  // borders made the Anti-Link and other framed replies look split or uneven.
+  const panels = []
+  let compactable = text.replace(
+    /^[┏╭][━─]{3,}「[^\r\n」]+」[━─]{3,}[┓╮]\r?\n[\s\S]*?^[┗╰][━─]{3,}[┛╯]$/gmu,
+    panel => {
+      const token = `\u0000RESPONSE_PANEL_${panels.length}\u0000`
+      panels.push([token, panel])
+      return token
+    },
+  )
+
+  compactable = compactable
     // Replace oversized title frames with one compact, consistent heading.
     .replace(/[┏╭]([━─]{3,})「\s*([^」]+?)\s*」([━─]{3,})[┓╮]/gu,
       (_match, _left, title) => `╭─「 ${title.trim()} 」─╮`)
@@ -21,6 +33,9 @@ function compactLayout(text) {
       (_match, title) => `「 ${title.trim()} 」`)
     // Keep dividers readable on WhatsApp without very wide runs of glyphs.
     .replace(/[━═─]{22,}/gu, run => run[0].repeat(18))
+
+  for (const [token, panel] of panels) compactable = compactable.replace(token, panel)
+  return compactable
 }
 
 function stylizeSegment(text) {

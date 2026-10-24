@@ -85,14 +85,15 @@ module.exports = {
        * Send the actual profile picture to WhatsApp.
        * The JID is never shown to the user.
        */
+      const userLabel = String(targetJid).split('@')[0].split(':')[0]
       await sock.sendMessage(
         from,
         {
-          image: { url: ppUrl }
+          image: { url: ppUrl },
+          caption: `✅ Profile picture retrieved.\n👤 User: @${userLabel}`,
+          mentions: [targetJid],
         },
-        {
-          quoted: msg
-        }
+        { quoted: msg }
       )
 
       await react('🖼️')
