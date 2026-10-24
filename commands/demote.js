@@ -75,7 +75,6 @@ module.exports = {
     }
     const targetJid = targetParticipant.id || targetParticipant.jid || targetParticipant.lid || target
     const targetNum = `@${(targetParticipant.phoneNumber || targetJid).split('@')[0].split(':')[0]}`
-    const byNum     = `@${String(sender || '').split('@')[0].split(':')[0]}`
 
     if (!adminLib.isAdminParticipant(targetParticipant)) {
       return sock.sendMessage(from, {
@@ -92,18 +91,8 @@ module.exports = {
     await sock.groupParticipantsUpdate(from, [targetJid], 'demote')
 
     await sock.sendMessage(from, {
-      text:
-`╔══════════════════════════╗
-║  ⬇️ *DEMOTED FROM ADMIN*  ║
-╚══════════════════════════╝
-
-👤 *User:* ${targetNum}
-👑 *By:*   ${byNum}
-
-❌ Admin privileges *removed*
-
-${CREDIT}`,
-      mentions: [targetJid, sender],
+      text: `*✅ ${targetNum} 𝙷𝙰𝚂 𝙱𝙴𝙴𝙽 𝙳𝙴𝙼𝙾𝚃𝙴𝙳.*\n*— 𝙰𝙳𝙼𝙸𝙽 𝙿𝚁𝙸𝚅𝙸𝙻𝙴𝙶𝙴𝚂 𝚁𝙴𝙼𝙾𝚅𝙴𝙳.*`,
+      mentions: [targetJid],
     }, { quoted: msg })
   },
 }
