@@ -3,6 +3,7 @@
  * the bot leaves the group. No warnings, no explanations, just vibes.
  */
 
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 module.exports = {
   name:     "left",
   aliases:  ["leave", "exit"],
@@ -11,7 +12,7 @@ module.exports = {
   category: "owner",
 
   async run({ sock, from, msg, isOwner, isGroup, helper }) {
-    if (!isOwner) return helper.reply(sock, msg, "❌ Owner only.")
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
     if (!isGroup) return helper.reply(sock, msg, "❌ This command only works inside a group.")
 
     const farewell = `𖤍 𝙂𝙊𝙉𝙀 𖤍\n𖤍 𝘽𝙔𝙀 𝙈𝙁 𖤍`

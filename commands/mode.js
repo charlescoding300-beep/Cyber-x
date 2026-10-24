@@ -1,4 +1,5 @@
 "use strict"
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ─────────────────────────────────────────────────────────────
 // commands/mode.js — 𝗭Ξ𝗡 𝗫 SESSION MODE
@@ -29,16 +30,7 @@ module.exports = {
       )
 
     // ── Only the session owner may change the mode ─────────────
-    if (!isOwner) {
-      return reply(
-`❌ *ACCESS DENIED*
-
-> Only the *session owner* can change this setting.
-> Your message has not changed the current mode.
-
-> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
-      )
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const sub = String(args?.[0] || "")
       .toLowerCase()

@@ -31,6 +31,7 @@
  * feature actually works under the hood.
  */
 
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
 const Pino = require("pino")
 
@@ -94,7 +95,7 @@ module.exports = {
   category: "owner",
 
   async run({ sock, from, msg, isOwner, helper }) {
-    if (!isOwner) return helper.reply(sock, msg, "> ❌ *Owner only.*")
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const quoted = getQuotedInfo(msg)
     if (!quoted) {

@@ -26,6 +26,7 @@
 // included automatically, and new groups work with no setup.
 // ─────────────────────────────────────────────────────────────────────────────
 
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const fs   = require("fs")
 const path = require("path")
 
@@ -292,7 +293,7 @@ module.exports = {
     // noTag:true → this reply itself never pings the group
     const reply = text => sock.sendMessage(from, { text, noTag: true }, { quoted: msg })
 
-    if (!isOwner) return reply("❌ *Owner only command.*")
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     // state is stashed on the socket by autoTagAttach
     const state = sock.__autoTagState || { phone: normalizePhone(sock.user?.id), settings, groupCache: {} }

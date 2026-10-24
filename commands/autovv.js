@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 const {
   downloadMediaMessage,
@@ -355,12 +356,8 @@ module.exports = {
   desc: 'Enable or disable authorized-chat AutoVV forwarding',
   usage: '.autovv on | .autovv off | .autovv status',
 
-  run: async ({ sock, from, args, isOwner }) => {
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: '❌ *Owner Only*\\nAutoVV authorization can only be changed by the bot owner.',
-      })
-    }
+  run: async ({ sock, from, msg, args, isOwner }) => {
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const action = String(args?.[0] || 'status').toLowerCase()
 

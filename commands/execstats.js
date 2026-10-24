@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // commands/execstats.js  —  ZEN X  |  Per-session executor stats (owner only)
@@ -20,11 +21,7 @@ module.exports = {
   category: 'owner',
 
   async run({ sock, from, msg, isOwner }) {
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: `❌ Only the bot owner can use this command.\n\n${CREDIT}`,
-      }, { quoted: msg })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     if (typeof global.__executorStats !== 'function') {
       return sock.sendMessage(from, {

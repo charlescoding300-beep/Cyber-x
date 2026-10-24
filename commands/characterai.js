@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ════════════════════════════════════════════════════════════════════
 //  commands/characterai.js — ZEN X | .characterai   (bot owner only)
@@ -33,7 +34,7 @@ module.exports = {
   run: async ({ sock, from, msg, args, text, isOwner }) => {
     const reply = t => sock.sendMessage(from, { text: `${t}\n\n${CREDIT}` }, { quoted: msg })
 
-    if (!isOwner) return reply('❌ Only the bot owner can control the character AI.')
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const phone = engine.phoneOf(sock)
     const words = (Array.isArray(args) ? args : String(text || '').split(/\s+/)).filter(Boolean)

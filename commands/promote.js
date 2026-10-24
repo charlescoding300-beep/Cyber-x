@@ -75,7 +75,6 @@ module.exports = {
     }
     const targetJid = targetParticipant.id || targetParticipant.jid || targetParticipant.lid || target
     const targetNum = `@${(targetParticipant.phoneNumber || targetJid).split('@')[0].split(':')[0]}`
-    const byNum     = `@${String(sender || '').split('@')[0].split(':')[0]}`
 
     if (adminLib.isAdminParticipant(targetParticipant)) {
       return sock.sendMessage(from, {
@@ -92,18 +91,8 @@ module.exports = {
     await sock.groupParticipantsUpdate(from, [targetJid], 'promote')
 
     await sock.sendMessage(from, {
-      text:
-`╔══════════════════════════╗
-║   ⬆️ *PROMOTED TO ADMIN*  ║
-╚══════════════════════════╝
-
-👤 *User:* ${targetNum}
-👑 *By:*   ${byNum}
-
-✅ Now has *admin privileges*
-
-${CREDIT}`,
-      mentions: [targetJid, sender],
+      text: `*✅ ${targetNum} 𝙷𝙰𝚂 𝙱𝙴𝙴𝙽 𝙿𝚁𝙾𝙼𝙾𝚃𝙴𝙳 𝚃𝙾 𝙰𝙳𝙼𝙸𝙽.*\n*— 𝙰𝙲𝚃𝙸𝙾𝙽 𝙲𝙾𝙼𝙿𝙻𝙴𝚃𝙴.*`,
+      mentions: [targetJid],
     }, { quoted: msg })
   },
 }

@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // commands/block.js  —  ZENX  |  Owner-only DM block
@@ -25,9 +26,7 @@ module.exports = {
   category: 'group',
 
   async run({ sock, from, msg, isOwner, isGroup }) {
-    if (!isOwner) {
-      return sock.sendMessage(from, { text: '❌ Only the owner can use this command.' }, { quoted: msg })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     if (isGroup) {
       return sock.sendMessage(from, { text: '❌ This command only works in a DM, not a group.' }, { quoted: msg })

@@ -1,3 +1,4 @@
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 module.exports = {
   name: "gcjid",
   aliases: ["groupjid"],
@@ -6,9 +7,7 @@ module.exports = {
   category: "owner",
 
   async run({ sock, msg, isOwner, helper }) {
-    if (!isOwner) {
-      return helper.reply(sock, msg, "> ❌ *Owner only.*")
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     let groups
 

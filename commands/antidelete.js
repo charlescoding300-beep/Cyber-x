@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // commands/antidelete.js  —  ZENX  |  Antidelete toggle
@@ -29,9 +30,7 @@ module.exports = {
   category: 'group',
 
   async run({ sock, from, msg, args, isOwner, antideleteGetEnabled, antideleteSetEnabled }) {
-    if (!isOwner) {
-      return sock.sendMessage(from, { text: '❌ Only the bot owner can use this command.' }, { quoted: msg })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     if (typeof antideleteGetEnabled !== 'function' || typeof antideleteSetEnabled !== 'function') {
       return sock.sendMessage(from, {

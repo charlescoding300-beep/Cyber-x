@@ -151,7 +151,7 @@ module.exports = {
 
       const number = targetJid.split('@')[0].replace(/\D/g, '')
       return sock.sendMessage(from, {
-        text: `┏━━━━━━━「 KICK 」━━━━━━━┓\n┃ 🚫 @${number} was removed from the group.\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n${CREDIT}`,
+        text: `*✅ @${number} 𝚆𝙰𝚂 𝚁𝙴𝙼𝙾𝚅𝙴𝙳 𝙵𝚁𝙾𝙼 𝚃𝙷𝙴 𝙶𝚁𝙾𝚄𝙿.*\n*— 𝙰𝙲𝚃𝙸𝙾𝙽 𝙲𝙾𝙼𝙿𝙻𝙴𝚃𝙴.*`,
         mentions: [targetJid],
       }, { quoted: msg })
     } catch (error) {

@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys')
 const Pino = require('pino')
@@ -48,7 +49,7 @@ module.exports = {
   async run({ sock, from, msg, isOwner }) {
     const reply = text => sock.sendMessage(from, { text }, { quoted: msg })
 
-    if (!isOwner) return reply('❌ Only the bot owner can use .mypp.')
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const ownJid = sock.user?.id || sock.user?.lid
     if (!ownJid || typeof sock.updateProfilePicture !== 'function') {

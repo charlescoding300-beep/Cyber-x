@@ -50,6 +50,7 @@
 //            contextInfo flags. Use only if the wrapped engine doesn't show up.
 // ─────────────────────────────────────────────────────────────────────────────
 
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const crypto = require("crypto")
 const fs = require("fs")
 const os = require("os")
@@ -1617,9 +1618,7 @@ module.exports = {
 
   async run({ sock, from, msg, text, isOwner, isGroup }) {
     const reply = text => statusReply(sock, msg, text)
-    if (!isOwner) {
-      return reply("> ❌ *Owner only.*")
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     let destination = String(text || "").trim()
 

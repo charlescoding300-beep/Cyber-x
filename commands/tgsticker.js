@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ════════════════════════════════════════════════════════════════════
 //  commands/tgsticker.js — ZEN X | .tgsticker <Telegram sticker link>  (alias: .tgs)
@@ -237,7 +238,7 @@ module.exports = {
   run: async ({ sock, from, msg, args, text, isOwner }) => {
     const reply = t => sock.sendMessage(from, { text: `${t}\n\n${CREDIT}` }, { quoted: msg })
 
-    if (!isOwner) return reply('❌ Only the bot owner can use this command.')
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const token = process.env.TELEGRAM_BOT_TOKEN
     if (!token) {

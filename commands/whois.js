@@ -1,3 +1,4 @@
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 module.exports = {
   name: "whois",
   aliases: ["who", "userinfo"],
@@ -17,20 +18,7 @@ module.exports = {
       // ============================================
       // OWNER ONLY
       // ============================================
-      if (!isOwner) {
-        return await sock.sendMessage(
-          from,
-          {
-            text:
-              `╭───〔 𓃦 𝗭Ξ𝗡 𝗫 〕───╮\n` +
-              `│ 🔒 OWNER ONLY\n` +
-              `╰────────────────────╯\n\n` +
-              `│ ❌ This command is restricted to the bot owner.\n\n` +
-              `> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
-          },
-          { quoted: msg }
-        );
-      }
+      if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
       // ============================================
       // REACTION TO THE PERSON WHO TRIGGERED COMMAND

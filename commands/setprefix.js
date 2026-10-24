@@ -1,4 +1,5 @@
 "use strict"
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 // ─────────────────────────────────────────────────────────────
 // commands/setprefix.js — 𝗭Ξ𝗡 𝗫 SESSION PREFIX
@@ -28,15 +29,7 @@ module.exports = {
         { quoted: msg }
       )
 
-    if (!isOwner) {
-      return reply(
-`❌ *ACCESS DENIED*
-
-> Only the session owner can change the prefix.
-
-> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`
-      )
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const input = String(args?.[0] || "").trim()
 

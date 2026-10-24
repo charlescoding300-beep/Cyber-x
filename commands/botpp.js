@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 // ════════════════════════════════════════════════════════════════════
 //  commands/botpp.js  —  ZENX  |  Set Bot Menu Profile Picture
 //  Per-session: each linked number has its own menu picture
@@ -37,10 +38,7 @@ module.exports = {
     category: 'owner',
 
     async run({ sock, from, msg, args, isOwner, settings }) {
-        if (!isOwner) {
-            await sock.sendMessage(from, { text: '❌ *Owner only command.*' }, { quoted: msg })
-            return
-        }
+        if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
         // ── Get this session's phone number ───────────────────────
         const phone = (sock.user?.id || '').split(':')[0].split('@')[0]

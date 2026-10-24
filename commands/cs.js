@@ -22,6 +22,7 @@
 //   so it does not depend on any library patch, and it reads the server's ack so
 //   "sent" really means "accepted".
 
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const axios = require("axios")
 const Pino = require("pino")
 const crypto = require("crypto")
@@ -592,7 +593,7 @@ module.exports = {
   _internals: { roleOf, resolveRole, uploadRaw, buildChannelMessage, relayChannelMedia, sendMediaDirect, channelKind, encodeForUpload, describeResult },
 
   run: async ({ sock, from, msg, text, isOwner, helper }) => {
-    if (!isOwner) return helper.reply(sock, msg, "> ❌ *Owner only.*")
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     let destination = String(text || "").trim()
     const plain = /(^|\s)--plain(?=\s|$)/i.test(destination)

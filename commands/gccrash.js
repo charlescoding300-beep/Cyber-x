@@ -7,7 +7,7 @@
 // WARNING: This command removes ALL members from the target group.
 // The bot owner retains access via the bot's own JID.
 
-const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const {sendBotNotAdmin, sendOwnerRestricted} = require('../lib/groupAdminNotice')
 
 module.exports = {
   pattern: "gccrash",
@@ -17,11 +17,7 @@ module.exports = {
 
   run: async ({ sock, from, msg, args, isOwner }) => {
     // ─── AUTHORIZATION: Owner Only ────────────────────────────
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: "❌ *Owner Only*\nThis command is restricted to the bot owner."
-      })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     // ─── RESOLVE TARGET GROUP ─────────────────────────────────
     let targetGroup

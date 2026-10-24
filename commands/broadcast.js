@@ -1,5 +1,6 @@
 // commands/broadcast.js — ZENX Broadcast Command
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 const CREDIT = `> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦 *All rights reserved*\n_Charles Tech broadcast_`
 
@@ -14,12 +15,7 @@ module.exports = {
   run: async ({ sock, from, msg, text, sender, isOwner, helper }) => {
 
     // ── Owner only ──
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: `❌ *Access Denied!*\nThis command is *OWNER ONLY*.\n\n${CREDIT}`,
-        quoted: msg
-      })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     // ── Must have message ──
     if (!text || !text.trim()) {

@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const fs = require('fs')
 const path = require('path')
 
@@ -99,12 +100,7 @@ module.exports = {
 
   run: async ({ sock, from, msg, sender, args, isOwner }) => {
 
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: `❌ *Owner only command*\n\n> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦`,
-        quoted: msg
-      })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const sessionPhone = getSessionPhone(sock)
     const banned = await loadBanned(sessionPhone)

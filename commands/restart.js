@@ -1,4 +1,5 @@
 'use strict'
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 const axios  = require('axios')
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
@@ -13,12 +14,7 @@ module.exports = {
   run: async ({ sock, from, msg, isOwner }) => {
 
     // ── Owner only ──
-    if (!isOwner) {
-      return sock.sendMessage(from, {
-        text: `❌ *Access Denied!*\nThis command is *OWNER ONLY*.\n\n${CREDIT}`,
-        quoted: msg
-      })
-    }
+    if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
     const hook = process.env.RENDER_DEPLOY_HOOK
 

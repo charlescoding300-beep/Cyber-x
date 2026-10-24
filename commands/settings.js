@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use strict"
+const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 
 const ON  = new Set(["on",  "true",  "yes", "1", "enable",  "open"])
 const OFF = new Set(["off", "false", "no",  "0", "disable", "close"])
@@ -29,7 +30,7 @@ function icon(val) { return val ? "✅ *ON*" : "❌ *OFF*" }
 // ── Shared toggle runner ──────────────────────────────────────────────────────
 async function toggle(key, label, { sock, msg, args, settings, helper, isOwner }) {
   // OWNER ONLY
-  if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+  if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
 
   const input = (args[0] || "").toLowerCase()
   if (!input) {
@@ -116,7 +117,7 @@ module.exports = [
     usage:    ".statusemoji 🔥",
     category: 'owner',
     async run({ sock, msg, text, settings, helper, isOwner }) {
-      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
       if (!text) return helper.reply(sock, msg,
         `Status react emoji: *${settings.get("statusReactEmoji") || "🔥"}*\n\nUsage: .statusemoji <emoji>`
       )
@@ -143,7 +144,7 @@ module.exports = [
     usage:    ".autoreplytext Hey! Type .menu for commands.",
     category: 'owner',
     async run({ sock, msg, text, settings, helper, isOwner }) {
-      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
       if (!text) return helper.reply(sock, msg,
         `Current auto reply:\n\n${settings.get("autoReplyText")}\n\nSend .autoreplytext <message> to change.`
       )
@@ -199,7 +200,7 @@ module.exports = [
     usage:    ".mode public  OR  .mode private",
     category: 'owner',
     async run({ sock, msg, args, settings, helper, isOwner }) {
-      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
       const val = (args[0] || "").toLowerCase()
       if (!val) return helper.reply(sock, msg,
         `Current mode: *${settings.get("mode")}*\n\nUsage: .mode public/private`
@@ -223,7 +224,7 @@ module.exports = [
     usage:    ".settings",
     category: 'owner',
     async run({ sock, msg, settings, helper, isOwner }) {
-      if (!isOwner) return helper.reply(sock, msg, "❌ This command is *owner only*.")
+      if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
       const s = settings.getAll()
       return helper.reply(sock, msg, helper.box("⚙️ SESSION SETTINGS", [
         `Prefix:          *${s.prefix}*`,
