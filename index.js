@@ -2515,6 +2515,10 @@ const GROUP_ADMIN_REQUIRED_NOTICE =
   '╰───────────────────────────────────╯\n\n' +
   '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
+const GROUP_COMMAND_DM_NOTICE =
+  '*❌ 𝚁𝙴𝚂𝚃𝚁𝙸𝙲𝚃𝙴𝙳.*\n\n' +
+  '*— 𝚃𝙷𝙸𝚂 𝙲𝙾𝙼𝙼𝙰𝙽𝙳 𝙸𝚂 𝚁𝙴𝚂𝚃𝚁𝙸𝙲𝚃𝙴𝙳 𝚃𝙾 𝙶𝚁𝙾𝚄𝙿𝚂.*'
+
 async function handleMessage(state, sock, msg) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
@@ -2590,6 +2594,15 @@ async function handleMessage(state, sock, msg) {
   }
 
   const category = String(command.category || '').toLowerCase()
+  if (!isGroup && (category === 'group' || category.startsWith('group/'))) {
+    try {
+      await sendMessageUnstyled(sock, from, { text: GROUP_COMMAND_DM_NOTICE }, { quoted: msg })
+    } catch (error) {
+      console.error(`[${state.phone}] group-only DM notice failed:`, error?.message || error)
+    }
+    return
+  }
+
   const declaredTimeout = Number(command.timeoutMs)
   const independentCommand = command.independent === true
   const isMediaCommand = command.media === true ||
