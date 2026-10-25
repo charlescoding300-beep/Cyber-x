@@ -8,6 +8,7 @@
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const { sendMessageUnstyled } = require('../core/responseTextStyle')
 
 function getContextInfo(msg) {
   const queue = [{ value: msg?.message, depth: 0 }]
@@ -150,8 +151,8 @@ module.exports = {
       }
 
       const number = targetJid.split('@')[0].replace(/\D/g, '')
-      return sock.sendMessage(from, {
-        text: `*✅ @${number} 𝚆𝙰𝚂 𝚁𝙴𝙼𝙾𝚅𝙴𝙳 𝙵𝚁𝙾𝙼 𝚃𝙷𝙴 𝙶𝚁𝙾𝚄𝙿.*\n*— 𝙰𝙲𝚃𝙸𝙾𝙽 𝙲𝙾𝙼𝙿𝙻𝙴𝚃𝙴.*`,
+      return sendMessageUnstyled(sock, from, {
+        text: `*✅ @${number} 𝙷𝙰𝚂 𝙱𝙴𝙴𝙽 𝙺𝙸𝙲𝙺𝙴𝙳 𝙾𝚄𝚃 𝚂𝚄𝙲𝙲𝙴𝚂𝚂𝙵𝚄𝙻𝙻𝚈*`,
         mentions: [targetJid],
       }, { quoted: msg })
     } catch (error) {
