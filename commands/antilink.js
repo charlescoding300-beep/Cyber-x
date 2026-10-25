@@ -3,6 +3,7 @@
 let db
 try { db = require('../lib/userDb') } catch { db = null }
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const { sendMessageUnstyled } = require('../core/responseTextStyle')
 
 let OCR = false
 try { require('tesseract.js'); OCR = true } catch {}
@@ -45,6 +46,13 @@ function actionDescription(action, warnLimit) {
   if (action === 'warn') return `Warn only; persistent count (limit ${warnLimit})`
   if (action === 'kick') return 'Delete the link message and remove the sender immediately'
   return 'Delete the link message and send one deletion notice'
+}
+
+function sendModeConfirmation(sock, from, msg, mode) {
+  const modeLabel = mode === 'warn' ? '𝚆𝙰𝚁𝙽' : '𝙳𝙴𝙻𝙴𝚃𝙴'
+  return sendMessageUnstyled(sock, from, {
+    text: `*✅ 𝙰𝙽𝚃𝙸𝙻𝙸𝙽𝙺 𝙴𝙽𝙰𝙱𝙻𝙴𝙳*\n*— 𝙼𝙾𝙳𝙴: ${modeLabel}*`,
+  }, { quoted: msg })
 }
 
 module.exports = {
@@ -96,13 +104,7 @@ module.exports = {
       const defaultAction = 'delete'
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: defaultAction })
-      return sock.sendMessage(from, {
-        text: panel('ANTI-LINK', [
-          '✅ Protection is on',
-          `Mode: ${actionDescription(defaultAction, warnLimit)}`,
-          'Warnings are saved across VPS restarts.',
-        ]),
-      }, { quoted: msg })
+      return sendModeConfirmation(sock, from, msg, defaultAction)
     }
 
     if (sub === 'off') {
@@ -118,6 +120,9 @@ module.exports = {
     if (ACTIONS.has(sub)) {
       if (sub !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: sub })
+      if (sub === 'delete' || sub === 'warn') {
+        return sendModeConfirmation(sock, from, msg, sub)
+      }
       return sock.sendMessage(from, {
         text: panel('ANTI-LINK', [
           '✅ Protection is on',
