@@ -30,6 +30,7 @@
 
 const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const { sendMessageUnstyled } = require('../core/responseTextStyle')
 const store = require('../lib/antistatusStore').antistatusStore
 
 const MODES = {
@@ -89,6 +90,17 @@ function targetsFrom(msg) {
 
 const fmtDate = ts => new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
+function sendModeConfirmation(sock, from, msg, mode) {
+  const modeLabel = {
+    warn: '𝚆𝙰𝚁𝙽',
+    delete: '𝙳𝙴𝙻𝙴𝚃𝙴',
+    kick: '𝙺𝙸𝙲𝙺',
+  }[mode]
+  return sendMessageUnstyled(sock, from, {
+    text: `*✅ 𝙰𝙽𝚃𝙸𝚂𝚃𝙰𝚃𝚄𝚂 𝙴𝙽𝙰𝙱𝙻𝙴𝙳*\n*— 𝙼𝙾𝙳𝙴: ${modeLabel}*`,
+  }, { quoted: msg })
+}
+
 module.exports = {
   name: 'antistatus',
   aliases: [],
@@ -128,16 +140,7 @@ module.exports = {
 
       enable(phone, from, mode)
 
-      const lines = [
-        '│ ✅ *Anti-Status is now ON*',
-        `│ ⚙️ *Mode:* ${mode}`,
-        `│ ${MODES[mode]}`,
-        '│ 📱 Applies to statuses shared in this group chat (admins are exempt)',
-      ]
-      if (!lib || typeof lib.handleAntistatusGroup !== 'function') {
-        lines.push('│ ⚠️ lib/antistatusgc.js is not loaded — add it and restart the bot')
-      }
-      return reply(box('📱 *ANTISTATUS*', lines))
+      return sendModeConfirmation(sock, from, msg, mode)
     }
 
     // ── OFF ──
