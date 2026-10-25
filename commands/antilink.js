@@ -49,7 +49,11 @@ function actionDescription(action, warnLimit) {
 }
 
 function sendModeConfirmation(sock, from, msg, mode) {
-  const modeLabel = mode === 'warn' ? '𝚆𝙰𝚁𝙽' : '𝙳𝙴𝙻𝙴𝚃𝙴'
+  const modeLabel = {
+    delete: '𝙳𝙴𝙻𝙴𝚃𝙴',
+    warn: '𝚆𝙰𝚁𝙽',
+    kick: '𝙺𝙸𝙲𝙺',
+  }[mode] || '𝙳𝙴𝙻𝙴𝚃𝙴'
   return sendMessageUnstyled(sock, from, {
     text: `*✅ 𝙰𝙽𝚃𝙸𝙻𝙸𝙽𝙺 𝙴𝙽𝙰𝙱𝙻𝙴𝙳*\n*— 𝙼𝙾𝙳𝙴: ${modeLabel}*`,
   }, { quoted: msg })
@@ -120,15 +124,7 @@ module.exports = {
     if (ACTIONS.has(sub)) {
       if (sub !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: sub })
-      if (sub === 'delete' || sub === 'warn') {
-        return sendModeConfirmation(sock, from, msg, sub)
-      }
-      return sock.sendMessage(from, {
-        text: panel('ANTI-LINK', [
-          '✅ Protection is on',
-          `Mode: ${actionDescription(sub, warnLimit)}`,
-        ]),
-      }, { quoted: msg })
+      return sendModeConfirmation(sock, from, msg, sub)
     }
 
     return sock.sendMessage(from, {
