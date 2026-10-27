@@ -14,7 +14,8 @@ const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
 //    • rebrands each sticker: pack name "ZenX Sticker" padded with invisible characters to
 //      WhatsApp's 128-character limit, so the name fills the space shown on the sticker
 //    • skips animated .tgs stickers (they need Lottie rendering, which this bot does not have)
-//    • sends the stickers to your DM, quoted to your command (max 30 per run, WhatsApp's pack limit)
+//    • sends the stickers to your DM, quoted to your command
+//      up to 60 stickers per run, split into packs of at most 30 (WhatsApp's pack limit)
 //
 //  Get a free bot token: open @BotFather on Telegram, send /newbot, then add
 //    TELEGRAM_BOT_TOKEN=123456:ABC...   to .env
@@ -32,10 +33,11 @@ const execFileAsync = promisify(execFile)
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 const PACK_NAME = 'ZenX Sticker'
 const PUBLISHER = 'ZenX Bot'
-const FILLER = '\u3164'                 // Hangul filler: looks like empty space, counts as a character
+const FILLER = '\u2800'                 // Braille blank: draws empty, about 9% wider than the Hangul filler, and apps don't trim it
 const MAX_PACK_CHARS = 128              // WhatsApp's limit for pack name and publisher
-const MAX_STICKERS = 30                 // WhatsApp's limit for one sticker pack
-const SEND_GAP_MS = 700                 // pause between sends so WhatsApp does not throttle
+const MAX_STICKERS = 60                 // stickers taken from one set per run
+const PACK_SIZE = 30                    // WhatsApp's limit for one sticker pack (3 to 30 stickers)
+const SEND_GAP = { ms: 700 }             // pause between sends so WhatsApp does not throttle (0 in tests)
 const QUALITY_STEPS = [80, 60, 40, 25]  // lowered until the sticker fits WhatsApp's size limit
 const LIMITS = { static: 100 * 1024, animated: 500 * 1024 }   // WhatsApp's per-sticker limits
 const VIDEO_SECONDS = 6
@@ -179,18 +181,30 @@ function addExifToWebp(webp, exif) {
   return Buffer.concat([riff, payload])
 }
 
+// Splits up to 60 stickers into packs of at most 30 (WhatsApp's limit per pack).
+// Two packs are split evenly, so neither ends up with fewer than 3 stickers.
+function splitPacks(stickers) {
+  if (stickers.length <= PACK_SIZE) return [stickers]
+  const half = Math.ceil(stickers.length / 2)
+  return [stickers.slice(0, half), stickers.slice(half)]
+}
+
 // ── the job ──────────────────────────────────────────────────────────────────
 async function rebrandSet(sock, msg, dm, token, setName) {
   const set = await tgCall(token, 'getStickerSet', `?name=${encodeURIComponent(setName)}`)
   const all = Array.isArray(set.stickers) ? set.stickers : []
   if (!all.length) throw new Error('that sticker set is empty')
   const picked = all.slice(0, MAX_STICKERS)
-  const packId = crypto.randomUUID()
+  const packs = splitPacks(picked)
 
   let sent = 0, animatedSkipped = 0
   const failed = []
 
-  for (const s of picked) {
+  for (let p = 0; p < packs.length; p++) {
+    const packId = crypto.randomUUID()
+    const packName = packs.length > 1 ? `${PACK_NAME} ${p + 1}` : PACK_NAME
+
+  for (const s of packs[p]) {
     if (s.is_animated) { animatedSkipped++; continue }
     try {
       const file = await tgCall(token, 'getFile', `?file_id=${encodeURIComponent(s.file_id)}`)
@@ -199,7 +213,7 @@ async function rebrandSet(sock, msg, dm, token, setName) {
       const webp = await makeWhatsAppWebp(src, ext, !!s.is_video)
       const exif = buildExif({
         'sticker-pack-id': packId,
-        'sticker-pack-name': padded(PACK_NAME),
+        'sticker-pack-name': padded(packName),
         'sticker-pack-publisher': PUBLISHER,
         emojis: s.emoji ? [s.emoji] : [],
       })
@@ -209,17 +223,20 @@ async function rebrandSet(sock, msg, dm, token, setName) {
       failed.push(e.message)
       console.warn(`[TGSTICKER] sticker failed: ${e.message}`)
     }
-    await sleep(SEND_GAP_MS)
+    await sleep(SEND_GAP.ms)
+  }
   }
 
   const lines = [
     `✅ *Sticker set rebranded*`,
     `📦 From: *${set.title || setName}*`,
-    `🏷️ Pack name: *${PACK_NAME}*`,
+    packs.length > 1
+      ? `🏷️ Packs: *${PACK_NAME} 1* and *${PACK_NAME} 2* (WhatsApp allows at most 30 per pack)`
+      : `🏷️ Pack name: *${PACK_NAME}*`,
     `📤 Sent: *${sent}* of ${picked.length}`,
   ]
   if (animatedSkipped) lines.push(`⏭️ Skipped animated (.tgs) stickers: ${animatedSkipped}`)
-  if (all.length > MAX_STICKERS) lines.push(`ℹ️ The set has ${all.length} stickers. WhatsApp packs hold ${MAX_STICKERS}, so only the first ${MAX_STICKERS} were used.`)
+  if (all.length > MAX_STICKERS) lines.push(`ℹ️ The set has ${all.length} stickers. Only the first ${MAX_STICKERS} were used per run.`)
   if (failed.length) lines.push(`⚠️ Failed: ${failed.length} (${failed[0]})`)
   return `${lines.join('\n')}\n\n${CREDIT}`
 }
@@ -233,7 +250,7 @@ module.exports = {
   usage: '.tgsticker <Telegram sticker link>',
   category: 'owner',
 
-  _internals: { parseSetName, buildExif, addExifToWebp, padded, makeWhatsAppWebp, LIMITS, PACK_NAME, MAX_PACK_CHARS, FILLER, rebrandSet },
+  _internals: { parseSetName, buildExif, addExifToWebp, padded, makeWhatsAppWebp, splitPacks, LIMITS, SEND_GAP, PACK_NAME, MAX_PACK_CHARS, MAX_STICKERS, PACK_SIZE, FILLER, rebrandSet },
 
   run: async ({ sock, from, msg, args, text, isOwner }) => {
     const reply = t => sock.sendMessage(from, { text: `${t}\n\n${CREDIT}` }, { quoted: msg })
