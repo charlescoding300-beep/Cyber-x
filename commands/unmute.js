@@ -8,6 +8,7 @@
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const { sendMessageUnstyled } = require('../core/responseTextStyle')
 
 module.exports = {
   pattern:  "unmute",
@@ -56,15 +57,10 @@ module.exports = {
     // ── Cancel active mute timer if one exists ────────────
     const muteCmd   = commands.get("mute")
     const timers    = muteCmd?.muteTimers
-    let   hadTimer  = false
-    let   timerLabel = null
-
     if (timers?.has(from)) {
       const entry = timers.get(from)
       clearTimeout(entry.timeoutId)
-      timerLabel = entry.label
       timers.delete(from)
-      hadTimer = true
     }
 
     // ── Unmute the group ──────────────────────────────────
@@ -77,17 +73,8 @@ module.exports = {
       })
     }
 
-    return sock.sendMessage(from, {
-      text:
-`> 🔊 *GROUP UNMUTED*
->
-> ✅ Everyone can send messages again
-> ${hadTimer ? `⏱️ Timer cancelled *(was ${timerLabel})*` : `ℹ️ No active timer was running`}
->
-> 💡 Use *.mute* to lock again
->
-${CREDIT}`,
-      quoted: msg
-    })
+    return sendMessageUnstyled(sock, from, {
+      text: '*🔊 𝙶𝚁𝙾𝚄𝙿 𝚄𝙽𝙼𝚄𝚃𝙴𝙳.*\n*— 𝙴𝚅𝙴𝚁𝚈𝙾𝙽𝙴 𝙲𝙰𝙽 𝚂𝙴𝙽𝙳 𝙼𝙴𝚂𝚂𝙰𝙶𝙴𝚂.*',
+    }, { quoted: msg })
   }
 }

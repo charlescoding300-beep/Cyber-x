@@ -8,17 +8,11 @@
 //     .gcstatus all                                  (post it to EVERY group the bot is in)
 //     .gcstatus all stop                             (cancel a running bulk post)
 //     .gcstatus ... --flat                           (fallback engine, see below)
-<<<<<<< Updated upstream
 //     .gcstatus ... --nopreview                      (no link card on text statuses)
 //     .gcstatus ... --color=red | #ff8800 | primary | secondary | tertiary | css
 //                                                    (background color; default = random of ALL)
 //     .gcstatus colors                               (list every color name)
 //     .gcstatus check                                (library patch diagnostics)
-=======
-//     .gcstatus ... --nopreview                      (text only, no link card)
-//     .gcstatus preview <link>                       (diagnose the link card — posts nothing)
-//     .gcstatus check                                (library + image-tool diagnostics)
->>>>>>> Stashed changes
 //
 // COLORS: every primary (RGB light, CMY print, RYB paint), every secondary,
 //   every tertiary (RYB + RGB wheels) and all CSS named colors — never black,
@@ -47,7 +41,6 @@
 //   which threw AFTER a successful media post and showed "Group Status failed".
 //
 // WHY MEDIA USED TO FAIL (text worked):
-<<<<<<< Updated upstream
 //   Group Status is a normal message wrapped in `groupStatusMessageV2`.
 //   Baileys' relayMessage() decides the stanza's `mediatype` attribute by
 //   looking only at the TOP level of the message → wrapped media never gets it.
@@ -55,29 +48,6 @@
 //
 //   --flat : fallback engine, sends normal media with the group-status
 //            contextInfo flags. Use only if the wrapped engine doesn't show up.
-=======
-//   Group Status is a normal message wrapped in `groupStatusMessageV2`. Baileys'
-//   relayMessage() picks the stanza's `mediatype` from the TOP level only, so wrapped
-//   media never got a mediatype. Run `node patch-gcstatus-lib.js` once and restart.
-//   --flat skips the wrapper entirely; use it only if the wrapped engine still fails.
-//
-// LINK CARD IMAGE — how it works now (the same parts WhatsApp's own card uses):
-//   1. Fetch the page HTML (crawler User-Agent first; browser User-Agent if the page
-//      looks blocked or empty). The bytes are decoded with the page's declared charset.
-//   2. Find the picture in the standard places, in this order: og:image, twitter:image,
-//      <link rel="image_src">, JSON-LD "image", the first real content <img>, favicon.
-//   3. Download that picture (browser User-Agent, Referer = the page).
-//   4. Make two JPEGs with sharp: a 192px thumbnail sent inline (jpegThumbnail) and a
-//      720px version uploaded with prepareWAMessageMedia(..., mediaTypeOverride:
-//      'thumbnail-link') so WhatsApp stores it (directPath + mediaKey).
-//   5. Put those fields on the extendedTextMessage: matchedText, canonicalUrl, title,
-//      description, previewType 0, jpegThumbnail, thumbnailDirectPath, mediaKey,
-//      thumbnailSha256/EncSha256, thumbnailWidth/Height.
-//   Title and description are cleaned first: control characters are stripped, and text
-//   that is mostly symbols or digits is rejected and replaced by the next source.
-//   If one step fails, the card still goes out with what worked, and the reply says
-//   which step failed. sharp must be installed on the VPS:  npm i sharp
->>>>>>> Stashed changes
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
@@ -85,8 +55,6 @@ const crypto = require("crypto")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
-const dns = require("dns").promises
-const net = require("net")
 const { spawn } = require("child_process")
 const Pino = require("pino")
 const { sendMessageUnstyled } = require("../core/responseTextStyle")
@@ -102,7 +70,6 @@ let sharp = null
 try { sharp = require("sharp") } catch {}
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
-const gcCardBg = require("../core/cardbg")
 
 const STATUS_SOURCE = {
   image: 0,
@@ -353,7 +320,7 @@ async function downloadMedia(sock, node, type, quoted, from) {
   return buffer
 }
 
-// ── group lookup ──────────────────────────────────────────────────────────────
+// ── group lookup (unchanged) ─────────────────────────────────────────────────
 
 async function findGroup(sock, destination) {
   const groups = await sock.groupFetchAllParticipating()
@@ -447,17 +414,11 @@ function statusKind(content) {
   return content.type
 }
 
-<<<<<<< Updated upstream
 // ── LINK PREVIEW (text statuses that contain a link) ─────────────────────────
 // Builds the card WhatsApp shows in a normal chat: big image + title +
 // description + domain. Everything comes from the link's own page
 // (og:title / og:description / og:image).
 // Never blocks the status: if anything fails, the text is sent without a card.
-=======
-// ═════════════════════════════════════════════════════════════════════════════
-// LINK CARD (text statuses that contain a link)
-// ═════════════════════════════════════════════════════════════════════════════
->>>>>>> Stashed changes
 
 const URL_RE = /((?:https?:\/\/|www\.)[^\s<>"']+|\b(?:t\.me|wa\.me|chat\.whatsapp\.com|youtu\.be|bit\.ly|instagram\.com|tiktok\.com|facebook\.com|x\.com|twitter\.com)\/[^\s<>"']+)/i
 
@@ -471,14 +432,12 @@ function toFetchUrl(u) {
   return /^https?:\/\//i.test(u) ? u : `https://${u}`
 }
 
-const PAGE_TIMEOUT_MS = 10000
-const IMG_TIMEOUT_MS = 10000
-const IMG_MAX_BYTES = 8 * 1024 * 1024
-const HQ_WIDTH = 720
-const THUMB_WIDTH = 192
-
-function safeCodePoint(n) {
-  return Number.isFinite(n) && n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : ""
+function withTimeout(promise, ms, label = "operation") {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 function decodeEntities(s) {
@@ -489,7 +448,6 @@ function decodeEntities(s) {
     .replace(/&#0?39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-<<<<<<< Updated upstream
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => cp(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, n) => cp(Number(n)))
     .trim()
@@ -529,119 +487,47 @@ function decodeBody(buf, contentType) {
   }
   try { return new TextDecoder(charset || "utf-8").decode(buf) }
   catch { return buf.toString("utf8") }
-=======
-    .replace(/&#(\d+);/g, (_, n) => safeCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => safeCodePoint(parseInt(h, 16)))
-    .trim()
-}
-
-// Turns raw page text into something safe to show: strips control characters,
-// collapses whitespace, and REJECTS text that is mostly symbols/digits (that's
-// what produces junk like "033££$!+_" in the card). Returns "" when unusable.
-function cleanText(raw, max = 160) {
-  let t = decodeEntities(String(raw || ""))
-  t = t.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD\uFEFF]/g, "")
-  t = t.replace(/\s+/g, " ").trim()
-  if (!t) return ""
-  const readable = (t.match(/[\p{L}\p{N}\s.,!?'"()\-:;&%$]/gu) || []).length
-  if (readable / t.length < 0.8) return ""
-  if (!/\p{L}{3,}/u.test(t)) return ""
-  return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t
-}
-
-// first meaningful paragraph of the body, used only when the head has no usable description
-function firstParagraphText(html) {
-  const clean = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
-  for (const m of clean.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)) {
-    const text = cleanText(m[1].replace(/<[^>]+>/g, " "))
-    if (text.length >= 40) return text
-  }
-  return ""
->>>>>>> Stashed changes
 }
 
 function readMeta(html, names) {
-  // content may be "double-quoted" (can contain ') or 'single-quoted' (can contain ")
-  const CONTENT = `content=(?:"([^"]*)"|'([^']*)')`
   for (const name of names) {
-    const a = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*?${CONTENT}`, "i")
-    const b = new RegExp(`<meta[^>]+?${CONTENT}[^>]*?(?:property|name)=["']${name}["']`, "i")
+    const a = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["']`, "i")
+    const b = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, "i")
     const m = html.match(a) || html.match(b)
-    const value = m && (m[1] ?? m[2])
-    if (value) return decodeEntities(value)
+    if (m?.[1]) return decodeEntities(m[1])
   }
   return null
 }
 
-// ── basic SSRF guard ─────────────────────────────────────────────────────────
-// A posted link is whatever a group member typed, so it's fetched only if it
-// resolves to a public address. This blocks localhost, 169.254.169.254 and
-// private ranges. It checks the hostname's own DNS answer, not every redirect hop.
-
-function isPrivateIp(ip) {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number)
-    if (a === 10) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
-    if (a === 127) return true
-    if (a === 169 && b === 254) return true
-    if (a === 0) return true
-    return false
+function readMetaAttribute(html, attribute, value) {
+  const tags = html.match(/<meta\b[^>]*>/gi) || []
+  for (const tag of tags) {
+    const attr = tag.match(new RegExp(`\\b${attribute}\\s*=\\s*["']${value}["']`, "i"))
+    if (!attr) continue
+    const content = tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i)
+    const result = content?.[1] || content?.[2] || content?.[3]
+    if (result) return decodeEntities(result)
   }
-  if (net.isIPv6(ip)) {
-    const low = ip.toLowerCase()
-    if (low === "::1" || low === "::") return true
-    if (low.startsWith("fe80:") || low.startsWith("fc") || low.startsWith("fd")) return true
-    if (low.startsWith("::ffff:")) return isPrivateIp(low.slice(7))
-    return false
-  }
-  return true
+  return null
 }
 
-async function assertPublicUrl(rawUrl) {
-  const u = new URL(rawUrl)
-  if (!/^https?:$/.test(u.protocol)) throw new Error("only http/https links are allowed")
-  let addrs
+function tagAttribute(tag, name) {
+  const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"))
+  return decodeEntities(match?.[1] || match?.[2] || match?.[3] || "")
+}
+
+function normalizePreviewImageUrl(raw, baseUrl) {
+  const value = decodeEntities(raw).trim()
+  if (!value || /^data:/i.test(value)) return null
   try {
-    addrs = await dns.lookup(u.hostname, { all: true })
+    const url = new URL(value, baseUrl)
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null
+    return url.href
   } catch {
-    throw new Error(`couldn't resolve ${u.hostname}`)
-  }
-  if (!addrs.length || addrs.some(a => isPrivateIp(a.address))) {
-    throw new Error(`${u.hostname} resolves to a private/internal address`)
-  }
-  return u
-}
-
-const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-const CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
-
-// Some sites serve real markup only to a known crawler UA, and an anti-bot page to
-// everyone else (or the reverse). Retry with the other UA if the first page looks empty.
-function looksBlocked(html) {
-  if (!html || html.length < 300) return true
-  if (!/<title[^>]*>/i.test(html) && !/<meta[^>]+property=["']og:/i.test(html)) return true
-  return false
-}
-
-// Decodes the page bytes with the charset the server or the page declares,
-// instead of assuming UTF-8 (wrong charset = garbage symbols in the card).
-function decodeBody(buf, contentType) {
-  let charset = /charset=([^;]+)/i.exec(contentType || "")?.[1]?.trim().replace(/["']/g, "")
-  if (!charset) {
-    const head = buf.subarray(0, 4096).toString("latin1")
-    charset = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1] ||
-              /<meta[^>]+content=["'][^"']*charset=([\w-]+)/i.exec(head)?.[1]
-  }
-  try {
-    return new TextDecoder((charset || "utf-8").toLowerCase()).decode(buf)
-  } catch {
-    return buf.toString("utf8")
+    return null
   }
 }
 
-<<<<<<< Updated upstream
 // ═════════════════════════════════════════════════════════════════════════════
 // DEEP LINK-IMAGE ENGINE
 // Finds the picture of a link by going as deep as it takes, in waves, and stops
@@ -901,134 +787,6 @@ async function resolveKnownSites(url) {
     push(`https://i.ytimg.com/vi/${yt}/sddefault.jpg`, 1, "youtube thumbnail")
     push(`https://i.ytimg.com/vi/${yt}/hqdefault.jpg`, 2, "youtube thumbnail")
     oembed(`https://www.youtube.com/oembed?url=${enc}&format=json`, "youtube oembed")
-=======
-async function fetchPageHtml(url) {
-  const u = await assertPublicUrl(url)
-  const attempt = ua => axios.get(u.href, {
-    timeout: PAGE_TIMEOUT_MS,
-    maxRedirects: 5,
-    maxContentLength: 3 * 1024 * 1024,
-    responseType: "arraybuffer",
-    headers: {
-      "User-Agent": ua,
-      Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-    validateStatus: s => s >= 200 && s < 400,
-  })
-
-  const toHtml = r => decodeBody(Buffer.from(r.data || []), r.headers?.["content-type"])
-
-  let res = await attempt(CRAWLER_UA)
-  let html = toHtml(res)
-
-  if (looksBlocked(html)) {
-    try {
-      const res2 = await attempt(BROWSER_UA)
-      const html2 = toHtml(res2)
-      if (html2.length > html.length) { res = res2; html = html2 }
-    } catch { /* keep the first response */ }
-  }
-
-  const finalUrl = res.request?.res?.responseUrl || u.href
-  return { html, finalUrl }
-}
-
-// ── finding the picture: every standard place, in order ─────────────────────
-const IMG_SKIP_RE = /sprite|spacer|pixel|tracking|blank\.gif|1x1|avatar|favicon|icon[-_]|logo[-_]?small/i
-
-function extractImageSrcTag(html) {
-  return html.match(/<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["']/i)?.[1] || null
-}
-
-function extractJsonLdImage(html) {
-  const scripts = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
-  for (const m of scripts) {
-    let data
-    try { data = JSON.parse(m[1].trim()) } catch { continue }
-    const nodes = Array.isArray(data) ? data : (Array.isArray(data?.["@graph"]) ? data["@graph"] : [data])
-    for (const node of nodes) {
-      let img = node?.image
-      if (Array.isArray(img)) img = img[0]
-      if (img && typeof img === "object") img = img.url || img.contentUrl
-      if (typeof img === "string" && img.trim()) return img.trim()
-    }
-  }
-  return null
-}
-
-function extractFirstBodyImage(html) {
-  const imgs = [...html.matchAll(/<img\s[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)]
-  for (const m of imgs) {
-    const tag = m[0]
-    const src = m[1]
-    if (!src || IMG_SKIP_RE.test(src)) continue
-    const w = Number(tag.match(/\bwidth=["']?(\d+)/i)?.[1] || 0)
-    const h = Number(tag.match(/\bheight=["']?(\d+)/i)?.[1] || 0)
-    if ((w && w < 80) || (h && h < 80)) continue
-    return src
-  }
-  return null
-}
-
-function extractFavicon(html, finalUrl) {
-  const link = html.match(/<link[^>]+rel=["'](?:apple-touch-icon|icon|shortcut icon)["'][^>]*href=["']([^"']+)["']/i)
-  if (link?.[1]) return link[1]
-  try { return new URL("/favicon.ico", finalUrl).href } catch { return null }
-}
-
-function findPageImage(html, finalUrl) {
-  const tiers = [
-    ["og/twitter meta", () => readMeta(html, ["og:image", "og:image:secure_url", "og:image:url", "twitter:image", "twitter:image:src"])],
-    ["link rel=image_src", () => extractImageSrcTag(html)],
-    ["JSON-LD image", () => extractJsonLdImage(html)],
-    ["first content <img>", () => extractFirstBodyImage(html)],
-    ["favicon", () => extractFavicon(html, finalUrl)],
-  ]
-  for (const [via, fn] of tiers) {
-    let found
-    try { found = fn() } catch { found = null }
-    if (found) {
-      try { return { image: new URL(found, finalUrl).href, via } } catch { continue }
-    }
-  }
-  return { image: null, via: null }
-}
-
-// ── downloading and shrinking the picture ───────────────────────────────────
-
-async function downloadPreviewImage(imageUrl, pageUrl) {
-  await assertPublicUrl(imageUrl)
-  const res = await axios.get(imageUrl, {
-    responseType: "arraybuffer",
-    timeout: IMG_TIMEOUT_MS,
-    maxRedirects: 5,
-    maxContentLength: IMG_MAX_BYTES,
-    headers: {
-      "User-Agent": BROWSER_UA,
-      Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
-      Referer: pageUrl,
-    },
-    validateStatus: s => s >= 200 && s < 400,
-  })
-  const buf = Buffer.from(res.data)
-  if (buf.length < 500) throw new Error(`image too small (${buf.length} bytes)`)
-  return buf
-}
-
-async function makePreviewImages(buf) {
-  if (!sharp) throw new Error("sharp is not installed on this VPS (run: npm i sharp)")
-
-  const hqBuf = await sharp(buf).resize({ width: HQ_WIDTH, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()
-  const thumbBuf = await sharp(buf).resize({ width: THUMB_WIDTH, withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer()
-  const hqMeta = await sharp(hqBuf).metadata()
-
-  return {
-    hqBuf,
-    thumbBuf,
-    width: hqMeta.width || HQ_WIDTH,
-    height: hqMeta.height || HQ_WIDTH,
->>>>>>> Stashed changes
   }
   if (/(^|\.)tiktok\.com$/.test(host)) oembed(`https://www.tiktok.com/oembed?url=${enc}`, "tiktok oembed")
   if (/(^|\.)vimeo\.com$/.test(host)) oembed(`https://vimeo.com/api/oembed.json?url=${enc}`, "vimeo oembed")
@@ -1291,12 +1049,10 @@ function isJpegBuffer(buf) {
   return buf?.[0] === 0xff && buf?.[1] === 0xd8
 }
 
-// full-size picture uploaded as a 'thumbnail-link' → WhatsApp returns directPath + mediaKey
-async function uploadPreviewImage(sock, hqBuf) {
-  if (typeof baileys.prepareWAMessageMedia !== "function") {
-    throw new Error("this Baileys build has no prepareWAMessageMedia")
+async function makeSmallThumb(buf) {
+  if (sharp) {
+    try { return await sharp(buf).resize({ width: 192, withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer() } catch {}
   }
-<<<<<<< Updated upstream
   return isJpegBuffer(buf) && buf.length <= 40000 ? buf : null
 }
 
@@ -1313,19 +1069,13 @@ async function makeFallbackThumb(host, title) {
 // Uploads the BIG card image to WhatsApp ("thumbnail-link" media type).
 async function uploadBigThumb(sock, buf) {
   if (typeof baileys.prepareWAMessageMedia !== "function") return null
-=======
->>>>>>> Stashed changes
   const { imageMessage } = await baileys.prepareWAMessageMedia(
-    { image: hqBuf },
+    { image: buf },
     { upload: sock.waUploadToServer, mediaTypeOverride: "thumbnail-link" }
   )
-  if (!imageMessage?.directPath || !imageMessage?.mediaKey) {
-    throw new Error("upload returned no directPath/mediaKey")
-  }
-  return imageMessage
+  return imageMessage || null
 }
 
-<<<<<<< Updated upstream
 // returns { matchedText, canonicalUrl, title, description, jpegThumbnail, hq, imageSource } or null
 async function fetchLinkPreview(sock, url) {
   const r = await resolveLinkImage(url)
@@ -1359,154 +1109,23 @@ async function fetchLinkPreview(sock, url) {
     jpegThumbnail,
     hq,
     imageSource,
-=======
-// ── the whole link card, step by step, with a diagnostic record ─────────────
-// Returns { preview, diag }. preview is null only if the page itself can't be read.
-async function fetchLinkPreview(sock, url) {
-  const diag = {
-    url,
-    title: null,
-    description: null,
-    descriptionSource: null,
-    imageVia: null,
-    imageUrl: null,
-    imageBytes: null,
-    sharp: !!sharp,
-    thumbBytes: null,
-    hq: null,
-    error: null,
   }
-
-  let html, finalUrl
-  try {
-    ({ html, finalUrl } = await fetchPageHtml(url))
-  } catch (e) {
-    diag.error = `page fetch failed: ${e.message}`
-    return { preview: null, diag }
-  }
-
-  const title =
-    cleanText(readMeta(html, ["og:title", "twitter:title"]), 120) ||
-    cleanText(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1], 120) ||
-    (() => { try { return new URL(finalUrl).hostname } catch { return url } })()
-
-  let description = "", descriptionSource = "none"
-  const descCandidates = [
-    ["og:description", () => cleanText(readMeta(html, ["og:description"]))],
-    ["twitter:description", () => cleanText(readMeta(html, ["twitter:description"]))],
-    ["meta description", () => cleanText(readMeta(html, ["description"]))],
-    ["first paragraph", () => firstParagraphText(html)],
-  ]
-  for (const [source, fn] of descCandidates) {
-    const v = fn()
-    if (v) { description = v; descriptionSource = source; break }
-  }
-
-  const canonicalUrl = readMeta(html, ["og:url"]) || finalUrl
-
-  diag.title = title
-  diag.description = description || null
-  diag.descriptionSource = descriptionSource
-
-  const preview = {
-    matchedText: url,
-    canonicalUrl,
-    title,
-    description,
-    jpegThumbnail: null,
-    hq: null,
->>>>>>> Stashed changes
-  }
-
-  const { image, via } = findPageImage(html, finalUrl)
-  diag.imageVia = via
-  diag.imageUrl = image
-
-  if (!image) {
-    diag.error = "no picture found on the page"
-    if (!preview.jpegThumbnail) preview.jpegThumbnail = await gcCardBg.makeCardBackground(gcCardBg.hostOf(canonicalUrl), title).catch(() => null)
-    return { preview, diag }
-  }
-
-  try {
-    const raw = await downloadPreviewImage(image, finalUrl)
-    diag.imageBytes = raw.length
-
-    const imgs = await makePreviewImages(raw)
-    diag.thumbBytes = imgs.thumbBuf.length
-    preview.jpegThumbnail = imgs.thumbBuf
-
-    try {
-      const hq = await uploadPreviewImage(sock, imgs.hqBuf)
-      hq.width = imgs.width
-      hq.height = imgs.height
-      preview.hq = hq
-      diag.hq = "uploaded"
-    } catch (e) {
-      diag.hq = `skipped: ${e.message}`
-    }
-  } catch (e) {
-    diag.error = `picture step failed: ${e.message}`
-  }
-
-  if (!preview.jpegThumbnail) preview.jpegThumbnail = await gcCardBg.makeCardBackground(gcCardBg.hostOf(canonicalUrl), title).catch(() => null)
-  return { preview, diag }
-}
-
-function applyPreview(ext, preview) {
-  ext.matchedText = preview.matchedText
-  ext.canonicalUrl = preview.canonicalUrl
-  ext.title = preview.title
-  ext.description = preview.description
-  ext.previewType = 0
-  if (preview.jpegThumbnail) ext.jpegThumbnail = preview.jpegThumbnail
-
-  const hq = preview.hq
-  if (hq?.directPath && hq?.mediaKey) {
-    ext.thumbnailDirectPath = hq.directPath
-    ext.mediaKey = hq.mediaKey
-    ext.mediaKeyTimestamp = hq.mediaKeyTimestamp
-    ext.thumbnailSha256 = hq.fileSha256
-    ext.thumbnailEncSha256 = hq.fileEncSha256
-    ext.thumbnailHeight = hq.height
-    ext.thumbnailWidth = hq.width
-  }
-}
-
-function previewSummary(result) {
-  if (!result?.preview) return `> Link card: ❌ not built (${result?.diag?.error || "unknown"})`
-  const d = result.diag
-  if (d.thumbBytes && d.hq === "uploaded") return "> Link card: ✅ title + full-size picture"
-  if (d.thumbBytes) return `> Link card: ⚠️ title + small picture only (full-size: ${d.hq})`
-  return `> Link card: ⚠️ title only (${d.error || "no picture"})`
-}
-
-function diagLines(d) {
-  const yes = v => (v ? "✅" : "❌")
-  return [
-    `> Link: ${d.url}`,
-    `> Page title: ${d.title || "❌ not read"}`,
-    `> Description: ${d.description ? `${d.description.slice(0, 100)} (from ${d.descriptionSource})` : "none usable (" + (d.descriptionSource || "none") + ")"}`,
-    `> Picture found via: ${d.imageVia ? "✅ " + d.imageVia : "❌ none"}`,
-    `> Picture URL: ${d.imageUrl ? String(d.imageUrl).slice(0, 80) : "—"}`,
-    `> Picture downloaded: ${d.imageBytes ? `✅ ${d.imageBytes} bytes` : "❌"}`,
-    `> sharp (image tool): ${yes(d.sharp)}${d.sharp ? "" : " — run: npm i sharp"}`,
-    `> Small thumbnail: ${d.thumbBytes ? `✅ ${d.thumbBytes} bytes` : "❌"}`,
-    `> Full-size upload: ${d.hq === "uploaded" ? "✅ uploaded" : `⚠️ ${d.hq || "not tried"}`}`,
-    `> Error: ${d.error || "none"}`,
-  ].join("\n")
 }
 
 // ── TEXT status ──────────────────────────────────────────────────────────────
 
-<<<<<<< Updated upstream
 async function buildTextStatus(sock, groupJid, text, userJid, preview, bg) {
-=======
-async function buildTextStatus(groupJid, text, userJid, preview) {
->>>>>>> Stashed changes
   const secret = crypto.randomBytes(32)
+  const linkPreview = preview ? {
+    "canonical-url": preview.canonicalUrl || toFetchUrl(preview.matchedText),
+    "matched-text": preview.matchedText || extractFirstUrl(text) || text,
+    title: preview.title,
+    description: preview.description || "",
+    jpegThumbnail: preview.jpegThumbnail,
+    highQualityThumbnail: preview.hq || undefined,
+  }
+  : undefined
 
-<<<<<<< Updated upstream
   // Use Baileys' content builder for linkPreview fields and thumbnail
   // serialization, then add the Group Status context and wrapper.
   const prepared = await generateWAMessageContent(
@@ -1550,33 +1169,9 @@ async function buildTextStatus(groupJid, text, userJid, preview) {
   inner.messageContextInfo = {
     ...(inner.messageContextInfo || {}),
     messageSecret: secret,
-=======
-  const ext = {
-    text,
-    contextInfo: buildStatusContext(STATUS_SOURCE.text),
->>>>>>> Stashed changes
   }
-  if (preview) applyPreview(ext, preview)
-  ext.backgroundArgb = gcCardBg.pickStatusBackground()
 
-<<<<<<< Updated upstream
   return makeGroupStatusMessage(groupJid, inner, userJid, secret)
-=======
-  return generateWAMessageFromContent(
-    groupJid,
-    {
-      messageContextInfo: { messageSecret: secret },
-
-      groupStatusMessageV2: {
-        message: {
-          extendedTextMessage: ext,
-          messageContextInfo: { messageSecret: secret },
-        },
-      },
-    },
-    { userJid }
-  )
->>>>>>> Stashed changes
 }
 
 async function relayStatus(sock, group, status, type) {
@@ -1790,7 +1385,6 @@ async function inspectLib() {
   }
   return report
 }
-<<<<<<< Updated upstream
 
 // ── POST TO EVERY GROUP  (.gcstatus all) ─────────────────────────────────────
 // Reply to any content in your DM and send:  .gcstatus all
@@ -1800,15 +1394,11 @@ async function inspectLib() {
 //   .gcstatus all stop   cancels a running job
 //   GCSTATUS_ALL_DELAY_MS=2500  (.env) changes the pause between groups
 //   GCSTATUS_ALL_JITTER_MS=800  (.env) extra random 0–800ms added to each pause
-=======
->>>>>>> Stashed changes
 
-// ── bulk "post to every group" engine ────────────────────────────────────────
-
-const bulkJobs = new Map()
+const bulkJobs = new Map() // session phone -> { cancel, total, done }
 const MAX_CONSECUTIVE_FAILS = 5
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-<<<<<<< Updated upstream
 
 function allDelayMs() {
   const n = parseInt(process.env.GCSTATUS_ALL_DELAY_MS, 10)
@@ -1871,28 +1461,20 @@ async function publishPrepared(sock, groupJid, prep) {
   await relayStatus(sock, { id: groupJid }, status, prep.type)
   return status
 }
-=======
-const allDelayMs = () => { const n = parseInt(process.env.GCSTATUS_ALL_DELAY_MS, 10); return Number.isFinite(n) && n >= 0 ? n : 2500 }
-const allJitterMs = () => { const n = parseInt(process.env.GCSTATUS_ALL_JITTER_MS, 10); return Number.isFinite(n) && n >= 0 ? n : 800 }
-const sessionKey = sock => String(sock.user?.id || "").replace(/@.+$/, "").replace(/:\d+$/, "").replace(/\D/g, "") || "session"
->>>>>>> Stashed changes
 
 async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
   const reply = text => statusReply(sock, msg, text)
   const key = sessionKey(sock)
   const running = bulkJobs.get(key)
 
+  // ── .gcstatus all stop ─────────────────────────────────────────────────────
   if (sub === "stop") {
-<<<<<<< Updated upstream
     if (!running) return reply("> ℹ️ *No bulk Group Status is running.*")
-=======
-    if (!running) return helper.reply(sock, msg, "> ℹ️ *No bulk Group Status post is running.*")
->>>>>>> Stashed changes
     running.cancel = true
     return reply(`> 🛑 *Stopping after the current group…*\n> Done so far: *${running.done}/${running.total}*`)
   }
+
   if (running) {
-<<<<<<< Updated upstream
     return reply(`> ⏳ *A bulk Group Status is already running* (${running.done}/${running.total}).\n> Send *.gcstatus all stop* to cancel it.`
     )
   }
@@ -1902,66 +1484,40 @@ async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
     return reply("> ❌ *Reply to the content you want to post, then send .gcstatus all*")
   }
 
-=======
-    return helper.reply(sock, msg, `> ⏳ *A bulk post is already running* (${running.done}/${running.total}).\n> Send *.gcstatus all stop* to cancel it.`)
-  }
-
-  const quoted = getQuotedInfo(msg)
-  if (!quoted) return helper.reply(sock, msg, "> ❌ *Reply to the content you want to post, then send .gcstatus all*")
->>>>>>> Stashed changes
   const content = getContent(quoted.quotedMessage)
   if (!content) return reply("> ❌ *Unsupported quoted message.*")
   if (content.type !== "text" && !SUPPORTED_MEDIA.has(content.type)) {
-<<<<<<< Updated upstream
     return reply(`> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
     )
-=======
-    return helper.reply(sock, msg, `> ❌ *${content.type} isn't supported.*\n> Supported: image, video, audio, text`)
->>>>>>> Stashed changes
   }
 
+  // ── every group this account is in ─────────────────────────────────────────
   let groups
   try {
     const all = await sock.groupFetchAllParticipating()
     groups = Object.values(all || {})
+      .filter(g => g?.id?.endsWith("@g.us"))
+      .sort((a, b) => String(a.subject || "").localeCompare(String(b.subject || ""), undefined, { sensitivity: "base" }))
   } catch (e) {
-<<<<<<< Updated upstream
     return reply(`> ❌ *Couldn't fetch the group list.*\n> ${e.message}`)
   }
   if (!groups.length) return reply("> ❌ *This account isn't in any groups.*")
-=======
-    return helper.reply(sock, msg, `> ❌ *Couldn't fetch your groups.*\n> ${e.message}`)
-  }
-  if (!groups.length) return helper.reply(sock, msg, "> ❌ *The bot isn't in any groups.*")
->>>>>>> Stashed changes
 
+  // ── prepare ONCE (download / upload / link preview) ────────────────────────
   let publish
   try {
     if (content.type === "text") {
       const textValue = originalText(content.node)
       if (!textValue.trim()) throw new Error("The quoted text message is empty.")
 
-<<<<<<< Updated upstream
       let preview = null
       const link = noPreview ? null : extractFirstUrl(textValue)
       if (link) {
         try { preview = await withTimeout(fetchLinkPreview(sock, link), engineBudgetMs() + 30000, "link preview") }
         catch (e) { console.warn(`[GCSTATUS ALL] Link preview skipped: ${e.message}`) }
-=======
-      // the link card is built ONCE and reused for every group
-      let result = null
-      if (!noPreview) {
-        const link = extractFirstUrl(textValue)
-        if (link) {
-          try { result = await fetchLinkPreview(sock, link) } catch (e) { console.warn(`[GCSTATUS ALL] preview skipped: ${e.message}`) }
-          console.log(`[GCSTATUS ALL] ${previewSummary(result).replace(/^> /, "")}`)
-        }
->>>>>>> Stashed changes
       }
-      const preview = result?.preview || null
 
       publish = async (g) => {
-<<<<<<< Updated upstream
         const st = await buildTextStatus(sock, g.id, textValue, sock.user?.id, preview, bg)
         await relayStatus(sock, g, st, "text")
       }
@@ -1979,53 +1535,61 @@ async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
   } catch (e) {
     console.error("[GCSTATUS ALL] prepare failed", e)
     return reply(`> ❌ *Couldn't prepare the content.*\n> ${e.message}`)
-=======
-        const status = await buildTextStatus(g.id, textValue, sock.user?.id, preview)
-        await relayStatus(sock, g, status, "text")
-      }
-    } else {
-      content.buffer = await downloadMedia(sock, content.node, content.type, quoted, from)
-      publish = (g) => flat ? sendFlatMedia(sock, g.id, content) : sendWrappedMedia(sock, g.id, content)
-    }
-  } catch (e) {
-    return helper.reply(sock, msg, `> ❌ *Couldn't prepare the content.*\n> ${e.message}`)
->>>>>>> Stashed changes
   }
 
   const job = { cancel: false, total: groups.length, done: 0 }
   bulkJobs.set(key, job)
+
   const delay = allDelayMs()
   const etaMin = Math.max(1, Math.round((groups.length * (delay + allJitterMs() / 2 + 700)) / 60000))
 
-<<<<<<< Updated upstream
   await reply(`> 📤 *Posting to ALL groups…*\n>\n> Groups: *${groups.length}*\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Estimated time: ~${etaMin} min\n>\n> Send *.gcstatus all stop* to cancel.\n>\n${CREDIT}`
-=======
-  await helper.reply(sock, msg,
-    `> 📤 *Posting to ALL your groups…*\n>\n> Groups: *${groups.length}*\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Estimated time: ~${etaMin} min\n>\n> Send *.gcstatus all stop* to cancel.\n>\n${CREDIT}`
->>>>>>> Stashed changes
   ).catch(() => {})
 
+  // ── run in the background so the command itself returns right away ─────────
   ;(async () => {
-    const ok = [], failed = []
-    let streak = 0, aborted = false
+    const ok = []
+    const failed = []
+    let streak = 0
+    let aborted = false
+
     try {
       for (const g of groups) {
         if (job.cancel) break
-        try { await publish(g); ok.push(g); streak = 0 }
-        catch (e) { failed.push({ g, reason: e.message }); streak++; console.error(`[GCSTATUS ALL] ✗ ${g.subject || g.id}: ${e.message}`) }
+
+        try {
+          await publish(g)
+          ok.push(g)
+          streak = 0
+        } catch (e) {
+          failed.push({ g, reason: e.message })
+          streak++
+          console.error(`[GCSTATUS ALL] ✗ ${g.subject || g.id}: ${e.message}`)
+        }
         job.done++
+
         if (streak >= MAX_CONSECUTIVE_FAILS) { aborted = true; break }
+
         if (job.done % 20 === 0 && job.done < groups.length && !job.cancel) {
           reply(`> ⏳ *Progress:* ${job.done}/${job.total}  (✅ ${ok.length}  ❌ ${failed.length})`).catch(() => {})
         }
-        if (job.done < groups.length && !job.cancel) await sleep(delay + Math.floor(Math.random() * (allJitterMs() + 1)))
-      }
-    } finally { bulkJobs.delete(key) }
 
-    const head = job.cancel ? "🛑 *Bulk post cancelled.*" : aborted ? `⚠️ *Stopped — ${MAX_CONSECUTIVE_FAILS} failures in a row.*` : "✅ *Bulk post finished.*"
+        if (job.done < groups.length && !job.cancel) {
+          await sleep(delay + Math.floor(Math.random() * (allJitterMs() + 1))) // small random jitter
+        }
+      }
+    } finally {
+      bulkJobs.delete(key)
+    }
+
+    const head = job.cancel
+      ? "🛑 *Bulk Group Status cancelled.*"
+      : aborted
+        ? `⚠️ *Stopped — ${MAX_CONSECUTIVE_FAILS} failures in a row (connection problem?).*`
+        : "✅ *Bulk Group Status finished.*"
+
     const failLines = failed.slice(0, 8).map(f => `> • ${f.g.subject || f.g.id} — ${String(f.reason).slice(0, 60)}`)
     const more = failed.length > 8 ? `\n> …and ${failed.length - 8} more` : ""
-<<<<<<< Updated upstream
 
     const summary =
       `> ${head}\n>\n> Type: *${content.type}*\n> Posted: *${ok.length}* / ${job.total}\n> Failed: *${failed.length}*` +
@@ -2034,11 +1598,6 @@ async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
 
     console.log(`[GCSTATUS ALL] done — posted ${ok.length}/${job.total}, failed ${failed.length}`)
     await reply(summary).catch(() => {})
-=======
-    const summary = `> ${head}\n>\n> Type: *${content.type}*\n> Posted: *${ok.length}* / ${job.total}\n> Failed: *${failed.length}*` +
-      (failLines.length ? `\n>\n${failLines.join("\n")}${more}` : "") + `\n>\n${CREDIT}`
-    await helper.reply(sock, msg, summary).catch(() => {})
->>>>>>> Stashed changes
   })().catch(e => console.error("[GCSTATUS ALL] crashed:", e))
 }
 
@@ -2046,11 +1605,13 @@ async function runAllGroups({ sock, from, msg, sub, flat, noPreview, bg }) {
 
 module.exports = {
   name: "gcstatus",
+  heavy: true,
+  media: true,
+  independent: true,
   aliases: ["groupstatus"],
 
   desc: "Publish replied content (text, image, video, audio) to a WhatsApp Group Status.",
 
-<<<<<<< Updated upstream
   usage: ".gcstatus <group name|GID|invite link> | .gcstatus all (every group) | .gcstatus all stop | or .gcstatus inside a group  (flags: --nopreview skips the link card, --color=red picks the background, --flat = fallback engine; .gcstatus check = diagnostics)",
 
   category: "owner",
@@ -2058,25 +1619,12 @@ module.exports = {
   async run({ sock, from, msg, text, isOwner, isGroup }) {
     const reply = text => statusReply(sock, msg, text)
     if (!isOwner) return sendOwnerRestricted(sock, msg?.key?.remoteJid, msg)
-=======
-  usage: ".gcstatus <group name|GID|invite link> or .gcstatus inside a group  (flags: --nopreview, --flat; .gcstatus all / all stop; .gcstatus preview <link>; .gcstatus check)",
-
-  category: "owner",
-
-  _internals: { findPageImage, fetchLinkPreview, makePreviewImages, extractFirstUrl },
-
-  async run({ sock, from, msg, text, isOwner, isGroup, helper }) {
-    if (!isOwner) {
-      return helper.reply(sock, msg, "> ❌ *Owner only.*")
-    }
->>>>>>> Stashed changes
 
     let destination = String(text || "").trim()
 
-    // diagnostics: library patch + image tool
+    // diagnostics
     if (destination.toLowerCase() === "check") {
       const report = await inspectLib()
-<<<<<<< Updated upstream
       if (!report.length) {
         return reply("> ⚠️ *Couldn't locate the baileys library files to inspect.*")
       }
@@ -2095,35 +1643,13 @@ module.exports = {
     }
 
     // flags: --flat  --nopreview  --color=NAME
-=======
-      const libLines = report.length
-        ? report.map(r => `> ${r.fixed ? "✅" : "❌"} ${r.name}\n>    ${r.file.split("node_modules/")[1] || r.file}`)
-        : ["> ⚠️ *Couldn't locate the baileys library files to inspect.*"]
-      const allFixed = report.length > 0 && report.every(r => r.fixed)
-      return helper.reply(
-        sock,
-        msg,
-        `> 🔎 *Group Status check*\n>\n${libLines.join("\n")}\n>\n` +
-        `> sharp (link card images): ${sharp ? "✅" : "❌ run: npm i sharp"}\n>\n` +
-        `> ${allFixed ? "Library OK — media group status should work." : "Run: *node patch-gcstatus-lib.js* then restart the bot."}\n>\n${CREDIT}`
-      )
-    }
-
-    // diagnostics: link card for one link (posts nothing)
-    const previewMatch = destination.match(/^preview\s+(\S+)/i)
-    if (previewMatch) {
-      const link = extractFirstUrl(previewMatch[1]) || previewMatch[1]
-      const result = await fetchLinkPreview(sock, link)
-      return helper.reply(sock, msg, `> 🔎 *Link card check*\n>\n${diagLines(result.diag)}\n>\n${previewSummary(result)}\n>\n${CREDIT}`)
-    }
-
->>>>>>> Stashed changes
     const flat = /(^|\s)--flat(?=\s|$)/i.test(destination)
     const noPreview = /(^|\s)--nopreview(?=\s|$)/i.test(destination)
     const colorFlag = destination.match(/(^|\s)--color=(\S+)(?=\s|$)/i)?.[2]
     destination = destination.replace(/(^|\s)--(?:flat|nopreview|color=\S+)(?=\s|$)/gi, " ").trim()
     const bg = pickBackground(colorFlag)
 
+    // .gcstatus all  /  .gcstatus all stop  → every group the bot is in
     const words = destination.split(/\s+/).filter(Boolean)
     if (words[0] && words[0].toLowerCase() === "all") {
       return runAllGroups({ sock, from, msg, sub: (words[1] || "").toLowerCase(), flat, noPreview, bg })
@@ -2143,14 +1669,7 @@ module.exports = {
         group = await sock.groupMetadata(from)
       } else {
         if (!destination) {
-<<<<<<< Updated upstream
           return reply("> ❌ *Give me a group name, GID, or WhatsApp group invite link.*"
-=======
-          return helper.reply(
-            sock,
-            msg,
-            "> ❌ *Give me a group name, GID, or WhatsApp group invite link.*\n> Or use *.gcstatus all* for every group."
->>>>>>> Stashed changes
           )
         }
         group = await findGroup(sock, destination)
@@ -2177,9 +1696,10 @@ module.exports = {
       engine: content.type === "text" ? "text" : flat ? "flat" : "wrapped",
     })
 
+    let preview = null
+
     try {
       let status
-      let previewNote = ""
 
       // ── TEXT ──────────────────────────────────────────────────────────────
       if (content.type === "text") {
@@ -2187,7 +1707,6 @@ module.exports = {
 
         if (!textValue.trim()) throw new Error("The quoted text message is empty.")
 
-<<<<<<< Updated upstream
         // link in the text? build the preview card (image + title + description)
         const link = noPreview ? null : extractFirstUrl(textValue)
         if (link) {
@@ -2199,23 +1718,10 @@ module.exports = {
         }
 
         status = await buildTextStatus(sock, group.id, textValue, sock.user?.id, preview, bg)
-=======
-        let result = null
-        if (!noPreview) {
-          const link = extractFirstUrl(textValue)
-          if (link) {
-            result = await fetchLinkPreview(sock, link)
-            previewNote = `\n${previewSummary(result)}`
-            console.log("[GCSTATUS] Link card", result.diag)
-          }
-        }
-
-        status = await buildTextStatus(group.id, textValue, sock.user?.id, result?.preview || null)
->>>>>>> Stashed changes
         await relayStatus(sock, group, status, "text")
       }
 
-      // ── IMAGE / VIDEO / AUDIO ───────────────────────────────────────────────
+      // ── IMAGE / VIDEO / AUDIO ─────────────────────────────────────────────
       else {
         if (!SUPPORTED_MEDIA.has(content.type)) {
           return reply(`> ❌ *${content.type} is not currently a supported WhatsApp Group Status media type.*\n>\n> Supported: *image, video, audio, text*`
@@ -2237,24 +1743,17 @@ module.exports = {
       }
 
       // warn if the library still has the mediatype bug (wrapped media only)
-<<<<<<< Updated upstream
       const previewNote = preview ? `\n> Link card: *attached*${preview.hq ? " (big image)" : preview.jpegThumbnail ? " (small image)" : ""}\n> Image source: *${preview.imageSource || "unknown"}*` : ""
       let warn = ""
       if (content.type !== "text" && !flat) {
         // inspectLib() is async — it must be awaited (this used to throw here)
         let unfixed = []
         try { unfixed = (await inspectLib()).filter(r => !r.fixed) } catch {}
-=======
-      let warn = ""
-      if (content.type !== "text" && !flat) {
-        const unfixed = (await inspectLib()).filter(r => !r.fixed)
->>>>>>> Stashed changes
         if (unfixed.length) {
           warn = `\n>\n> ⚠️ *Library not patched yet* — media may not show.\n> Run *node patch-gcstatus-lib.js* and restart.`
         }
       }
 
-<<<<<<< Updated upstream
       // When invoked from a group, keep the chat quiet after a successful
       // publish and acknowledge the command itself with a reaction. Derive
       // this from the actual chat JID so a missing/stale isGroup flag cannot
@@ -2274,12 +1773,6 @@ module.exports = {
       }
 
       return reply(`> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}${previewNote}\n> Message ID: ${status?.key?.id || "unknown"}${warn}\n>\n${CREDIT}`
-=======
-      return helper.reply(
-        sock,
-        msg,
-        `> ✅ *Group Status send completed.*\n>\n> Group: *${group.subject || group.id}*\n> GID: ${group.id}\n> Type: *${content.type}*${flat ? " (flat)" : ""}\n> Message ID: ${status?.key?.id || "unknown"}${previewNote}${warn}\n>\n${CREDIT}`
->>>>>>> Stashed changes
       )
     } catch (e) {
       console.error("[GCSTATUS FAILED]", e)

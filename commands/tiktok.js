@@ -1,43 +1,16 @@
-// commands/tiktok.js
-// .tiktok <link>  (aliases: .tt, .ttdl)
-// Downloads a TikTok video via tikwm.com's public API.
+// commands/tiktok.js — ZENX TikTok Downloader
+'use strict'
+
 const axios = require('axios')
 
-module.exports = {
-  name: 'tiktok',
-  aliases: ['tt', 'ttdl'],
-  desc: 'Download a TikTok video from its link.',
-  usage: '.tiktok <tiktok link>',
-  category: 'download', // routed through the heavier media timeout, like other download commands
-
-  async run({ sock, from, msg, text, helper }) {
-    const q = String(text || '').trim()
-    if (!q) return helper.reply(sock, msg, '❌ Please provide a TikTok URL.')
-
-    try {
-      for (const emoji of ['📥', '⏳', '📱']) {
-        await sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-      }
-
-      const res = await axios.get(`https://tikwm.com/api/?url=${encodeURIComponent(q)}`, { timeout: 20000 })
-      const videoUrl = res.data?.data?.play
-
-      if (!videoUrl) {
-        throw new Error(res.data?.msg || 'No video URL in the API response — the link may be invalid or private.')
-      }
-
-      await sock.sendMessage(
-        from,
-        { video: { url: videoUrl }, caption: '✅ TIKTOK DOWNLOADED BY 𝗠𝗛 𝗧𝗘𝗖𝗛 𝗠𝗗 𝗕𝗢𝗧' },
-        { quoted: msg }
-      )
-    } catch (e) {
-      console.error('[TIKTOK] error:', e.message)
-      await helper.reply(sock, msg, `❌ Error downloading TikTok.\n${e.message}`)
-    }
+const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
+const AXIOS_DEFAULTS = {
+  timeout: 60000,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
   },
 }
-<<<<<<< Updated upstream
 
 // ── TikTok URL validator — handles all 2026 formats ──
 const TIKTOK_REGEX = /https?:\/\/(www\.tiktok\.com\/@[\w.]+\/video\/\d+|vm\.tiktok\.com\/\w+|vt\.tiktok\.com\/\w+)/i
@@ -320,5 +293,3 @@ ${CREDIT}`
     }
   }
 }
-=======
->>>>>>> Stashed changes

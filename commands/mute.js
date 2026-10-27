@@ -12,6 +12,7 @@
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const { sendMessageUnstyled } = require('../core/responseTextStyle')
 
 // Active mute timers — shared with unmute.js via lib or module cache
 const muteTimers = new Map()   // groupJid → { timeoutId, endsAt, label }
@@ -20,23 +21,22 @@ const muteTimers = new Map()   // groupJid → { timeoutId, endsAt, label }
 // Supports: 30s  10m  2h  1h30m  2h15m30s
 function parseDuration(str) {
   if (!str) return null
-  str = str.toLowerCase().trim()
+  str = String(str).toLowerCase().trim()
 
-  let ms = 0
-  const pattern = /(\d+)(h|m|s)/g
-  let match
-  while ((match = pattern.exec(str)) !== null) {
-    const n    = parseInt(match[1])
-    const unit = match[2]
-    if (unit === "h") ms += n * 3600000
-    if (unit === "m") ms += n * 60000
-    if (unit === "s") ms += n * 1000
+  // Plain integers mean minutes.
+  if (/^\d+$/.test(str)) {
+    const minutes = Number(str)
+    const ms = minutes * 60000
+    return Number.isSafeInteger(minutes) && minutes > 0 && Number.isSafeInteger(ms) ? ms : null
   }
 
-  // fallback: plain number → treat as minutes
-  if (ms === 0 && /^\d+$/.test(str)) ms = parseInt(str) * 60000
-
-  return ms > 0 ? ms : null
+  // Accept complete h/m/s expressions only; malformed input must not become a permanent mute.
+  if (!/^(?:\d+h)?(?:\d+m)?(?:\d+s)?$/.test(str) || !/\d/.test(str)) return null
+  const h = Number(str.match(/(\d+)h/)?.[1] || 0)
+  const m = Number(str.match(/(\d+)m/)?.[1] || 0)
+  const sec = Number(str.match(/(\d+)s/)?.[1] || 0)
+  const ms = h * 3600000 + m * 60000 + sec * 1000
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : null
 }
 
 // ── Human-readable duration ───────────────────────────────
@@ -51,8 +51,30 @@ function fmtDuration(ms) {
   return parts.join(" ") || "0s"
 }
 
+function durationWords(ms) {
+  let seconds = Math.max(1, Math.floor(ms / 1000))
+  const parts = []
+  for (const [unit, size] of [["HOUR", 3600], ["MINUTE", 60], ["SECOND", 1]]) {
+    const amount = Math.floor(seconds / size)
+    if (amount) {
+      parts.push(amount + " " + unit + (amount === 1 ? "" : "S"))
+      seconds %= size
+    }
+  }
+  return parts.join(" ")
+}
+
+function styledDuration(value) {
+  return Array.from(value, char => {
+    if (char >= "A" && char <= "Z") return String.fromCodePoint(0x1D670 + char.charCodeAt(0) - 65)
+    if (char >= "0" && char <= "9") return String.fromCodePoint(0x1D7F6 + char.charCodeAt(0) - 48)
+    return char
+  }).join("")
+}
+
 module.exports = {
   pattern:  "mute",
+  aliases:  ["lock"],
   desc:     "Mute the group — only admins can send messages",
   usage:    ".mute | .mute 10m | .mute 1h | .mute 2h30m",
   category: 'group',
@@ -105,6 +127,13 @@ module.exports = {
     const durationStr = args[0] || null
     const duration    = durationStr ? parseDuration(durationStr) : null
 
+    if (durationStr && !duration) {
+      return sock.sendMessage(from, {
+        text: "> ❌ *Invalid duration.* Use .mute 10m, .mute 1h, or .mute 2h30m.\n>\n" + CREDIT,
+        quoted: msg,
+      })
+    }
+
     // ── Mute the group ────────────────────────────────────
     try {
       await sock.groupSettingUpdate(from, "announcement")
@@ -123,18 +152,9 @@ module.exports = {
 
     // ── No duration — mute forever ────────────────────────
     if (!duration) {
-      return sock.sendMessage(from, {
-        text:
-`> 🔇 *GROUP MUTED*
->
-> 🔒 Only *admins* can send messages
-> ⏱️ Duration: *Forever*
->
-> 💡 Use *.unmute* to unlock
->
-${CREDIT}`,
-        quoted: msg
-      })
+      return sendMessageUnstyled(sock, from, {
+        text: '*🔇 𝙶𝚁𝙾𝚄𝙿 𝙼𝚄𝚃𝙴𝙳 𝙵𝙾𝚁 (𝙵𝙾𝚁𝙴𝚅𝙴𝚁.)*\n*— 𝙾𝙽𝙻𝚈 𝙰𝙳𝙼𝙸𝙽𝚂 𝙲𝙰𝙽 𝚂𝙴𝙽𝙳 𝙼𝙴𝚂𝚂𝙰𝙶𝙴𝚂.*',
+      }, { quoted: msg })
     }
 
     // ── Timed mute — auto-unmute when timer expires ───────
@@ -176,18 +196,9 @@ ${CREDIT}`
 
     muteTimers.set(from, { timeoutId, endsAt, label })
 
-    return sock.sendMessage(from, {
-      text:
-`> 🔇 *GROUP MUTED*
->
-> 🔒 Only *admins* can send messages
-> ⏱️ Duration: *${label}*
-> 🔓 Auto-unmute in *${label}*
->
-> 💡 Use *.unmute* to unlock early
->
-${CREDIT}`,
-      quoted: msg
-    })
+    const longLabel = styledDuration(durationWords(duration))
+    return sendMessageUnstyled(sock, from, {
+      text: '*🔇 𝙶𝚁𝙾𝚄𝙿 𝙼𝚄𝚃𝙴𝙳 𝙵𝙾𝚁 (' + longLabel + '.)*\n*— 𝙾𝙽𝙻𝚈 𝙰𝙳𝙼𝙸𝙽𝚂 𝙲𝙰𝙽 𝚂𝙴𝙽𝙳 𝙼𝙴𝚂𝚂𝙰𝙶𝙴𝚂.*',
+    }, { quoted: msg })
   }
 }

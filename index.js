@@ -32,7 +32,7 @@ const { attachResponseTextStyle, sendMessageUnstyled } = require("./core/respons
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
-const { attachResponseTextStyle, sendMessageUnstyled } = require("./core/responseTextStyle")
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE RECOVERY — GRACEFUL PROCESS SHUTDOWN
