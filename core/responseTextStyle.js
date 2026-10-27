@@ -5,10 +5,48 @@
 const MONOSPACE_CAPITAL_A = 0x1D670
 const PROTECTED_TEXT = /```[\s\S]*?```|`[^`\r\n]*`|(?:https?:\/\/|www\.)[^\s<>{}]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:[A-Z0-9-]+\.)+[A-Z]{2,}(?:\/[^\s<>{}]*)?|@[A-Z0-9._+-]+|[.!/#?][A-Z][A-Z0-9_-]*/giu
 const BOLD_PROTECTED_TEXT = new RegExp(
-  String.raw`(?:\*[^*\r\n]+\*|_[^_\r\n]+_|~[^~\r\n]+~|${PROTECTED_TEXT.source})`,
+  String.raw`(?:\*[^*]+\*|_[^_\r\n]+_|~[^~\r\n]+~|${PROTECTED_TEXT.source})`,
   'giu',
 )
 const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
+const CODE_SPAN = /```[\s\S]*?```|`[^`\r\n]*`/g
+
+// LLM replies and a few commands arrive as Markdown (**bold**, # headings,
+// "* " bullets). WhatsApp only understands single-asterisk bold, so a raw
+// "**word**" shows literal stars. Normalize to one marker per style run while
+// leaving fenced/inline code untouched.
+function normalizeMarkdown(text) {
+  if (
+    !text.includes('**') &&
+    !text.includes('__') &&
+    !text.includes('#') &&
+    !text.includes('\n* ') &&
+    !text.startsWith('* ')
+  ) return text
+
+  const code = []
+  let output = text.replace(CODE_SPAN, match => {
+    code.push(match)
+    return `\u0000RESPONSE_CODE_${code.length - 1}\u0000`
+  })
+
+  output = output
+    // "# Heading" / "### Heading" -> bold heading
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, (_match, title) => `*${title.trim()}*`)
+    // "* bullet" -> "• bullet" so the bullet star is not read as bold
+    .replace(/^[ \t]*\*[ \t]+/gm, '• ')
+    // Markdown bold, including multi-line spans -> WhatsApp bold
+    .replace(/\*\*([\s\S]+?)\*\*/g, '*$1*')
+    // Markdown underline bold -> WhatsApp italic
+    .replace(/__([^_\r\n]+)__/g, '_$1_')
+    // Collapse any leftover runs (***text*** and stray markers)
+    .replace(/\*{2,}/g, '*')
+
+  for (let index = 0; index < code.length; index++) {
+    output = output.replace(`\u0000RESPONSE_CODE_${index}\u0000`, code[index])
+  }
+  return output
+}
 
 function compactLayout(text) {
   // Keep complete box panels intact. Compacting only their top and bottom
@@ -48,24 +86,33 @@ function stylizeSegment(text) {
   }).join('')
 }
 
-function boldWords(text) {
-  return text.replace(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu, word => `*${word}*`)
+const MARKERS = '*_~'
+
+function wrapWords(text, before, after) {
+  const padBefore = before && MARKERS.includes(before)
+  const padAfter = after && MARKERS.includes(after)
+  const input = (padBefore ? '*' : '') + text + (padAfter ? '*' : '')
+  const styled = input.replace(
+    /(?<![*_~\p{L}\p{N}])[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*(?![*_~\p{L}\p{N}])/gu,
+    word => `*${word}*`,
+  )
+  return styled.slice(padBefore ? 1 : 0, styled.length - (padAfter ? 1 : 0))
 }
 
 function boldText(text) {
   let output = ''
   let cursor = 0
   for (const match of text.matchAll(BOLD_PROTECTED_TEXT)) {
-    output += boldWords(text.slice(cursor, match.index)) + match[0]
+    output += wrapWords(text.slice(cursor, match.index), text[match.index - 1], match[0][0]) + match[0]
     cursor = match.index + match[0].length
   }
-  return output + boldWords(text.slice(cursor))
+  return output + wrapWords(text.slice(cursor), text[cursor - 1], '')
 }
 
 function stylizeText(text) {
   if (typeof text !== 'string' || !text) return text
 
-  text = boldText(compactLayout(text))
+  text = boldText(normalizeMarkdown(compactLayout(text)))
 
   let output = ''
   let cursor = 0

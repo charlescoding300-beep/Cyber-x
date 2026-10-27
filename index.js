@@ -3186,7 +3186,15 @@ async function startBot(phone) {
       }
 
       state.retries++
-      const delay = Math.min(1000 * Math.pow(2, state.retries), 30000)
+      const base = Math.min(1000 * Math.pow(2, state.retries), 30000)
+
+      // A session stuck failing for many consecutive attempts (typically
+      // code 403) is not coming back by retrying every 30 seconds — it just
+      // burns a full handshake each time. Keep retrying, but slowly.
+      const slowAfter = parseInt(process.env.RECONNECT_SLOW_AFTER || "20", 10)
+      const slowMs = parseInt(process.env.RECONNECT_SLOW_MS || "600000", 10)
+      const delay = state.retries > slowAfter ? Math.max(slowMs, base) : base
+
       logOnce(phone, "reconnect", `[${phone}] ↻ Reconnecting in ${delay}ms (code ${statusCode}) — attempt #${state.retries}`)
       setTimeout(() => startBot(phone).catch(e => console.error(`[${phone}] RESTART ERR:`, e.message)), delay)
     }

@@ -3,7 +3,8 @@
 const Database = require("better-sqlite3")
 const path = require("path")
 
-const dbPath = path.join(__dirname, "zenx.db")
+// ZENX_DB_PATH lets tests run against a copy without touching the live DB.
+const dbPath = process.env.ZENX_DB_PATH || path.join(__dirname, "zenx.db")
 const db = new Database(dbPath)
 
 db.pragma("journal_mode = WAL")
