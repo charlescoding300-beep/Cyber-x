@@ -14,6 +14,10 @@ module.exports = {
     pattern:  'goodbye',
     alias:    [],
     category: 'group',
+    permissions: ({ args }) => ({
+        groupAdmin: ['on', 'off'].includes(String(args?.[0] || '').toLowerCase()),
+        adminOrOwner: true,
+    }),
     desc:     'Enable or disable the leave/goodbye message for this group',
     usage:    '.goodbye on | .goodbye off',
 

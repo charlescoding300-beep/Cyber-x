@@ -18,6 +18,8 @@ function isPermissionError(error) {
 module.exports = {
   pattern: 'approveall',
   category: 'group',
+  adminOnly: true,
+  botAdmin: true,
   desc: 'Approve all pending group join requests',
   usage: '.approveall',
 

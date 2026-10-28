@@ -33,6 +33,11 @@ const {
   sendMessageUnstyled,
   runWithoutResponseTextStyle,
 } = require("./core/responseTextStyle")
+const {
+  sendBotNotAdmin,
+  sendOwnerRestricted,
+  sendGroupAdminRestricted,
+} = require("./lib/groupAdminNotice")
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
@@ -2238,7 +2243,7 @@ async function handleAntitagInline(sock, msg, phone) {
     }
     if (adminContext.senderAdmin) return
     if (!adminContext.botAdmin) {
-      return require("./lib/groupAdminNotice").sendBotNotAdmin(sock, groupId, msg).catch(() => {})
+      return sendBotNotAdmin(sock, groupId, msg).catch(() => {})
     }
 
     try {
@@ -2605,11 +2610,17 @@ async function handleMessage(state, sock, msg) {
   }
 
   const category = String(command.category || '').toLowerCase()
+  const isGroupCommand = category === 'group' || category.startsWith('group/')
   const sendCommandMessage = (jid, content, ...options) => category === 'ai'
     ? sendMessageUnstyled(sock, jid, content, ...options)
     : sock.sendMessage(jid, content, ...options)
 
-  if (!isGroup && (category === 'group' || category.startsWith('group/'))) {
+  if (command.ownerOnly === true && !isOwner) {
+    await sendOwnerRestricted(sock, from, msg).catch(() => {})
+    return
+  }
+
+  if (!isGroup && isGroupCommand && !isOwner) {
     try {
       await sendMessageUnstyled(sock, from, { text: GROUP_COMMAND_DM_NOTICE }, { quoted: msg })
     } catch (error) {
@@ -2617,6 +2628,56 @@ async function handleMessage(state, sock, msg) {
     }
     return
   }
+
+  let commandPermissions = command.permissions && typeof command.permissions === 'object'
+    ? command.permissions
+    : {}
+  if (isGroup && isGroupCommand && typeof command.permissions === 'function') {
+    try {
+      commandPermissions = await command.permissions({
+        args,
+        text: rest,
+        prefix,
+        commandName: rawCmd,
+        canonical,
+        from,
+        sender,
+        isOwner,
+        isGroup,
+      }) || {}
+    } catch (error) {
+      console.error(`[${state.phone}] permission policy failed for ${rawCmd}:`, error?.message || error)
+      await sendGroupAdminRestricted(sock, from, msg, `${prefix}${rawCmd}`).catch(() => {})
+      return
+    }
+  }
+
+  if ((command.ownerOnly === true || commandPermissions.ownerOnly === true) && !isOwner) {
+    await sendOwnerRestricted(sock, from, msg).catch(() => {})
+    return
+  }
+
+  // Group command access is declared once in command metadata. Future group
+  // commands should use ownerOnly, adminOnly/requiresGroupAdmin,
+  // adminOrOwner, and/or botAdmin/requiresBotAdmin. Optional permissions(ctx)
+  // supports subcommands; keep it synchronous and side-effect free. Public
+  // group utilities remain public unless they opt into an access rule.
+  const requiresSenderGroupAdmin = isGroupCommand && (
+    commandPermissions.groupAdmin === undefined
+      ? command.adminOnly === true || command.requiresAdmin === true ||
+        command.requiresGroupAdmin === true ||
+        COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+      : commandPermissions.groupAdmin === true
+  )
+  const allowsOwnerWithAdmin = command.ownerOnly === true || command.adminOrOwner === true ||
+    commandPermissions.adminOrOwner === true
+  const requiresBotGroupAdmin = isGroupCommand && (
+    commandPermissions.botAdmin === undefined
+      ? command.botAdmin === true || command.requiresBotAdmin === true
+      : commandPermissions.botAdmin === true
+  )
+  const ownerMustBeGroupAdmin = command.ownerMustBeGroupAdmin === true ||
+    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
 
   const declaredTimeout = Number(command.timeoutMs)
   const independentCommand = command.independent === true
@@ -2632,6 +2693,7 @@ async function handleMessage(state, sock, msg) {
 
   let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null
   const needsGroupAdminContext =
+    requiresSenderGroupAdmin || requiresBotGroupAdmin ||
     command.adminOnly === true || command.botAdmin === true ||
     command.requiresAdmin === true || command.requiresGroupAdmin === true ||
     COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical) ||
@@ -2639,15 +2701,24 @@ async function handleMessage(state, sock, msg) {
   if (isGroup && needsGroupAdminContext) {
     ;({ isAdmin, isBotAdmin, isActualGroupAdmin } = await checkGroupAdmin(
       state, sock, from, sender, senderAlt, isOwner, fromMe,
-      isOwner && COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+      isOwner && (ownerMustBeGroupAdmin || (requiresSenderGroupAdmin && !allowsOwnerWithAdmin))
     ))
   }
 
   if (
-    isGroup && isOwner && isActualGroupAdmin === false &&
-    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+    isGroup && requiresSenderGroupAdmin &&
+    !(isActualGroupAdmin === true || (isOwner && allowsOwnerWithAdmin))
   ) {
-    await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
+    if (isOwner && isActualGroupAdmin === false && ownerMustBeGroupAdmin) {
+      await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
+    } else {
+      await sendGroupAdminRestricted(sock, from, msg, `${prefix}${rawCmd}`).catch(() => {})
+    }
+    return
+  }
+
+  if (isGroup && requiresBotGroupAdmin && !isBotAdmin) {
+    await sendBotNotAdmin(sock, from, msg).catch(() => {})
     return
   }
 

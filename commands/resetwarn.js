@@ -26,6 +26,8 @@ module.exports = {
   pattern: 'resetwarn',
   alias: ['clearwarn', 'unwarn'],
   category: 'group',
+  adminOnly: true,
+  adminOrOwner: true,
   desc: "Reset a member's persistent moderation warnings by reply or mention",
   usage: '.resetwarn [feature] (reply to member or @mention)',
 

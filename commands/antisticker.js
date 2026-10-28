@@ -13,6 +13,16 @@ module.exports = {
   groupOnly: true,
   adminOnly: true,
   botAdmin: true,
+  permissions: ({ args, isOwner }) => {
+    const option = String(args?.[0] || '').toLowerCase()
+    return {
+      // The no-argument settings/help view stays available to members. Keep
+      // the pre-existing owner rule for this command: owners still need to be
+      // actual group admins before changing settings.
+      groupAdmin: Boolean(option) || Boolean(isOwner),
+      botAdmin: Boolean(option) && option !== 'off',
+    }
+  },
 
   async run({ sock, m, msg, from, args, phone, isAdmin, isBotAdmin }) {
     const sourceMessage = msg || m
