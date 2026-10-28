@@ -2620,6 +2620,11 @@ async function handleMessage(state, sock, msg) {
     ? sendMessageUnstyled(sock, jid, content, ...options)
     : sock.sendMessage(jid, content, ...options)
 
+  if (command.ownerOnly === true && !isOwner) {
+    await sendOwnerRestricted(sock, from, msg).catch(() => {})
+    return
+  }
+
   if (!isGroup && isGroupCommand) {
     try {
       await sendMessageUnstyled(sock, from, { text: GROUP_COMMAND_DM_NOTICE }, { quoted: msg })
@@ -2704,8 +2709,7 @@ async function handleMessage(state, sock, msg) {
     ))
   }
 
-  const senderHasGroupAdminPermission =
-    isActualGroupAdmin === true || (!isOwner && isAdmin)
+  const senderHasGroupAdminPermission = isActualGroupAdmin === true
   if (
     isGroup && requiresSenderGroupAdmin &&
     !(senderHasGroupAdminPermission || (isOwner && allowsOwnerWithAdmin))
