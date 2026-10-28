@@ -13,19 +13,9 @@ function getScore(jid1, jid2) {
   return Math.abs(hash % 101) // 0–100
 }
 
-function getBar(score) {
-  const filled = Math.round(score / 10)
-  const empty  = 10 - filled
-  return '❤️'.repeat(filled) + '🖤'.repeat(empty)
-}
-
-function getLabel(score) {
-  if (score === 100) return '👑 *PERFECT MATCH — Destined for each other!*'
-  if (score >= 81)  return '💞 *Soulmates incoming!*'
-  if (score >= 61)  return '🔥 *Strong vibes, something is there!*'
-  if (score >= 41)  return '🤔 *Maybe... give it a shot?*'
-  if (score >= 21)  return '😬 *Awkward energy... but who knows!*'
-  return               '💀 *No chance. Absolutely not.*'
+function mentionTag(jid) {
+  const participant = String(jid || '').replace(/:\d+(?=@)/, '')
+  return `@${participant.split('@')[0]}`
 }
 
 module.exports = {
@@ -53,8 +43,7 @@ module.exports = {
       user1 = sender
       user2 = mentioned[0]
     } else {
-      return sock.sendMessage(from, {
-        text:
+      return sock.sendMessage(from, { text:
 `╔══════════════════════════╗
 ║  💘 *ZENX SHIP METER* ║
 ╚══════════════════════════╝
@@ -93,42 +82,20 @@ This command ships two people together and checks their love compatibility score
 
 ⚡ _The same pair always gets the same score — no cheating!_
 
-${CREDIT}`,
-        quoted: msg
-      })
+${CREDIT}`
+      }, { quoted: msg })
     }
 
-    const name1 = user1.split('@')[0]
-    const name2 = user2.split('@')[0]
     const score = getScore(user1, user2)
-    const bar   = getBar(score)
-    const label = getLabel(score)
-
     const output =
-`╔══════════════════════════╗
-║  💘 *ZENX SHIP METER* ║
-╚══════════════════════════╝
-
-👤 *+${name1}*
-        💗
-👤 *+${name2}*
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💘 *Compatibility Score:* ${score}%
-
-${bar}
-
-${label}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+`*💞 𝙎𝙃𝙄𝙋 𝙍𝙀𝙎𝙐𝙇𝙏*
+*— ${mentionTag(user1)} + ${mentionTag(user2)}:    ${score}%*
 
 ${CREDIT}`
 
     await sock.sendMessage(from, {
       text: output,
       mentions: [user1, user2],
-      quoted: msg
-    })
+    }, { quoted: msg })
   }
 }

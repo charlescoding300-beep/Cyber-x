@@ -1,267 +1,412 @@
 'use strict'
 
-const axios = require('axios')
-const playCommand = require('./play')
+const knightApi = require('../lib/knightapi')
+// ════════════════════════════════════════════════════════════════════
+//  commands/video.js  —  ZENX  |  🎬 YouTube Video Downloader
+//  Usage: .video <song / video name | YouTube link> [--360|--480|--720|--1080]
+//         .video --check            (tests every download source)
+//  Aliases: .ytv  .ytmp4  .playvid     Reaction: 🎬 → ✅   Category: media
+//
+//  FLOW:  find the video (name search or link) → send an info card with the
+//         thumbnail → download the MP4 → send it (as a document if it is big).
+//
+//  DOWNLOAD SOURCES (tried in this order, first one that works wins):
+//    1. KnightBot API   — https://knightbotapi.stream   (enabled by .env, see below)
+//    2. Gifted API      — /api/download/ytvideo         (free, key "gifted")
+//    3. ruhend-scraper  — only if you ran:  npm i ruhend-scraper
+//
+//  ── TURN ON KNIGHTBOT ───────────────────────────────────────────────
+//  The KnightBot site draws its endpoint list with JavaScript, so the exact
+//  path could not be read automatically. Open https://knightbotapi.stream, press
+//  Ctrl+K, search "youtube" / "ytmp4", and copy the path from the example URL.
+//  Then add to .env (example — use the REAL path from the site):
+//      KNIGHT_VIDEO_PATH=/api/download/ytmp4
+//      KNIGHT_VIDEO_PARAM=url           # the query-parameter name that carries the link
+//      KNIGHT_API_KEY=knight            # default
+//  Restart the bot and run  .video --check  to confirm it says ✅.
+//
+//  OTHER .env SETTINGS (all optional):
+//      VIDEO_QUALITY=720      default quality
+//      VIDEO_MAX_MIN=20       refuse videos longer than this many minutes
+//      VIDEO_AS_VIDEO_MB=60   up to this size → normal video message
+//      VIDEO_MAX_MB=150       up to this size → document; above → refused
+//      BOT_CREDIT=...         footer text
+// ════════════════════════════════════════════════════════════════════
 
-const { getVideo, downloadVideoViaYtDlp } = playCommand.youtubeHelpers
-const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
-const MAX_VIDEO_BYTES = 64 * 1024 * 1024
-const API_TIMEOUT_MS = 25_000
+const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
-const AXIOS_DEFAULTS = {
-  timeout: API_TIMEOUT_MS,
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    Accept: 'application/json, video/mp4, */*',
-  },
+const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d)
+const num = (k, d) => { const n = parseFloat(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d }
+const CFG = {
+  knightBase:  () => env('KNIGHT_API_BASE', 'https://knightbotapi.stream').replace(/\/+$/, ''),
+  knightKey:   () => env('KNIGHT_API_KEY', 'knight'),
+  knightPath:  () => env('KNIGHT_VIDEO_PATH', ''),
+  knightParam: () => env('KNIGHT_VIDEO_PARAM', 'url'),
+  giftedBase:  () => env('GIFTED_API_BASE', 'https://api.gifted.co.ke').replace(/\/+$/, ''),
+  giftedKey:   () => env('GIFTED_API_KEY', 'gifted'),
+  quality:     () => String(env('VIDEO_QUALITY', '720')),
+  maxMin:      () => num('VIDEO_MAX_MIN', 20),
+  asVideoMB:   () => num('VIDEO_AS_VIDEO_MB', 60),
+  maxMB:       () => num('VIDEO_MAX_MB', 150),
 }
 
-function isYouTubeUrl(value) {
-  try {
-    const host = new URL(value).hostname.toLowerCase()
-    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com')
-  } catch {
-    return false
-  }
+const warn = (...a) => console.warn('[VIDEO]', ...a)
+const log  = (...a) => console.log('[VIDEO]', ...a)
+
+// ── professional layout ──────────────────────────────────────────────
+const box = (title, lines) =>
+  `╔══════════════════════════════╗\n║  ${title}\n╚══════════════════════════════╝\n\n${lines.join('\n')}\n\n${CREDIT}`
+
+const TITLE = '🎬  *VIDEO DOWNLOADER*'
+
+const USAGE = box(TITLE, [
+  '❌ *No video name or link given!*',
+  '',
+  '📌 *Usage:*',
+  '  _.video <name or YouTube link>_',
+  '  _.ytv <name or YouTube link>_',
+  '',
+  '⚙️ *Quality (optional):*',
+  '  _.video <name> --360_  ·  _--480_  ·  _--720_  ·  _--1080_',
+  '',
+  '🔥 *Examples:*',
+  '  _.video burna boy last last_',
+  '  _.video https://youtu.be/dQw4w9WgXcQ --480_',
+])
+
+// ── small helpers ────────────────────────────────────────────────────
+const fmtDur = s => {
+  s = Math.round(Number(s) || 0)
+  if (!s) return 'Unknown'
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60
+  return (h ? `${h}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(x).padStart(2, '0')}`
 }
-
-function extractVideoId(youtubeUrl) {
-  return String(youtubeUrl).match(/(?:v=|youtu\.be\/|\/(?:shorts|embed)\/)([\w-]{11})/i)?.[1] || null
+const parseDur = str => {
+  if (!str) return 0
+  return String(str).split(':').map(Number).reduce((a, p) => a * 60 + (p || 0), 0)
 }
+const fmtMB = bytes => `${(bytes / 1024 / 1024).toFixed(1)} MB`
+const clean = s => String(s || '').replace(/[\r\n]+/g, ' ').trim()
+const fileSafe = s => clean(s).replace(/[\\/:*?"<>|]+/g, '').slice(0, 80) || 'video'
 
-function isMp4(buffer) {
-  return Buffer.isBuffer(buffer) && buffer.length >= 2048 && buffer.slice(4, 8).toString('latin1') === 'ftyp'
-}
+const YT_ID = /(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/))([\w-]{11})/i
+const idFromUrl = u => (String(u).match(YT_ID) || [])[1] || null
 
-// When the user already pastes a YouTube link, skip the search step entirely
-// and pull real title/thumbnail straight from YouTube's own public oEmbed
-// endpoint — no API key needed, and it gives better metadata than a bare
-// "YouTube video" placeholder would. Falls back gracefully if it's
-// unreachable: the download itself only needs the URL, so nothing blocks on this.
-async function getVideoFromDirectUrl(youtubeUrl) {
-  const videoId = extractVideoId(youtubeUrl)
-  let title = 'YouTube video'
-  let thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null
-
-  try {
-    const res = await axios.get('https://www.youtube.com/oembed', {
-      params: { url: youtubeUrl, format: 'json' },
-      timeout: 8000,
-    })
-    if (res?.data?.title) title = res.data.title
-    if (res?.data?.thumbnail_url) thumbnail = res.data.thumbnail_url
-  } catch (error) {
-    console.log(`[VIDEO] oEmbed lookup skipped (${error.message}) — using URL-derived thumbnail only`)
-  }
-
-  return { url: youtubeUrl, title, thumbnail }
-}
-
-async function getEliteProTechVideoByUrl(youtubeUrl, signal) {
-  const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`
-  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
-  if (res?.data?.success && res?.data?.downloadURL) {
-    return { download: res.data.downloadURL, title: res.data.title }
-  }
-  throw new Error('EliteProTech returned no video link')
-}
-
-async function getYupraVideoByUrl(youtubeUrl, signal) {
-  const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
-  if (res?.data?.success && res?.data?.data?.download_url) {
-    return { download: res.data.data.download_url, title: res.data.data.title }
-  }
-  throw new Error('Yupra returned no video link')
-}
-
-async function getOkatsuVideoByUrl(youtubeUrl, signal) {
-  const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
-  if (res?.data?.result?.mp4) {
-    return { download: res.data.result.mp4, title: res.data.result.title }
-  }
-  throw new Error('Okatsu returned no video link')
-}
-
-async function getKeithVideoByUrl(youtubeUrl, signal) {
-  const apiUrl = `https://apis-keith.vercel.app/download/dlmp4?url=${encodeURIComponent(youtubeUrl)}`
-  const res = await axios.get(apiUrl, { ...AXIOS_DEFAULTS, signal })
-  if (res?.data?.status && res?.data?.result?.downloadUrl) {
-    return { download: res.data.result.downloadUrl, title: res.data.result.title }
-  }
-  throw new Error('Keith returned no video link')
-}
-
-async function fetchMp4(url, signal) {
-  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) {
-    throw new Error('video source returned an invalid download URL')
-  }
-
-  const response = await axios.get(url, {
-    responseType: 'arraybuffer',
-    timeout: 120_000,
-    maxContentLength: MAX_VIDEO_BYTES,
-    maxBodyLength: MAX_VIDEO_BYTES,
-    signal,
-    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'video/mp4, application/octet-stream, */*' },
+async function getText(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9', ...(opts.headers || {}) },
+    signal: AbortSignal.timeout(opts.timeout || 12000),
   })
-  const buffer = Buffer.from(response.data)
-  if (buffer.length > MAX_VIDEO_BYTES) throw new Error('video exceeds the 64 MB upload limit')
-  if (!isMp4(buffer)) throw new Error('download URL did not return a valid MP4 video')
-  return buffer
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.text()
 }
 
-async function downloadFromApis(youtubeUrl) {
-  const sources = [
-    { name: 'EliteProTech', get: getEliteProTechVideoByUrl },
-    { name: 'Yupra', get: getYupraVideoByUrl },
-    { name: 'Okatsu', get: getOkatsuVideoByUrl },
-    { name: 'Keith', get: getKeithVideoByUrl },
-  ]
-  const controller = new AbortController()
-  const pending = new Map()
-  const failures = []
+// ════════════════════════════════════════════════════════════════════
+//  FIND THE VIDEO  (name → YouTube search · link → oEmbed)
+// ════════════════════════════════════════════════════════════════════
 
-  sources.forEach((source, index) => {
-    pending.set(index, source.get(youtubeUrl, controller.signal).then(
-      data => ({ index, data }),
-      error => ({ index, error }),
-    ))
-  })
-
-  try {
-    while (pending.size) {
-      const result = await Promise.race(pending.values())
-      pending.delete(result.index)
-      const source = sources[result.index]
-
-      if (result.error) {
-        failures.push(`${source.name}: ${result.error.message}`)
-        console.log(`[VIDEO] ${source.name} failed: ${result.error.message}`)
-        continue
-      }
-
-      try {
-        const buffer = await fetchMp4(result.data.download, controller.signal)
-        console.log(`[VIDEO] ${source.name} returned a valid MP4 (${(buffer.length / 1e6).toFixed(1)} MB)`)
-        return { buffer, title: result.data.title, via: source.name }
-      } catch (error) {
-        failures.push(`${source.name}: ${error.message}`)
-        console.log(`[VIDEO] ${source.name} video failed: ${error.message}`)
-      }
+function parseYtResults(html) {
+  const m = html.match(/var ytInitialData\s*=\s*(\{[\s\S]*?\});\s*<\/script>/) ||
+            html.match(/ytInitialData"\]\s*=\s*(\{[\s\S]*?\});/)
+  if (!m) return []
+  let data
+  try { data = JSON.parse(m[1]) } catch { return [] }
+  const sections = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || []
+  const out = []
+  for (const sec of sections) {
+    for (const it of sec?.itemSectionRenderer?.contents || []) {
+      const v = it?.videoRenderer
+      if (!v?.videoId || !v.lengthText?.simpleText) continue          // skip live streams / ads
+      out.push({
+        id: v.videoId,
+        title: clean((v.title?.runs || []).map(r => r.text).join('')),
+        channel: clean(v.ownerText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text),
+        duration: parseDur(v.lengthText.simpleText),
+        views: clean(v.viewCountText?.simpleText || v.shortViewCountText?.simpleText),
+        ago: clean(v.publishedTimeText?.simpleText),
+      })
     }
-  } finally {
-    controller.abort()
   }
-
-  throw new Error(failures.join(' | ') || 'video APIs returned no result')
+  return out
 }
 
-async function downloadVideo(youtubeUrl) {
-  let apiError
+async function searchYouTube(query) {
+  // 1) yt-search, if your bot already has it
   try {
-    return await downloadFromApis(youtubeUrl)
-  } catch (error) {
-    apiError = error
-    console.log(`[VIDEO] MP4 APIs failed; trying the same yt-dlp setup as .play: ${error.message}`)
-  }
-
-  try {
-    const result = await downloadVideoViaYtDlp(youtubeUrl)
-    return { buffer: result.buf, title: result.title, via: result.via || 'yt-dlp' }
-  } catch (error) {
-    throw new Error(`Video APIs failed (${apiError.message}); yt-dlp failed (${error.message})`)
-  }
+    const yts = require('yt-search')
+    const r = await yts(query)
+    const v = (r.videos || []).find(x => x.seconds)
+    if (v) return { id: v.videoId, title: clean(v.title), channel: clean(v.author?.name), duration: v.seconds, views: v.views ? Number(v.views).toLocaleString('en-US') : '', ago: clean(v.ago) }
+  } catch {}
+  // 2) built-in: read YouTube's own results page (no key, no package)
+  const html = await getText(
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`,
+    { headers: { Cookie: 'CONSENT=YES+cb; SOCS=CAI' } }
+  )
+  return parseYtResults(html)[0] || null
 }
 
-async function sendVideoInfo(sock, from, msg, video, youtubeUrl) {
-  const title = String(video.title || 'YouTube video').replace(/[\r\n]+/g, ' ').slice(0, 180)
-  const videoId = extractVideoId(youtubeUrl)
-  const thumbnails = [...new Set([
-    video.thumbnail,
-    videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null,
-  ].filter(value => typeof value === 'string' && /^https:\/\//i.test(value)))]
-  const card = `🎬 *${title}*\n🔗 ${youtubeUrl}\n\n${CREDIT}`
-
-  for (const thumbnail of thumbnails) {
+async function resolveVideo(query) {
+  const id = idFromUrl(query)
+  if (id) {
+    const meta = { id, title: '', channel: '', duration: 0, views: '', ago: '' }
     try {
-      return await sock.sendMessage(from, { image: { url: thumbnail }, caption: card }, { quoted: msg })
-    } catch (error) {
-      console.log(`[VIDEO] thumbnail send failed: ${error.message}`)
+      const j = JSON.parse(await getText(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}&format=json`, { timeout: 8000 }))
+      meta.title = clean(j.title); meta.channel = clean(j.author_name)
+    } catch (e) { warn(`oEmbed failed: ${e.message}`) }
+    return meta
+  }
+  return searchYouTube(query)
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  DOWNLOAD SOURCES
+// ════════════════════════════════════════════════════════════════════
+
+const PREF_KEYS = ['download_url', 'downloadUrl', 'download', 'dl', 'url', 'link', 'video', 'mp4', 'result', 'data']
+const BAD_URL = /(youtube\.com|youtu\.be)\/(watch|shorts|embed|live)|\.(jpe?g|png|webp|gif)(\?|$)/i
+
+// walks any JSON shape and returns the first link that looks like a file, never a page/thumbnail
+function findFileUrl(o, depth = 0) {
+  if (o == null || depth > 5) return null
+  if (typeof o === 'string') return /^https?:\/\//i.test(o) && !BAD_URL.test(o) ? o : null
+  if (Array.isArray(o)) { for (const x of o) { const u = findFileUrl(x, depth + 1); if (u) return u } return null }
+  if (typeof o === 'object') {
+    for (const k of PREF_KEYS) if (o[k] !== undefined) { const u = findFileUrl(o[k], depth + 1); if (u) return u }
+    for (const v of Object.values(o)) { const u = findFileUrl(v, depth + 1); if (u) return u }
+  }
+  return null
+}
+
+async function callJsonApi(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json,*/*' }, signal: AbortSignal.timeout(45000) })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const ct = String(res.headers.get('content-type') || '')
+  if (/^video\//i.test(ct)) return { directBody: res }                  // API streamed the file itself
+  let j
+  try { j = await res.json() } catch { throw new Error('not JSON') }
+  if (j && (j.success === false || j.status === false)) throw new Error(String(j.message || j.error || 'API reported failure').slice(0, 80))
+  const fileUrl = findFileUrl(j)
+  if (!fileUrl) throw new Error('no download link in response')
+  return { fileUrl, meta: j }
+}
+
+const SOURCES = [
+  {
+    name: 'KnightBot API',
+    enabled: () => !!CFG.knightPath(),
+    get: async (ytUrl, quality) => {
+      const q = String(quality)
+      const format = /p$/i.test(q) ? q : `${q}p`
+      const media = await knightApi.getVideo(ytUrl, { format })
+      return { fileUrl: media.download, meta: media.raw }
+    },
+  },
+  {
+    name: 'Gifted API',
+    enabled: () => true,
+    get: (ytUrl, quality) =>
+      callJsonApi(`${CFG.giftedBase()}/api/download/ytvideo?apikey=${encodeURIComponent(CFG.giftedKey())}&url=${encodeURIComponent(ytUrl)}&quality=${quality}`),
+  },
+  {
+    name: 'ruhend-scraper',
+    enabled: () => { try { require.resolve('ruhend-scraper'); return true } catch { return false } },
+    get: async ytUrl => {
+      const { ytmp4 } = require('ruhend-scraper')
+      const d = await ytmp4(ytUrl)
+      const fileUrl = findFileUrl(d?.video)
+      if (!fileUrl) throw new Error('no video link')
+      return { fileUrl, meta: d }
+    },
+  },
+]
+
+class TooBig extends Error { constructor(bytes) { super(`file is ${fmtMB(bytes)}`); this.bytes = bytes } }
+
+// downloads into memory with a hard size limit (never trusts Content-Length alone)
+async function downloadFile(resOrUrl, maxBytes) {
+  const res = typeof resOrUrl === 'string'
+    ? await fetch(resOrUrl, { headers: { 'User-Agent': UA, Accept: '*/*' }, signal: AbortSignal.timeout(240000) })
+    : resOrUrl.directBody
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const declared = Number(res.headers.get('content-length')) || 0
+  if (declared > maxBytes) throw new TooBig(declared)
+
+  const chunks = []
+  let size = 0
+  const reader = res.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.length
+    if (size > maxBytes) { try { await reader.cancel() } catch {} ; throw new TooBig(size) }
+    chunks.push(value)
+  }
+  const buf = Buffer.concat(chunks.map(c => Buffer.from(c)))
+  if (buf.length < 20000) throw new Error('file too small to be a video')
+  const isMp4 = buf.toString('ascii', 4, 8) === 'ftyp'
+  const isWebm = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3
+  if (!isMp4 && !isWebm) throw new Error('download was not a video file')
+  return { buf, mime: isMp4 ? 'video/mp4' : 'video/webm', ext: isMp4 ? 'mp4' : 'webm' }
+}
+
+// try each source; step down to 360p once if the file is too big
+async function fetchVideo(ytUrl, wantQuality) {
+  const maxBytes = CFG.maxMB() * 1024 * 1024
+  const qualities = [...new Set([wantQuality, '360'])]
+  const errors = []
+  for (const src of SOURCES) {
+    if (!src.enabled()) continue
+    for (const q of qualities) {
+      try {
+        const got = await src.get(ytUrl, q)
+        const file = await downloadFile(got.fileUrl || got, maxBytes)
+        log(`${src.name}: ${fmtMB(file.buf.length)} @${q}p`)
+        return { ...file, source: src.name, quality: q, meta: got.meta }
+      } catch (e) {
+        errors.push(`${src.name}@${q}: ${e.message}`)
+        if (!(e instanceof TooBig) || q === '360') break               // only retry smaller on "too big"
+      }
     }
   }
-  return sock.sendMessage(from, { text: card }, { quoted: msg })
+  const err = new Error(errors.join(' | ') || 'no download source is enabled')
+  err.all = errors
+  throw err
 }
+
+// ── .video --check ───────────────────────────────────────────────────
+async function runCheck() {
+  const test = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  const lines = []
+  for (const src of SOURCES) {
+    if (!src.enabled()) {
+      lines.push(src.name === 'KnightBot API'
+        ? `⚪ *${src.name}* — off (set KNIGHT_VIDEO_PATH in .env to enable)`
+        : `⚪ *${src.name}* — not installed`)
+      continue
+    }
+    const t = Date.now()
+    try {
+      const got = await src.get(test, '360')
+      let note = ''
+      if (got.fileUrl) {
+        const r = await fetch(got.fileUrl, { headers: { 'User-Agent': UA, Range: 'bytes=0-0' }, signal: AbortSignal.timeout(15000) })
+        if (!r.ok && r.status !== 206) throw new Error(`link answered HTTP ${r.status}`)
+        const total = (r.headers.get('content-range') || '').split('/')[1] || r.headers.get('content-length')
+        note = total && Number(total) > 1 ? `, file ≈ ${fmtMB(Number(total))}` : ''
+        try { await r.body?.cancel() } catch {}
+      }
+      lines.push(`✅ *${src.name}* — link OK${note} (${Date.now() - t}ms)`)
+    } catch (e) {
+      lines.push(`❌ *${src.name}* — ${e.message} (${Date.now() - t}ms)`)
+    }
+  }
+  try {
+    const f = await searchYouTube('rick astley never gonna give you up')
+    lines.push(f ? `✅ *YouTube search* — found “${f.title.slice(0, 40)}”` : '❌ *YouTube search* — nothing found')
+  } catch (e) { lines.push(`❌ *YouTube search* — ${e.message}`) }
+  return lines.join('\n')
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  the command
+// ════════════════════════════════════════════════════════════════════
 
 module.exports = {
-  pattern: 'video',
-  alias: ['ytv', 'ytmp4', 'ytvideo', 'ytvid'],
-  category: 'download',
-  desc: 'Download a YouTube video',
-  usage: '.video <video name or YouTube URL>',
+  pattern:  'video',
+  alias:    ['ytv', 'ytmp4', 'playvid'],
+  category: 'media',
+  desc:     'Download a YouTube video by name or link',
+  usage:    '.video <name or link> [--360|--480|--720|--1080]',
 
-  run: async ({ sock, from, msg, args = [] }) => {
-    if (msg?.key) {
-      for (const emoji of ['📥', '⏳', '🎬']) {
-        await sock.sendMessage(from, { react: { text: emoji, key: msg.key } }).catch(() => {})
-      }
+  run: async ({ sock, from, msg, args, text }) => {
+    const react = emoji => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }).catch(() => {})
+    const reply = body => sock.sendMessage(from, { text: body }, { quoted: msg })
+
+    let raw = String(text || args?.join(' ') || '').trim()
+    if (!raw) return reply(USAGE)
+
+    if (raw.toLowerCase() === '--check') {
+      void react('🔎')
+      return reply(box('🔎  *VIDEO SOURCE CHECK*', [await runCheck()]))
     }
 
-    const query = args.join(' ').trim()
-    if (!query) {
-      return sock.sendMessage(from, {
-        text: `❌ Usage: *.video <video name>*\nExample: .video Burna Boy Last Last\n\n${CREDIT}`,
-      }, { quoted: msg })
+    // quality flag
+    let quality = CFG.quality()
+    const qm = raw.match(/(?:^|\s)--?(360|480|720|1080)p?(?=\s|$)/i)
+    if (qm) { quality = qm[1]; raw = raw.replace(qm[0], ' ').trim() }
+    if (!raw) return reply(USAGE)
+
+    void react('🎬')
+
+    // 1 ── find it
+    let video
+    try { video = await resolveVideo(raw) } catch (e) { warn(`search failed: ${e.message}`) }
+    if (!video) {
+      void react('❌')
+      return reply(box(TITLE, [`❌ *No video found for:* _"${raw}"_`, '💡 Try different keywords or paste the YouTube link']))
     }
 
-    let searchMsg
+    const ytUrl = `https://www.youtube.com/watch?v=${video.id}`
+    if (video.duration && video.duration > CFG.maxMin() * 60) {
+      void react('❌')
+      return reply(box(TITLE, [
+        `❌ *Too long:* ${fmtDur(video.duration)}`,
+        `📏 Limit is ${CFG.maxMin()} minutes per video`,
+        `🔗 ${ytUrl}`,
+      ]))
+    }
+
+    // 2 ── info card with thumbnail
+    const card = box(TITLE, [
+      `📌 *Title:* ${video.title || 'Unknown'}`,
+      `👤 *Channel:* ${video.channel || 'Unknown'}`,
+      `⏱️ *Duration:* ${fmtDur(video.duration)}`,
+      video.views ? `👁️ *Views:* ${video.views}` : null,
+      video.ago ? `📅 *Published:* ${video.ago}` : null,
+      `🎞️ *Quality:* ${quality}p`,
+      `🔗 ${ytUrl}`,
+      '',
+      '⏳ _Downloading your video, please wait…_',
+    ].filter(x => x !== null))
     try {
-      // A pasted YouTube link skips the search step entirely — faster, and
-      // avoids yt-search misbehaving when it's handed a URL instead of a query.
-      const queryIsDirectLink = isYouTubeUrl(query)
+      await sock.sendMessage(from, { image: { url: `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg` }, caption: card }, { quoted: msg })
+    } catch { await reply(card) }
 
-      if (!queryIsDirectLink) {
-        searchMsg = await sock.sendMessage(from, { text: `🔎 *Searching YouTube:* ${query}` }, { quoted: msg })
-      }
-
-      const video = queryIsDirectLink ? await getVideoFromDirectUrl(query) : await getVideo(query)
-      if (!video?.url) {
-        if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-        return sock.sendMessage(from, { text: `❌ No YouTube results found for *${query}*.\n\n${CREDIT}` }, { quoted: msg })
-      }
-
-      const youtubeUrl = video.url
-      if (!isYouTubeUrl(youtubeUrl)) throw new Error('The search result was not a valid YouTube video link')
-
-      // Start downloading as soon as the search returns, while the info card is sent.
-      const downloadPromise = downloadVideo(youtubeUrl).then(
-        result => ({ result }),
-        error => ({ error }),
-      )
-      const infoMsg = await sendVideoInfo(sock, from, msg, video, youtubeUrl)
-      if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-
-      const outcome = await downloadPromise
-      if (outcome.error) throw outcome.error
-      const result = outcome.result
-      const title = String(result.title || video.title || 'video').replace(/[\r\n]+/g, ' ').slice(0, 180)
-      const safeName = title.replace(/[^\w\s-]/g, '').trim().slice(0, 100) || 'video'
-
-      // Send the downloaded MP4 buffer immediately; WhatsApp no longer has to
-      // fetch a third-party URL itself after the command finishes.
-      return await sock.sendMessage(from, {
-        video: result.buffer,
-        mimetype: 'video/mp4',
-        fileName: `${safeName}.mp4`,
-        caption: `🎬 *${title}*\n\n${CREDIT}`,
-      }, { quoted: infoMsg || msg })
-    } catch (error) {
-      if (searchMsg?.key) sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
-      console.error('[VIDEO]', error.message)
-      return sock.sendMessage(from, {
-        text: `❌ Couldn't download that YouTube video.\n${error.message}\n\n${CREDIT}`,
-      }, { quoted: msg })
+    // 3 ── download
+    let file
+    try { file = await fetchVideo(ytUrl, quality) } catch (e) {
+      warn(`download failed: ${e.message}`)
+      void react('❌')
+      const tooBig = /file is [\d.]+ MB/.test(e.message)
+      return reply(box(TITLE, [
+        tooBig ? `❌ *This video is too large to send* (limit ${CFG.maxMB()} MB)` : '❌ *Could not download this video*',
+        tooBig ? '💡 Try a lower quality, e.g. _--360_' : '💡 Try again in a moment, or run _.video --check_ to see which sources are down',
+        `🔗 ${ytUrl}`,
+      ]))
     }
+
+    // 4 ── send
+    const title = video.title || clean(file.meta?.title) || 'YouTube video'
+    const caption = `🎬 *${title}*\n\n👤 ${video.channel || 'YouTube'}  •  ⏱️ ${fmtDur(video.duration)}  •  🎞️ ${file.quality}p  •  💾 ${fmtMB(file.buf.length)}\n\n${CREDIT}`
+    const asVideo = file.buf.length <= CFG.asVideoMB() * 1024 * 1024 && file.mime === 'video/mp4'
+    try {
+      if (asVideo) {
+        await sock.sendMessage(from, { video: file.buf, mimetype: 'video/mp4', caption, fileName: `${fileSafe(title)}.mp4` }, { quoted: msg })
+      } else {
+        await sock.sendMessage(from, { document: file.buf, mimetype: file.mime, fileName: `${fileSafe(title)}.${file.ext}`, caption }, { quoted: msg })
+      }
+    } catch (e) {
+      warn(`send failed: ${e.message}`)
+      void react('❌')
+      return reply(box(TITLE, ['❌ *The video downloaded but could not be sent*', `💡 ${String(e.message).slice(0, 80)}`]))
+    }
+    void react('✅')
   },
 }
+
+Object.defineProperty(module.exports, '_test', {
+  value: { parseYtResults, findFileUrl, fetchVideo, resolveVideo, runCheck, idFromUrl, fmtDur, SOURCES },
+  enumerable: false,
+})

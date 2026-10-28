@@ -9,6 +9,8 @@ module.exports = {
   pattern: '.tagall',
   aliases: ['tagall'],
   category: 'group',
+  adminOnly: true,
+  adminOrOwner: true,
 
   run: async ({ sock, from, msg, args, isOwner, isAdmin }) => {
 

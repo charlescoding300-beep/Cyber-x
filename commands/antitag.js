@@ -20,6 +20,10 @@ module.exports = {
     pattern:  'antitag',
     alias:    [],
     category: 'group',
+    permissions: ({ args }) => ({
+        groupAdmin: ['on', 'off'].includes(String(args?.[0] || '').toLowerCase()),
+        adminOrOwner: true,
+    }),
     desc:     'Enable or disable auto-delete of @all / tag-all and mention messages',
     usage:    '.antitag on | .antitag off',
 

@@ -3,6 +3,7 @@
 const axios = require('axios')
 const yts   = require('yt-search')
 const { toAudio, detectFormat } = require('../lib/converter')
+const knightApi = require('../lib/knightapi')
 
 const CREDIT = '> © 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦'
 const HEADERS = {
@@ -42,6 +43,10 @@ async function fetchBuffer(url) {
 }
 
 const MP3_APIS = [
+  {
+    name: 'KnightBot API',
+    get: async (url) => (await knightApi.getAudio(url)).download,
+  },
   {
     name: 'EliteProTech',
     get: async (url) => {

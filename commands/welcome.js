@@ -302,6 +302,10 @@ module.exports = {
     pattern:  'welcome',
     alias:    [],
     category: 'group',
+    permissions: ({ args }) => ({
+        groupAdmin: ['on', 'off'].includes(String(args?.[0] || '').toLowerCase()),
+        adminOrOwner: true,
+    }),
     desc:     'Enable or disable the join welcome message for this group',
     usage:    '.welcome on | .welcome off',
 

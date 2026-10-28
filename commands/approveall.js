@@ -3,7 +3,10 @@
 const adminLib = require('../lib/isAdmin')
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
 
-const SUCCESS = '✅ Success! All pending join requests have been approved.'
+function successMessage(count) {
+  return `*✅ 𝙰𝙿𝙿𝚁𝙾𝚅𝙰𝙻 𝚂𝚄𝙲𝙲𝙴𝚂𝚂𝙵𝚄𝙻.*\n` +
+    `*— ${count} 𝙼𝙴𝙼𝙱𝙴𝚁(𝚂) 𝙹𝙾𝙸𝙽𝙴𝙳 𝚃𝙷𝙴 𝙶𝚁𝙾𝚄𝙿.*`
+}
 
 function isPermissionError(error) {
   const status = Number(error?.output?.statusCode || error?.statusCode || error?.status || 0)
@@ -15,6 +18,8 @@ function isPermissionError(error) {
 module.exports = {
   pattern: 'approveall',
   category: 'group',
+  adminOnly: true,
+  botAdmin: true,
   desc: 'Approve all pending group join requests',
   usage: '.approveall',
 
@@ -60,7 +65,7 @@ module.exports = {
         return Number.isFinite(status) && status >= 200 && status < 300
       }).length
 
-      if (approved === jids.length) return reply(SUCCESS)
+      if (approved === jids.length) return reply(successMessage(approved))
       if (!approved) {
         return reply('⚠️ WhatsApp did not approve the pending join requests. Please try again.')
       }

@@ -22,6 +22,7 @@
 //   ·   put a cookies.txt (exported from a logged-in browser) in the bot's root folder
 
 const axios = require('axios')
+const knightApi = require('../lib/knightapi')
 const yts = require('yt-search')
 const fs = require('fs')
 const os = require('os')
@@ -99,6 +100,10 @@ function pickUrl(node, depth = 0) {
 
 // ── download sources: the 5 from the pasted command (response shapes unchanged) ──
 const SOURCES = [
+  {
+    name: 'KnightBot API',
+    get: async (url) => knightApi.getAudio(url),
+  },
   {
     name: 'EliteProTech',
     get: async (url) => {

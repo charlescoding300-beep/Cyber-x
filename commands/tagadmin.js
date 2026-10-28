@@ -11,6 +11,8 @@ module.exports = {
   desc: 'Mention the group admins with a message',
   usage: '.tagadmin <message>',
   category: 'group',
+  adminOnly: true,
+  adminOrOwner: true,
 
   run: async ({ sock, from, msg, args, text, isGroup, isAdmin, isOwner }) => {
     if (!isGroup || !from.endsWith('@g.us')) {

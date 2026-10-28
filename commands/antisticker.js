@@ -13,6 +13,14 @@ module.exports = {
   groupOnly: true,
   adminOnly: true,
   botAdmin: true,
+  permissions: ({ args, isOwner }) => {
+    const option = String(args?.[0] || '').toLowerCase()
+    return {
+      // Help stays visible; changes retain this command's actual-admin rule.
+      groupAdmin: Boolean(option) || Boolean(isOwner),
+      botAdmin: Boolean(option) && option !== 'off',
+    }
+  },
 
   async run({ sock, m, msg, from, args, phone, isAdmin, isBotAdmin }) {
     const sourceMessage = msg || m

@@ -43,11 +43,10 @@ function getWarnLimit(cfg) {
 }
 
 function actionDescription(action, warnLimit) {
-  if (action === 'warn') return `Warn only; persistent count (limit ${warnLimit})`
+  if (action === 'warn') return 'Warn; kick at ' + warnLimit + ' saved warnings'
   if (action === 'kick') return 'Delete the link message and remove the sender immediately'
   return 'Delete the link message and send one deletion notice'
 }
-
 function sendModeConfirmation(sock, from, msg, mode) {
   const modeLabel = {
     delete: '𝙳𝙴𝙻𝙴𝚃𝙴',
@@ -98,7 +97,7 @@ module.exports = {
           `.antilink on — default delete mode\n` +
           `.antilink off — turn protection off\n` +
           `.antilink delete — delete and send one notice\n` +
-          `.antilink warn — send one warning; count persists until reset\n` +
+          `.antilink warn — warn; kick after 3 saved warnings\n` +
           `.antilink kick — remove a member immediately\n` +
           `.resetwarn antilink — reset a member's saved count (reply or mention)`,
       }, { quoted: msg })
@@ -122,7 +121,7 @@ module.exports = {
     }
 
     if (ACTIONS.has(sub)) {
-      if (sub !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
+      if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       setCfg(phone, from, { enabled: true, action: sub })
       return sendModeConfirmation(sock, from, msg, sub)
     }

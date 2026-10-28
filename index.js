@@ -28,9 +28,11 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
-const { attachResponseTextStyle, sendMessageUnstyled } = require("./core/responseTextStyle")
+const { attachResponseTextStyle, sendMessageUnstyled, runWithoutResponseTextStyle } = require("./core/responseTextStyle")
+const { sendBotNotAdmin, sendOwnerRestricted, sendGroupAdminRestricted } = require("./lib/groupAdminNotice")
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
+const termination = require("./core/termination")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
 
 
@@ -107,6 +109,13 @@ const OWNER_NUMBERS = (process.env.OWNER_NUMBER || "")
 
 const SUDO_NUMBERS = (process.env.SUDO_NUMBERS || "")
   .split(",").map(n => n.replace(/\D/g, "").trim()).filter(Boolean)
+
+const sudoStore = require("./core/sudostore")
+
+function isStoredSudo(state, candidates) {
+  if (!state?.phone || !Array.isArray(candidates)) return false
+  try { return sudoStore.isSudo(state.phone, candidates) } catch { return false }
+}
 
 for (const d of [CMD_DIR, LIB_DIR, UTILS_DIR, API_DIR, CONFIG_DIR, TEMP_DIR, SESS_ROOT])
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true })
@@ -681,12 +690,14 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
   let isBotAdmin = false
   try { isBotAdmin = isAdminLib.isBotAdmin(adminCache, from, sock) } catch {}
   if (isOwner) return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
+  if (
+    (SUDO_NUMBERS.length && candidateNums.some(n => SUDO_NUMBERS.includes(n))) ||
+    isStoredSudo(state, candidateNums)
+  ) return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
   if (!Array.isArray(meta?.participants) || !meta.participants.length) {
     return { isAdmin: false, isBotAdmin: false, isActualGroupAdmin }
   }
 
-  if (SUDO_NUMBERS.length && candidateNums.some(n => SUDO_NUMBERS.includes(n)))
-    return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
   let isAdmin = false
   try { isAdmin = isAdminLib.isAdmin(state.groupCache, from, sender, sock, null, senderAlt) } catch {}
   if (!isAdmin && meta?.participants) {
@@ -2493,7 +2504,10 @@ function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
   if (isOwner || fromMe) return false
   if (!isPrivateLockdownActive(state)) return false
   const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
-  if (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n))) return false
+  if (
+    (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n))) ||
+    isStoredSudo(state, candidates)
+  ) return false
   return true
 }
 
@@ -2503,7 +2517,7 @@ function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
 const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
   "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker", "antitag", "welcome", "goodbye", "resetwarn",
   "del", "demote", "hidetag", "mute", "promote", "tagadmin", "tagall", "unban",
-  "unmute", "vmute", "vunmute", "warn",
+  "unmute", "vmute", "vunmute", "warn", "termination",
 ])
 
 // These commands require the person invoking them to be a group admin.
@@ -2511,7 +2525,7 @@ const COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT = new Set([
 const COMMANDS_REQUIRING_SENDER_GROUP_ADMIN = new Set([
   "add", "antibadword", "antibot", "antilink", "antistatus", "antisticker",
   "demote", "hidetag", "kick", "mute", "promote", "unban",
-  "unmute", "vmute", "vunmute", "warn",
+  "unmute", "vmute", "vunmute", "warn", "termination",
 ])
 
 const GROUP_ADMIN_REQUIRED_NOTICE =
@@ -2601,7 +2615,12 @@ async function handleMessage(state, sock, msg) {
   }
 
   const category = String(command.category || '').toLowerCase()
-  if (!isGroup && (category === 'group' || category.startsWith('group/'))) {
+  const isGroupCommand = category === 'group' || category.startsWith('group/')
+  const sendCommandMessage = (jid, content, ...options) => category === 'ai'
+    ? sendMessageUnstyled(sock, jid, content, ...options)
+    : sock.sendMessage(jid, content, ...options)
+
+  if (!isGroup && isGroupCommand) {
     try {
       await sendMessageUnstyled(sock, from, { text: GROUP_COMMAND_DM_NOTICE }, { quoted: msg })
     } catch (error) {
@@ -2609,6 +2628,55 @@ async function handleMessage(state, sock, msg) {
     }
     return
   }
+
+  let commandPermissions = command.permissions && typeof command.permissions === 'object'
+    ? command.permissions
+    : {}
+  if (isGroup && isGroupCommand && typeof command.permissions === 'function') {
+    try {
+      commandPermissions = await command.permissions({
+        args,
+        text: rest,
+        prefix,
+        commandName: rawCmd,
+        canonical,
+        from,
+        sender,
+        isOwner,
+        isGroup,
+      }) || {}
+    } catch (error) {
+      console.error('[' + state.phone + '] permission policy failed for ' + rawCmd + ':', error?.message || error)
+      await sendGroupAdminRestricted(sock, from, msg, prefix + rawCmd).catch(() => {})
+      return
+    }
+  }
+
+  if ((command.ownerOnly === true || commandPermissions.ownerOnly === true) && !isOwner) {
+    await sendOwnerRestricted(sock, from, msg).catch(() => {})
+    return
+  }
+
+  // Future group commands declare ownerOnly, adminOnly/requiresGroupAdmin,
+  // adminOrOwner, and/or botAdmin/requiresBotAdmin. Optional permissions(ctx)
+  // handles subcommands; keep it synchronous and side-effect free. Public
+  // group utilities stay open unless they opt into an access rule.
+  const requiresSenderGroupAdmin = isGroupCommand && (
+    commandPermissions.groupAdmin === undefined
+      ? command.adminOnly === true || command.requiresAdmin === true ||
+        command.requiresGroupAdmin === true ||
+        COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+      : commandPermissions.groupAdmin === true
+  )
+  const allowsOwnerWithAdmin = command.ownerOnly === true || command.adminOrOwner === true ||
+    commandPermissions.adminOrOwner === true
+  const requiresBotGroupAdmin = isGroupCommand && (
+    commandPermissions.botAdmin === undefined
+      ? command.botAdmin === true || command.requiresBotAdmin === true
+      : commandPermissions.botAdmin === true
+  )
+  const ownerMustBeGroupAdmin = command.ownerMustBeGroupAdmin === true ||
+    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
 
   const declaredTimeout = Number(command.timeoutMs)
   const independentCommand = command.independent === true
@@ -2624,6 +2692,7 @@ async function handleMessage(state, sock, msg) {
 
   let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null
   const needsGroupAdminContext =
+    requiresSenderGroupAdmin || requiresBotGroupAdmin ||
     command.adminOnly === true || command.botAdmin === true ||
     command.requiresAdmin === true || command.requiresGroupAdmin === true ||
     COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical) ||
@@ -2631,15 +2700,26 @@ async function handleMessage(state, sock, msg) {
   if (isGroup && needsGroupAdminContext) {
     ;({ isAdmin, isBotAdmin, isActualGroupAdmin } = await checkGroupAdmin(
       state, sock, from, sender, senderAlt, isOwner, fromMe,
-      isOwner && COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+      isOwner && (ownerMustBeGroupAdmin || (requiresSenderGroupAdmin && !allowsOwnerWithAdmin))
     ))
   }
 
+  const senderHasGroupAdminPermission =
+    isActualGroupAdmin === true || (!isOwner && isAdmin)
   if (
-    isGroup && isOwner && isActualGroupAdmin === false &&
-    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+    isGroup && requiresSenderGroupAdmin &&
+    !(senderHasGroupAdminPermission || (isOwner && allowsOwnerWithAdmin))
   ) {
-    await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
+    if (isOwner && isActualGroupAdmin === false && ownerMustBeGroupAdmin) {
+      await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
+    } else {
+      await sendGroupAdminRestricted(sock, from, msg, prefix + rawCmd).catch(() => {})
+    }
+    return
+  }
+
+  if (isGroup && requiresBotGroupAdmin && !isBotAdmin) {
+    await sendBotNotAdmin(sock, from, msg).catch(() => {})
     return
   }
 
@@ -2651,7 +2731,7 @@ async function handleMessage(state, sock, msg) {
     sock, msg, from,
     jid => getGroupMetaForCommand(sock, state.phone, jid)
   )
-  const runOnce = () => command.run({
+  const runCommand = () => command.run({
     sock: commandSock, from, msg, message: msg, sender, args,
     text: rest, full: body,
     commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
@@ -2667,6 +2747,9 @@ async function handleMessage(state, sock, msg) {
     antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
+  const runOnce = () => category === 'ai'
+    ? runWithoutResponseTextStyle(runCommand)
+    : runCommand()
 
   // ULTRA EXECUTOR — this session's OWN executor (own queue, timeout);
   // nothing is shared with any other session. Works with both the lane-based
@@ -2690,7 +2773,7 @@ async function handleMessage(state, sock, msg) {
         let note = null
         if (reason === "queue_full") note = "⏳ Server is busy right now — please try again in a moment."
         if (reason === "timeout")    note = `⌛ *${rawCmd}* took too long and was cancelled.`
-        if (note) sock.sendMessage(from, { text: note }, { quoted: msg }).catch(() => {})
+        if (note) sendCommandMessage(from, { text: note }, { quoted: msg }).catch(() => {})
       },
     })
 
@@ -2707,11 +2790,11 @@ async function handleMessage(state, sock, msg) {
   } catch (e) {
     if (e.message?.includes("underlying work may continue")) {
       console.error(`[${state.phone}] ${rawCmd} timed out; not retrying because it may still be running`)
-      try { await sock.sendMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
+      try { await sendCommandMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
       return
     }
     console.error(`[${state.phone}] RUN ERR ${rawCmd} (${Date.now() - startedAt}ms): ${e.message}`)
-    try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
+    try { await sendCommandMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
   }
 }
 
@@ -2771,6 +2854,7 @@ async function startBot(phone) {
   autoTag.autoTagAttach(state, sock)
   charAi.attach(state, sock)
   vmuteCore.attach(state, sock)
+  termination.attach(state, sock)
 
   if (state.presenceTimer) clearInterval(state.presenceTimer)
   state.presenceTimer = setInterval(() => {
@@ -3265,7 +3349,7 @@ async function startBot(phone) {
         console.error("[" + phone + "] ANTIBADWORD LOAD ERR:", e.message)
       }
       if (typeof lib.handleAntistickerInline === "function") lib.handleAntistickerInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTICKER ERR:", e.message))
-      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
+      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(e => console.error("[" + phone + "] ANTIBOT ERR:", e?.message || e))
       if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
     }
 
