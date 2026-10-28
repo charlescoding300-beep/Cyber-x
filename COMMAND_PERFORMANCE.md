@@ -23,3 +23,9 @@ module.exports = {
 ```
 
 Command duration warnings, executor queue statistics, and event-loop lag warnings help identify a slow handler after it is added. Network/API response time and unbounded CPU work inside a command still depend on that command's implementation.
+
+## Shared event-loop work
+
+- Character AI keeps conversation memory in the existing local JSON store. Reads are asynchronous on first use, and writes are compact, asynchronous, and coalesced; pending writes are flushed during graceful shutdown. This keeps AI disk persistence off the command hot path.
+- Normal per-command trace lines are disabled by default to reduce log traffic. Set `COMMAND_TRACE=1` temporarily when diagnosing dispatch; slow-command and error warnings remain active.
+- WhatsApp sends, metadata requests, media downloads, and external API calls still depend on the remote service. The bot can dispatch promptly, but cannot guarantee zero-second delivery or eliminate upstream errors.

@@ -39,6 +39,8 @@ const MODEL = process.env.CHARAI_MODEL || 'gemini-3.5-flash-lite'
 const PREFIX = process.env.BOT_PREFIX || '.'
 const MEMORY_TURNS = 12                          // last 12 exchanges per chat (user + bot)
 const MAX_CHATS = 300                            // oldest chats are forgotten beyond this
+const MEMORY_SAVE_DEBOUNCE_MS = 250
+const MEMORY_SAVE_RETRY_MS = 5000
 const TYPING_MS = 3_000
 const configuredVoiceChance = Number(process.env.CHARAI_VOICE_CHANCE ?? 0.6)
 const VOICE_CHANCE = Number.isFinite(configuredVoiceChance)
@@ -114,6 +116,9 @@ const memoryFile = phone => path.join(DIR, `memory-${digits(phone) || 'unknown'}
 
 const configs = new Map()   // phone → { enabled, character, updatedAt }
 const memories = new Map()  // phone → { chats: { jid: [{ role, text, t }] } }
+const memoryLoads = new Map()
+const memoryWrites = new Map()
+const memoryEpochs = new Map()
 let cleanupRunning = false
 let cleanupPromise = null
 
@@ -128,16 +133,156 @@ function saveConfig(phone, cfg) {
   writeJson(configFile(phone), cfg)
 }
 
-function getMemory(phone) {
-  const key = digits(phone)
-  if (!memories.has(key)) {
-    memories.set(key, cleanupRunning ? { chats: {} } : readJson(memoryFile(key), { chats: {} }))
-  }
-  return memories.get(key)
+function emptyMemory() {
+  return { chats: {} }
 }
 
-function remember(phone, jid, role, text) {
-  const mem = getMemory(phone)
+function normalizeMemory(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !value.chats || typeof value.chats !== 'object' || Array.isArray(value.chats)) {
+    return emptyMemory()
+  }
+  return { chats: value.chats }
+}
+
+// Memory is loaded with async filesystem I/O. The first AI reply for a session
+// may wait for its own history, but this never blocks commands or other sessions.
+function getMemory(phone) {
+  return memories.get(digits(phone)) || emptyMemory()
+}
+
+async function loadMemory(phone) {
+  const key = digits(phone)
+  if (!key) return emptyMemory()
+  if (memories.has(key)) return memories.get(key)
+  if (cleanupRunning) {
+    const memory = emptyMemory()
+    memories.set(key, memory)
+    return memory
+  }
+  if (memoryLoads.has(key)) return memoryLoads.get(key)
+
+  const loading = (async () => {
+    let memory = emptyMemory()
+    try {
+      const raw = await fs.promises.readFile(memoryFile(key), 'utf8')
+      memory = normalizeMemory(JSON.parse(raw))
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`[CHARAI] memory load failed for ${key}: ${error.message}`)
+      }
+    }
+
+    // A clear or a new turn may have populated the cache while the read was in flight.
+    if (memories.has(key)) return memories.get(key)
+    memories.set(key, memory)
+    return memory
+  })().finally(() => memoryLoads.delete(key))
+
+  memoryLoads.set(key, loading)
+  return loading
+}
+
+function memoryWriteState(phone) {
+  let state = memoryWrites.get(phone)
+  if (!state) {
+    state = { revision: 0, persistedRevision: 0, timer: null, writing: null }
+    memoryWrites.set(phone, state)
+  }
+  return state
+}
+
+function memoryEpoch(phone) {
+  return memoryEpochs.get(digits(phone)) || 0
+}
+
+function advanceMemoryEpoch(phone) {
+  const key = digits(phone)
+  const next = memoryEpoch(key) + 1
+  memoryEpochs.set(key, next)
+  return next
+}
+
+function scheduleMemoryFlush(phone, delay = MEMORY_SAVE_DEBOUNCE_MS) {
+  const state = memoryWriteState(phone)
+  if (cleanupRunning || state.timer) return
+  state.timer = setTimeout(() => {
+    state.timer = null
+    flushMemory(phone).catch(error => {
+      console.error(`[CHARAI] memory save failed for ${phone}: ${error.message}`)
+    })
+  }, delay)
+  state.timer.unref?.()
+}
+
+function markMemoryDirty(phone) {
+  const key = digits(phone)
+  if (!key) return
+  const state = memoryWriteState(key)
+  state.revision++
+  scheduleMemoryFlush(key)
+}
+
+async function flushMemory(phone) {
+  const key = digits(phone)
+  if (!key || cleanupRunning) return
+  const state = memoryWriteState(key)
+
+  if (state.timer) {
+    clearTimeout(state.timer)
+    state.timer = null
+  }
+
+  if (state.writing) {
+    await state.writing
+    if (state.persistedRevision < state.revision) return flushMemory(key)
+    return
+  }
+  if (state.persistedRevision >= state.revision) return
+
+  const revision = state.revision
+  const epoch = memoryEpoch(key)
+  const file = memoryFile(key)
+  const temp = `${file}.tmp`
+  // Compact JSON keeps serialization and disk traffic small. The atomic rename
+  // retains the old complete file until the new snapshot has been written.
+  const serialized = JSON.stringify(getMemory(key))
+  const operation = (async () => {
+    await fs.promises.mkdir(DIR, { recursive: true })
+    await fs.promises.writeFile(temp, serialized, 'utf8')
+    if (epoch !== memoryEpoch(key)) {
+      await fs.promises.unlink(temp).catch(() => {})
+      return
+    }
+    await fs.promises.rename(temp, file)
+    state.persistedRevision = revision
+  })()
+
+  state.writing = operation
+  try {
+    await operation
+  } catch (error) {
+    scheduleMemoryFlush(key, MEMORY_SAVE_RETRY_MS)
+    throw error
+  } finally {
+    if (state.writing === operation) state.writing = null
+  }
+
+  if (state.persistedRevision < state.revision) return flushMemory(key)
+}
+
+async function flushAllMemory() {
+  const keys = new Set([...memories.keys(), ...memoryWrites.keys()])
+  const results = await Promise.allSettled([...keys].map(phone => flushMemory(phone)))
+  const failed = results.find(result => result.status === 'rejected')
+  if (failed) throw failed.reason
+}
+
+function remember(phone, jid, role, text, expectedEpoch = memoryEpoch(phone)) {
+  const key = digits(phone)
+  if (!key || expectedEpoch !== memoryEpoch(key)) return
+  const mem = memories.get(key) || emptyMemory()
+  memories.set(key, mem)
   const list = mem.chats[jid] || []
   list.push({ role, text: String(text).slice(0, 1000), t: Date.now() })
   mem.chats[jid] = list.slice(-MEMORY_TURNS * 2)
@@ -151,12 +296,14 @@ function remember(phone, jid, role, text) {
   }
   // During the weekly disk sweep, keep new turns in memory and flush them after
   // old history is gone. This prevents both lost replies and reloading old data.
-  if (!cleanupRunning) writeJson(memoryFile(phone), mem)
+  markMemoryDirty(key)
 }
 
 function clearMemory(phone) {
-  memories.set(digits(phone), { chats: {} })
-  if (!cleanupRunning) writeJson(memoryFile(phone), { chats: {} })
+  const key = digits(phone)
+  advanceMemoryEpoch(key)
+  memories.set(key, emptyMemory())
+  markMemoryDirty(key)
 }
 
 async function writeJsonAsync(file, data) {
@@ -192,6 +339,10 @@ async function cleanupWeeklyMemory(now = Date.now()) {
     // Let active replies finish. The periodic checker will retry later.
     if (queues.size > 0) return { deferred: true, deleted: 0 }
 
+    // Finish any pending asynchronous snapshots before removing old history.
+    await flushAllMemory()
+    if (queues.size > 0) return { deferred: true, deleted: 0 }
+
     cleanupRunning = true
     memories.clear()
     let deleted = 0
@@ -221,17 +372,19 @@ async function cleanupWeeklyMemory(now = Date.now()) {
       }))
       if (failures.length) throw failures[0]
 
-      pruneRuntimeCaches(now)
-      await writeJsonAsync(MAINTENANCE_FILE, { lastCleanupAt: now })
       cleanupRunning = false
 
-      // Preserve any conversations that arrived while filesystem cleanup awaited.
-      for (const [phone, memory] of memories) writeJson(memoryFile(phone), memory)
+      // Preserve turns that arrived while the weekly filesystem sweep awaited.
+      await flushAllMemory()
+      pruneRuntimeCaches(now)
+      await writeJsonAsync(MAINTENANCE_FILE, { lastCleanupAt: now })
       console.log(`[CHARAI] weekly memory cleanup complete (${deleted} files removed; configs retained)`)
       return { deleted }
     } catch (err) {
       cleanupRunning = false
-      for (const [phone, memory] of memories) writeJson(memoryFile(phone), memory)
+      await flushAllMemory().catch(saveError => {
+        console.error(`[CHARAI] memory restore after cleanup failed: ${saveError.message}`)
+      })
       throw err
     }
   })().finally(() => { cleanupPromise = null })
@@ -418,9 +571,12 @@ function alreadySeen(id) {
 
 // ── the reply itself ─────────────────────────────────────────────────────────
 async function respond(sock, phone, character, m, jid, userText, isGroup) {
+  const turnEpoch = memoryEpoch(phone)
   const who = m.pushName || 'someone'
   const userTurn = isGroup ? `${who}: ${userText}` : userText
-  const history = (getMemory(phone).chats[jid] || []).slice(-MEMORY_TURNS * 2)
+  const memory = await loadMemory(phone)
+  if (turnEpoch !== memoryEpoch(phone)) return
+  const history = (memory.chats[jid] || []).slice(-MEMORY_TURNS * 2)
 
   // Prepare the complete reply (including optional image/voice work) while
   // typing is shown. The reply is sent as soon as both preparation and the
@@ -429,8 +585,9 @@ async function respond(sock, phone, character, m, jid, userText, isGroup) {
   sock.sendPresenceUpdate?.('composing', jid)?.catch?.(() => {})
   const prepared = (async () => {
     const result = await callGemini(character, history, userTurn)
-    remember(phone, jid, 'user', userTurn)
-    remember(phone, jid, 'assistant', result.reply)
+    if (turnEpoch !== memoryEpoch(phone)) return { canceled: true }
+    remember(phone, jid, 'user', userTurn, turnEpoch)
+    remember(phone, jid, 'assistant', result.reply, turnEpoch)
 
     if (result.imageQuery) {
       const img = await imageFor(result.imageQuery)
@@ -456,6 +613,7 @@ async function respond(sock, phone, character, m, jid, userText, isGroup) {
   const [payload] = await Promise.all([prepared, sleep(TYPING_MS)])
   sock.sendPresenceUpdate?.('paused', jid)?.catch?.(() => {})
 
+  if (turnEpoch !== memoryEpoch(phone) || payload.canceled) return
   if (payload.error) {
     console.error(`[CHARAI] ${phone}: ${payload.error.message}`)
     return sock.sendMessage(jid, { text: FAILED_REPLY }, { quoted: m }).catch(() => {})
@@ -513,13 +671,26 @@ function attach(state, sock) {
   console.log(`[CHARAI:${phone}] ✔ listening (${getConfig(phone).enabled ? 'ON' : 'OFF'})`)
 }
 
-function wipe(phone) {
+async function wipe(phone) {
   const key = digits(phone)
+  advanceMemoryEpoch(key)
   configs.delete(key)
-  memories.delete(key)
-  for (const f of [configFile(key), memoryFile(key)]) {
-    try { fs.unlinkSync(f) } catch {}
+  const state = memoryWrites.get(key)
+  if (state?.timer) {
+    clearTimeout(state.timer)
+    state.timer = null
   }
+  if (state) state.revision = state.persistedRevision
+
+  try { await memoryLoads.get(key) } catch {}
+  try { await state?.writing } catch {}
+  memories.delete(key)
+
+  for (const file of [configFile(key), memoryFile(key), `${memoryFile(key)}.tmp`]) {
+    try { await fs.promises.unlink(file) }
+    catch (error) { if (error.code !== 'ENOENT') throw error }
+  }
+  memoryWrites.delete(key)
 }
 
 // Run once at startup, then check periodically. The unref'ed timer never keeps
@@ -531,8 +702,8 @@ cleanupTimer.unref?.()
 cleanupWeeklyMemory().catch(err => console.error(`[CHARAI] weekly cleanup failed: ${err.message}`))
 
 module.exports = {
-  attach, wipe, phoneOf,
-  getConfig, saveConfig, clearMemory, getMemory,
+  attach, wipe, phoneOf, flushAll: flushAllMemory,
+  getConfig, saveConfig, clearMemory, getMemory, loadMemory,
   loadKeys, persona, parseReply, ensureEmojis, handle,
   DEFAULT_CHARACTER, MOOD_EMOJIS, MIN_EMOJIS,
   TYPING_MS, MODEL, WEEKLY_CLEANUP_MS,

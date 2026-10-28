@@ -6,6 +6,7 @@ const path  = require("path")
 
 const { init, addSession, addQrSession, removeSession, listBots, getSlotsSummary, getNextAvailableSlot, SLOT_COUNT, SLOT_CAPACITY, getPublicCommandCatalog } = require("./index")
 const sessionBackup = require("./lib/sessionBackup")
+const charAi = require("./core/characterai")
 
 const PORT       = process.env.PORT || 3000
 const SELF_URL   = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
@@ -813,6 +814,11 @@ setInterval(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 async function gracefulShutdown(signal) {
   console.log(`[WEB] ${signal} received — pushing final backup before exit...`)
+  try {
+    await charAi.flushAll()
+  } catch (e) {
+    console.error("[WEB] Character AI memory flush failed:", e.message)
+  }
   try {
     if (sessionBackup.enabled) await sessionBackup.pushNow()
   } catch (e) {

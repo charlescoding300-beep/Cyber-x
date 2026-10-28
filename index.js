@@ -47,6 +47,12 @@ async function gracefulShutdown(signal) {
   console.log(`[LIVE-RECOVERY] 🛑 ${signal} received — protecting sessions before exit`)
 
   try {
+    await charAi.flushAll()
+  } catch (e) {
+    console.error("[CHARAI] Shutdown memory flush failed:", e.message)
+  }
+
+  try {
     await protectLiveSessions(signal)
   } catch (e) {
     console.error("[LIVE-RECOVERY] ✗ Shutdown protection failed:", e.message)
@@ -2637,7 +2643,9 @@ async function handleMessage(state, sock, msg) {
     return
   }
 
-  console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
+  if (process.env.COMMAND_TRACE === "1") {
+    console.log(`[${state.phone}] ▶ ${rawCmd} | owner: ${isOwner} admin:${isAdmin} botAdmin: ${isBotAdmin}`)
+  }
 
   const commandSock = createQuotedCommandSocket(
     sock, msg, from,
@@ -2693,7 +2701,9 @@ async function handleMessage(state, sock, msg) {
     // async work can continue as long as needed without occupying command lanes.
     if (independentCommand) await runOnce()
     else await runGuarded(false)
-    console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
+    if (process.env.COMMAND_TRACE === "1") {
+      console.log(`[${state.phone}] ⚡ ${rawCmd} completed in ${Date.now() - startedAt}ms`)
+    }
   } catch (e) {
     if (e.message?.includes("underlying work may continue")) {
       console.error(`[${state.phone}] ${rawCmd} timed out; not retrying because it may still be running`)
@@ -3682,7 +3692,7 @@ async function removeSession(phone) {
   // Mute records are tied to this WhatsApp login and are cleared on removal/logout.
   try { vmuteCore.wipe(clean) } catch {}
 
-  try { charAi.wipe(clean) } catch {}
+  try { await charAi.wipe(clean) } catch {}
 
   // Wipe auth folder
   try {
