@@ -3265,7 +3265,7 @@ async function startBot(phone) {
         console.error("[" + phone + "] ANTIBADWORD LOAD ERR:", e.message)
       }
       if (typeof lib.handleAntistickerInline === "function") lib.handleAntistickerInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTICKER ERR:", e.message))
-      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(() => {})
+      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(e => console.error("[" + phone + "] ANTIBOT ERR:", e?.message || e))
       if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
     }
 

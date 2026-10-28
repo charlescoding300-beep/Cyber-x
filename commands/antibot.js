@@ -4,7 +4,7 @@
 // commands/antibot.js  —  ZENX  |  Anti-Bot
 //
 // USAGE (owner must be a group admin to set this):
-//   .antibot on          → enable in this group, mode defaults to "kick"
+//   .antibot on          → enable in this group, mode defaults to "delete"
 //   .antibot kick         → detect + kick foreign bots
 //   .antibot delete        → detect + delete, send one deletion notice
 //   .antibot warn          → send one warning; persistent count, no delete/kick
@@ -75,7 +75,7 @@ module.exports = {
     const labels = { off: "❌ Disabled", kick: "🥾 Kick", delete: "🧹 Delete + notice", warn: "⚠️ Warn only" }
 
     if (action === 'on' || action === 'kick' || action === 'delete' || action === 'warn') {
-      const mode = action === 'on' ? 'kick' : action
+      const mode = action === 'on' ? 'delete' : action
       if (mode !== 'warn' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
       antibotEngine.setGroupState(phone, groupJid, { mode })
       return sendModeConfirmation(sock, from, msg, mode)
