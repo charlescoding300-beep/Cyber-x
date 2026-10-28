@@ -1,252 +1,78 @@
-const fs = require("fs")
-const path = require("path")
+'use strict'
 
-const ROASTS = [
-  "Bro entered the chat with 2% battery and 0% brain.",
-  "You talk with so much confidence for someone who's always wrong.",
-  "Your Wi-Fi has more connection than your personality.",
-  "Bro's biggest achievement is surviving his own decisions.",
-  "You don't need a comeback. You need a software update.",
-  "Even autocorrect gave up trying to understand you.",
-  "Your brain is running on trial mode.",
-  "Bro has premium confidence with free-trial intelligence.",
-  "You bring absolutely nothing to the conversation except notifications.",
-  "Your typing speed is faster than your thinking.",
-  "If nonsense was currency, you'd be a billionaire.",
-  "Bro really woke up and chose confusion.",
-  "You're not the main character. You're background buffering.",
-  "Your jokes need a restart.",
-  "I've seen loading screens with more personality.",
-  "Your logic left the group chat without saying goodbye.",
-  "Bro's brain has 47 tabs open and none of them are responding.",
-  "You're proof that confidence doesn't require evidence.",
-  "Even Google would ask what you're searching for.",
-  "Your comeback has been stuck on 'connecting…' since 2020.",
-  "Bro has unlimited audacity and zero storage.",
-  "You argue like your keyboard is your lawyer.",
-  "Your personality is basically a system error.",
-  "You have the energy of a phone at 1% pretending it can last all day.",
-  "Bro is built different. Unfortunately, the difference is a bug.",
-  "Your brain needs better network coverage.",
-  "You're not cooked. You're still waiting for the oven to preheat.",
-  "Your ideas need parental supervision.",
-  "Bro speaks fluent nonsense.",
-  "You have more excuses than actual achievements.",
-  "Your confidence is doing all the heavy lifting.",
-  "Even your shadow tries to distance itself from you.",
-  "You're the reason group chats need an admin.",
-  "Your personality has been discontinued.",
-  "Bro's IQ is currently under maintenance.",
-  "You bring chaos to places that already have enough.",
-  "Your logic is sponsored by bad decisions.",
-  "You are the human version of 'try again later'.",
-  "Bro has main-character confidence with NPC dialogue.",
-  "Your brain needs a firmware update.",
-  "You're not difficult to understand. You're just difficult to justify.",
-  "Your argument came with no supporting documents.",
-  "Bro has been buffering since birth.",
-  "You're proof that copy and paste doesn't always work.",
-  "Your brain and common sense are in a long-distance relationship.",
-  "Even your excuses need excuses.",
-  "You don't lose arguments. You simply abandon them.",
-  "Your comeback arrived after everyone went home.",
-  "Bro is running Zen X on demo intelligence.",
-  "Your confidence has better uptime than your reasoning.",
-  "You have the processing power of a calculator with low batteries.",
-  "Your thoughts need a moderator.",
-  "Bro's personality is still loading.",
-  "You could make a simple question complicated professionally.",
-  "Your common sense has left the server.",
-  "You're not roasting anyone. You're just providing examples.",
-  "Bro came online but his brain stayed offline.",
-  "Your decisions deserve their own warning label.",
-  "You have the rare talent of making silence sound intelligent.",
-  "Your brain has an excellent spam filter because it blocks common sense.",
-  "You're basically an unanswered notification.",
-  "Bro is the reason 'Are you sure?' exists.",
-  "Your logic needs a VPN to reach reality.",
-  "You talk like every thought is breaking news.",
-  "Your brain is on airplane mode.",
-  "You have more confidence than available evidence.",
-  "Bro's personality has too many unnecessary features.",
-  "You're not a problem solver. You're a problem generator.",
-  "Your brain has unlimited data but no signal.",
-  "You make bad decisions look like a subscription service.",
-  "Even your own reflection needs a mute button.",
-  "Bro is running an outdated version of common sense.",
-  "Your arguments come with zero warranty.",
-  "You are the notification nobody asked for.",
-  "Your brain needs a reboot before another sentence.",
-  "Bro's thought process took a wrong turn and never came back.",
-  "You're giving 'terms and conditions nobody read'.",
-  "Your presence has more bugs than features.",
-  "Bro, even your excuses are tired of you.",
-  "Your brain has been disconnected from the server.",
-  "You're not mysterious. Nobody understands what you're doing.",
-  "Your personality needs an admin panel.",
-  "Bro's logic is currently unavailable.",
-  "You have successfully turned confidence into a bug.",
-  "Your brain is running background processes nobody requested.",
-  "Even silence would be a better contribution.",
-  "Bro, your comeback needs an emergency update.",
-  "You are proof that unlimited data doesn't mean unlimited intelligence.",
-  "Your decisions have a higher error rate than a broken keyboard.",
-  "Your brain has a permanent '404 Not Found'.",
-  "Bro, you're not lagging. That's just your normal speed.",
-  "Your personality came with the wrong installation package.",
-  "You make confusion look like a lifestyle.",
-  "Your common sense subscription expired.",
-  "Bro's brain has entered safe mode.",
-  "You're the reason developers add confirmation dialogs.",
-  "Your thoughts need a queue manager.",
-  "Bro is professionally unserious.",
-  "You have the confidence of someone who never checks their own messages.",
-  "Your brain is connected, but nobody is home."
-]
-
-const OPENERS = [
-  "🔥 ZEN X has entered roast mode.",
-  "⚡ ZEN X roast engine activated.",
-  "💀 Target acquired. Let the roasting begin.",
-  "🔥 The roast department is officially open.",
-  "⚡ ZEN X is processing disrespect...",
-  "💀 Warning: emotional damage incoming.",
-  "🔥 Roast protocol initialized.",
-  "⚡ Calculating maximum embarrassment...",
-  "💀 Somebody forgot to install common sense.",
-  "🔥 ZEN X has something to say."
-]
-
-const CLOSERS = [
-  "💀 That's enough damage for one message.",
-  "🔥 No refunds on that roast.",
-  "⚡ ZEN X verdict: absolutely cooked.",
-  "💀 Please reboot your confidence.",
-  "🔥 Case closed. The roast has landed.",
-  "⚡ System report: target successfully roasted.",
-  "💀 Common sense.exe has stopped responding.",
-  "🔥 Somebody check on bro.",
-  "⚡ Damage calculation complete.",
-  "💀 The chat has witnessed enough."
-]
-
-function pickRandom(list) {
-  return list[Math.floor(Math.random() * list.length)]
-}
-
-function cleanJid(jid) {
-  if (!jid) return ""
-  return String(jid).split(":")[0]
-}
-
-function getPhoneFromJid(jid) {
-  return cleanJid(jid).split("@")[0]
-}
-
-function getQuotedParticipant(message) {
-  return (
-    message?.message?.extendedTextMessage?.contextInfo?.participant ||
-    message?.message?.imageMessage?.contextInfo?.participant ||
-    message?.message?.videoMessage?.contextInfo?.participant ||
-    message?.message?.documentMessage?.contextInfo?.participant ||
-    message?.message?.stickerMessage?.contextInfo?.participant ||
-    null
-  )
-}
-
-function getMentionedParticipant(message) {
-  const context =
-    message?.message?.extendedTextMessage?.contextInfo ||
-    message?.message?.imageMessage?.contextInfo ||
-    message?.message?.videoMessage?.contextInfo ||
-    message?.message?.documentMessage?.contextInfo ||
-    message?.message?.stickerMessage?.contextInfo
-
-  return context?.mentionedJid?.[0] || null
-}
-
-function getTarget(message, args = []) {
-  const quoted = getQuotedParticipant(message)
-  if (quoted) return quoted
-
-  const mentioned = getMentionedParticipant(message)
-  if (mentioned) return mentioned
-
-  if (args.length) {
-    const joined = args.join(" ").trim()
-
-    const number = joined.replace(/[^\d]/g, "")
-    if (number.length >= 7) {
-      return `${number}@s.whatsapp.net`
-    }
+function unwrapMessage(message) {
+  let current = message?.message || {}
+  for (let i = 0; i < 6; i++) {
+    const inner = current.ephemeralMessage?.message ||
+      current.viewOnceMessage?.message ||
+      current.viewOnceMessageV2?.message ||
+      current.documentWithCaptionMessage?.message
+    if (!inner) break
+    current = inner
   }
-
-  return message?.key?.participant || message?.participant || message?.key?.remoteJid
+  return current
 }
 
-function getTargetName(message, targetJid, args = []) {
-  const pushName =
-    message?.pushName ||
-    message?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.pushName ||
-    ""
-
-  if (args.length && !getMentionedParticipant(message) && !getQuotedParticipant(message)) {
-    const supplied = args.join(" ").trim()
-    if (supplied && !/^\d+$/.test(supplied)) return supplied
+function getContextInfo(message) {
+  const content = unwrapMessage(message)
+  for (const value of Object.values(content)) {
+    if (value?.contextInfo) return value.contextInfo
   }
-
-  if (pushName) return pushName
-
-  return getPhoneFromJid(targetJid) || "this person"
+  return {}
 }
 
-async function roastCommand(sock, message, args = {}) {
-  const argv = Array.isArray(args)
-    ? args
-    : Array.isArray(args?.args)
-      ? args.args
-      : []
+function cleanJid(value) {
+  return String(value || '').trim().replace(/:\d+(?=@)/, '')
+}
 
-  const targetJid = getTarget(message, argv)
-  const targetName = getTargetName(message, targetJid, argv)
+function phoneDigits(jid) {
+  const value = cleanJid(jid)
+  const at = value.lastIndexOf('@')
+  return (at >= 0 ? value.slice(0, at) : value).replace(/\D/g, '')
+}
 
-  const roast = pickRandom(ROASTS)
-    .replace(/\{name\}/gi, targetName)
-    .replace(/\{mention\}/gi, `@${getPhoneFromJid(targetJid)}`)
+function resolveTarget(msg, args, sender) {
+  const context = getContextInfo(msg)
+  if (context.participant) return cleanJid(context.participant)
+  if (context.mentionedJid?.[0]) return cleanJid(context.mentionedJid[0])
 
-  const opener = pickRandom(OPENERS)
-  const closer = pickRandom(CLOSERS)
+  const typedNumber = (Array.isArray(args) ? args : [])
+    .join(' ')
+    .replace(/\D/g, '')
+  if (/^[1-9]\d{6,14}$/.test(typedNumber)) return typedNumber + '@s.whatsapp.net'
 
-  const text = [
-    opener,
-    "",
-    `🎯 *Target:* @${getPhoneFromJid(targetJid)}`,
-    "",
-    `🔥 *ZEN X ROAST:*`,
-    roast,
-    "",
-    closer
-  ].join("\n")
+  return cleanJid(sender || msg?.key?.participant || msg?.participant || '')
+}
 
-  const options = {
-    mentions: targetJid ? [targetJid] : []
-  }
+const ROAST = [
+  'You walked into this chat carrying the confidence of a keynote speaker and the argument of a browser tab that crashed before loading. Every sentence starts like a grand reveal, then ends with the group wondering whether the point got lost on the way over. You do not make a conversation more interesting; you turn a simple topic into a confusing side quest with no map, no reward, and somehow three unnecessary updates.',
+  'Your comeback has the timing of a delayed notification, the accuracy of a broken compass, and the impact of a reminder everyone already ignored. You correct people with such certainty that even the facts start checking their paperwork. If confidence could power a device, your phone would be fully charged; sadly, the reasoning attached to it is still stuck in battery-saver mode.',
+  'You treat every group chat like an audition for a role nobody cast. You type in all caps like volume can patch a weak point, then change the subject when someone asks for evidence. Even your excuses arrive in a queue and forget what they were waiting for. Your ideas do not need censorship; they need editing, a second opinion, and perhaps a quiet afternoon to think things through.',
+  'Still, we admire the commitment: you keep turning small mistakes into a full series, complete with a recap nobody requested. You are not the final boss of this chat; you are the pop-up tutorial everyone closes before getting to the good part. Take a breath, reload common sense, and try again after your next thought successfully connects to the server.'
+].join('\n\n')
 
-  if (message?.key) {
-    options.quoted = message
-  }
+async function roastCommand(ctx = {}) {
+  const { sock, from, msg, args, sender } = ctx
+  if (!sock?.sendMessage || !from || !msg) return
 
-  await sock.sendMessage(
-    message.key.remoteJid,
-    { text, ...options }
-  )
+  const targetJid = resolveTarget(msg, args, sender)
+  const digits = phoneDigits(targetJid)
+  const mentionJid = targetJid?.includes('@') ? targetJid : null
+  const targetLine = mentionJid && digits ? `🎯 *Target:* @${digits}\n\n` : ''
+  const text = `🔥 *ROAST MODE*\n\n${targetLine}${ROAST}`
+
+  return sock.sendMessage(from, {
+    text,
+    mentions: mentionJid ? [mentionJid] : [],
+  }, { quoted: msg })
 }
 
 module.exports = {
-  name: "roast",
-  aliases: ["burn", "clap", "deadass"],
-  description: "Roast a user with the new ZEN X roast engine.",
-  category: "fun",
+  name: 'roast',
+  aliases: ['burn', 'clap', 'deadass'],
+  description: 'Send a long, savage comedy roast',
+  usage: '.roast (reply, mention, or number)',
+  category: 'fun',
   execute: roastCommand,
-  run: roastCommand
+  run: roastCommand,
 }
