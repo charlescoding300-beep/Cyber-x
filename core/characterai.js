@@ -30,6 +30,7 @@
 // ════════════════════════════════════════════════════════════════════
 
 const fs = require('fs')
+const { sendMessageUnstyled } = require('./responseTextStyle')
 const path = require('path')
 const elevenLabs = require('./elevenlabs')
 
@@ -616,9 +617,9 @@ async function respond(sock, phone, character, m, jid, userText, isGroup) {
   if (turnEpoch !== memoryEpoch(phone) || payload.canceled) return
   if (payload.error) {
     console.error(`[CHARAI] ${phone}: ${payload.error.message}`)
-    return sock.sendMessage(jid, { text: FAILED_REPLY }, { quoted: m }).catch(() => {})
+    return sendMessageUnstyled(sock, jid, { text: FAILED_REPLY }, { quoted: m }).catch(() => {})
   }
-  return sock.sendMessage(jid, payload, { quoted: m }).catch(() => {})
+  return sendMessageUnstyled(sock, jid, payload, { quoted: m }).catch(() => {})
 }
 
 // ── decides, for each incoming message, whether to answer ────────────────────

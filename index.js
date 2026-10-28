@@ -28,7 +28,11 @@ const settingsBackup = require("./lib/settingsBackup")
 const authStore = require("./lib/authStore")
 const ultraExec = require("./core/ultraexec")
 const sessionExecutor = require("./core/sessionexec")
-const { attachResponseTextStyle, sendMessageUnstyled } = require("./core/responseTextStyle")
+const {
+  attachResponseTextStyle,
+  sendMessageUnstyled,
+  runWithoutResponseTextStyle,
+} = require("./core/responseTextStyle")
 const charAi = require("./core/characterai")
 const vmuteCore = require("./core/vmute")
 const { createQuotedCommandSocket } = require("./lib/quotedCommandSocket")
@@ -2601,6 +2605,10 @@ async function handleMessage(state, sock, msg) {
   }
 
   const category = String(command.category || '').toLowerCase()
+  const sendCommandMessage = (jid, content, ...options) => category === 'ai'
+    ? sendMessageUnstyled(sock, jid, content, ...options)
+    : sock.sendMessage(jid, content, ...options)
+
   if (!isGroup && (category === 'group' || category.startsWith('group/'))) {
     try {
       await sendMessageUnstyled(sock, from, { text: GROUP_COMMAND_DM_NOTICE }, { quoted: msg })
@@ -2651,7 +2659,7 @@ async function handleMessage(state, sock, msg) {
     sock, msg, from,
     jid => getGroupMetaForCommand(sock, state.phone, jid)
   )
-  const runOnce = () => command.run({
+  const runCommand = () => command.run({
     sock: commandSock, from, msg, message: msg, sender, args,
     text: rest, full: body,
     commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
@@ -2667,6 +2675,9 @@ async function handleMessage(state, sock, msg) {
     antideleteSetEnabled: (enabled) => antideleteSetEnabled(state.phone, enabled),
     banCacheInvalidate: (targetPhone) => banCacheInvalidate(normalizeNum(sock.user?.id || ""), normalizeNum(targetPhone)),
   })
+  const runOnce = () => category === 'ai'
+    ? runWithoutResponseTextStyle(runCommand)
+    : runCommand()
 
   // ULTRA EXECUTOR — this session's OWN executor (own queue, timeout);
   // nothing is shared with any other session. Works with both the lane-based
@@ -2690,7 +2701,7 @@ async function handleMessage(state, sock, msg) {
         let note = null
         if (reason === "queue_full") note = "⏳ Server is busy right now — please try again in a moment."
         if (reason === "timeout")    note = `⌛ *${rawCmd}* took too long and was cancelled.`
-        if (note) sock.sendMessage(from, { text: note }, { quoted: msg }).catch(() => {})
+        if (note) sendCommandMessage(from, { text: note }, { quoted: msg }).catch(() => {})
       },
     })
 
@@ -2707,11 +2718,11 @@ async function handleMessage(state, sock, msg) {
   } catch (e) {
     if (e.message?.includes("underlying work may continue")) {
       console.error(`[${state.phone}] ${rawCmd} timed out; not retrying because it may still be running`)
-      try { await sock.sendMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
+      try { await sendCommandMessage(from, { text: `⚠️ *${rawCmd}* timed out. It may still be running, so it was not retried.` }, { quoted: msg }) } catch {}
       return
     }
     console.error(`[${state.phone}] RUN ERR ${rawCmd} (${Date.now() - startedAt}ms): ${e.message}`)
-    try { await sock.sendMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
+    try { await sendCommandMessage(from, { text: `❌ *${rawCmd}* error: ${e.message}` }, { quoted: msg }) } catch {}
   }
 }
 

@@ -1,5 +1,7 @@
 'use strict'
 
+const { AsyncLocalStorage } = require('node:async_hooks')
+
 // Compact oversized message frames and apply the bot's display font at the
 // shared WhatsApp send boundary, including replies from future commands.
 const MONOSPACE_CAPITAL_A = 0x1D670
@@ -10,6 +12,17 @@ const BOLD_PROTECTED_TEXT = new RegExp(
 )
 const RESPONSE_STYLE_BYPASS = '__responseTextStyleBypass'
 const CODE_SPAN = /```[\s\S]*?```|`[^`\r\n]*`/g
+const responseStyleContext = new AsyncLocalStorage()
+
+// Preserve provider wording and formatting for an entire async command turn.
+// AsyncLocalStorage keeps this scoped to that turn, even when other commands
+// send messages concurrently on the same WhatsApp socket.
+function runWithoutResponseTextStyle(callback) {
+  if (typeof callback !== 'function') {
+    throw new TypeError('runWithoutResponseTextStyle requires a callback')
+  }
+  return responseStyleContext.run({ bypass: true }, callback)
+}
 
 // LLM replies and a few commands arrive as Markdown (**bold**, # headings,
 // "* " bullets). WhatsApp only understands single-asterisk bold, so a raw
@@ -160,6 +173,9 @@ function attachResponseTextStyle(sock) {
 
   const sendMessage = sock.sendMessage.bind(sock)
   sock.sendMessage = (jid, content, ...args) => {
+    if (responseStyleContext.getStore()?.bypass) {
+      return sendMessage(jid, content, ...args)
+    }
     const options = args[0]
     if (options && typeof options === 'object' && options[RESPONSE_STYLE_BYPASS]) {
       const forwardedOptions = { ...options }
@@ -184,4 +200,10 @@ function sendMessageUnstyled(sock, jid, content, ...args) {
   return sock.sendMessage(jid, content, options, ...args.slice(1))
 }
 
-module.exports = { attachResponseTextStyle, sendMessageUnstyled, stylizeText, stylizeContent }
+module.exports = {
+  attachResponseTextStyle,
+  sendMessageUnstyled,
+  runWithoutResponseTextStyle,
+  stylizeText,
+  stylizeContent,
+}
