@@ -24,7 +24,6 @@
 
 const CREDIT = '> ' + (process.env.BOT_CREDIT || '© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦')
 const { sendMessageUnstyled } = require('../core/responseTextStyle')
-const { searchTrack } = require('./spotify')._internals
 const UA = 'ZENX-Bot lyrics (+https://github.com/)'      // LRCLIB asks clients to identify themselves
 const knightApi = require('../lib/knightapi')
 
@@ -60,7 +59,6 @@ const USAGE = box(TITLE, [
 
 // ── helpers ──────────────────────────────────────────────────────────
 const clean = s => String(s || '').replace(/[\r\n]+/g, ' ').trim()
-const fmtDur = s => { s = Math.round(Number(s) || 0); return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '' }
 const words = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean)
 
 async function getJson(url, timeout = 12000) {
@@ -219,7 +217,7 @@ module.exports = {
   pattern:  'lyrics',
   alias:    ['lyric', 'ly', 'lirik'],
   category: 'media',
-  desc:     'Find a song’s lyrics with Spotify track artwork',
+  desc:     'Find song lyrics from the configured lyrics sources',
   usage:    '.lyrics <song> | .lyrics <artist> - <song>',
 
   run: async ({ sock, from, msg, args, text }) => {
@@ -235,36 +233,14 @@ module.exports = {
     }
 
     void react('🎵')
-    let track = null
-    try {
-      track = await searchTrack(query)
-    } catch (error) {
-      warn(`Spotify search failed: ${error.message}`)
-    }
-
-    // Search lyrics with Spotify’s canonical artist and title when available.
-    // If that exact match is missing from a lyrics provider, retry the input.
-    let r = await findLyrics(track ? `${track.artists} - ${track.title}` : query)
-    if (!r && track) r = await findLyrics(query)
-
+    const r = await findLyrics(query)
     if (!r) {
       void react('❌')
       return reply(box(TITLE, [
         `❌ *No lyrics found for:* _"${query}"_`,
-        track ? null : '⚠️ Spotify could not identify a matching track, so artwork is unavailable.',
         '💡 Try the format: _.lyrics artist - song_',
         '💡 Check the spelling, or run _.lyrics --check_',
-      ].filter(Boolean)))
-    }
-
-    if (track) {
-      r = {
-        ...r,
-        title: track.title || r.title,
-        artist: track.artists || r.artist,
-        album: track.album || r.album,
-        duration: track.durationMs ? track.durationMs / 1000 : r.duration,
-      }
+      ]))
     }
 
     const parts = splitParts(formatBody(r.lyrics))
@@ -274,35 +250,6 @@ module.exports = {
     const total = shownParts.length
 
     try {
-      if (track) {
-        const caption = [
-          '🎵 *LYRICS*',
-          `🎶 ${track.title}`,
-          `🎤 ${track.artists}`,
-          track.album ? `💿 ${track.album}` : null,
-          track.durationMs ? `⏱️ ${fmtDur(track.durationMs / 1000)}` : null,
-          `📚 Lyrics: ${r.source}`,
-          track.url ? `🔗 ${track.url}` : null,
-          CREDIT,
-        ].filter(Boolean).join('\n')
-
-        if (track.cover) {
-          try {
-            await sendMessageUnstyled(
-              sock,
-              from,
-              { image: { url: track.cover }, caption },
-              { quoted: msg },
-            )
-          } catch (imageError) {
-            warn(`Spotify artwork send failed: ${imageError.message}`)
-            await reply(caption)
-          }
-        } else {
-          await reply(caption)
-        }
-      }
-
       for (let i = 0; i < total; i++) {
         const last = i === total - 1
         const title = r.title || query
