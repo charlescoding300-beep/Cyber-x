@@ -1,5 +1,5 @@
 // commands/spotify.js
-// .spotify <song name>   (aliases: .play, .sp)
+// .spotify <song name>   (alias: .sp)
 //
 //   Searches Spotify's OFFICIAL API for the song, sends a clean "now playing"
 //   card (cover art, title, artist, album, duration, link), then downloads the
@@ -129,7 +129,7 @@ function buildCaption(track) {
 
 module.exports = {
   name: 'spotify',
-  aliases: ['play', 'sp'],
+  aliases: ['sp'],
   desc: 'Search Spotify and send the song as playable audio.',
   usage: '.spotify <song name or Spotify track URL>',
   category: 'download',
