@@ -10,7 +10,8 @@
 const CREDIT = '> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*'
 
 // VPS pairing server
-const PAIR_SERVER = 'http://3.235.9.247:3000'
+const PAIR_PORT = Number.parseInt(process.env.PORT || '3000', 10) || 3000
+const PAIR_SERVER = `http://127.0.0.1:${PAIR_PORT}`
 
 const ZEN_X_CHANNEL_JID  = '120363431058647261@newsletter'
 const ZEN_X_CHANNEL_NAME = 'ZEN X'
@@ -32,7 +33,7 @@ function normalizeNumber(raw) {
 }
 
 function validNumber(number) {
-  return number.length >= 10 && number.length <= 15
+  return number.length >= 7 && number.length <= 15
 }
 
 module.exports = {
@@ -42,6 +43,13 @@ module.exports = {
   category: 'owner',
 
   run: async ({ sock, from, msg, args }) => {
+
+    if (String(from || '').endsWith('@g.us')) {
+      return sock.sendMessage(from, {
+        text: `> 🔒 *PRIVATE CHAT REQUIRED*\n>\n> Run *.pair <number>* in a direct message. Pairing codes must not be posted in groups.\n\n${CREDIT}`,
+        contextInfo: buildChannelContext(),
+      }, { quoted: msg })
+    }
 
     const raw = (args || []).join(' ').trim()
     const number = normalizeNumber(raw)
@@ -101,7 +109,7 @@ ${CREDIT}`,
 
       console.log(`[PAIR] Requesting VPS pairing for ${number}`)
 
-      const response = await fetch(url)
+      const response = await fetch(url, { signal: AbortSignal.timeout(35_000) })
 
       let result
 
@@ -126,9 +134,7 @@ ${CREDIT}`,
 
       const code = String(result.code)
 
-      console.log(
-        `[PAIR] VPS generated code for ${number}: ${code}`
-      )
+      console.log(`[PAIR] Real pairing code generated for +…${number.slice(-4)}`)
 
       /*
        * Information message.
@@ -161,9 +167,7 @@ ${CREDIT}`,
       /*
        * RAW CODE ONLY.
        */
-      await sock.sendMessage(from, {
-        text: code,
-      })
+      await sock.sendMessage(from, { text: code }, { quoted: msg })
 
       await sock.sendMessage(from, {
         react: {
