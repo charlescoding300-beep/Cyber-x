@@ -22,7 +22,9 @@
 //  TUNING (all optional, via .env):
 //    EXEC_LIGHT_CONCURRENCY   default max(6, cpus*2)
 //    EXEC_HEAVY_CONCURRENCY   default 2 per session
-//    EXEC_GLOBAL_HEAVY_CONCURRENCY default half of available CPUs across sessions
+//    EXEC_GLOBAL_HEAVY_CONCURRENCY default half of available CPUs; applies only
+//                              to commands explicitly marked globalHeavy or
+//                              resourceIntensive in their command metadata.
 //    EXEC_MAX_QUEUE           default 100 (per lane)
 //    EXEC_SENDER_COOLDOWN_MS  default 0 = no cooldown (set e.g. 300 to throttle spammers)
 //    EXEC_TIMEOUT_MS          default 120000
@@ -90,6 +92,28 @@ class SessionExecutor {
     this.lastRun   = new Map()   // sender -> last accepted timestamp (cooldown)
     this.lastNote  = new Map()   // sender -> last "busy" notice timestamp
     this.stats     = { executed: 0, failed: 0, timedOut: 0, dropped: 0, totalMs: 0, maxMs: 0, lastAt: 0 }
+    // Each phone has its own command receipt cursor and duplicate window.
+    // Message IDs are intentionally never claimed in a process-global map.
+    this.messageOffset = 0
+    this.seenMessages = new Map()
+  }
+
+  claimMessageOffset(message) {
+    const key = message?.key
+    const id = String(key?.id || "")
+    const chat = String(key?.remoteJid || "")
+    if (!id) return ++this.messageOffset
+
+    const sender = String(key?.participant || (key?.fromMe ? "self" : ""))
+    const receiptKey = chat + "\u001f" + sender + "\u001f" + id
+    if (this.seenMessages.has(receiptKey)) return null
+
+    const offset = ++this.messageOffset
+    this.seenMessages.set(receiptKey, offset)
+    while (this.seenMessages.size > 1024) {
+      this.seenMessages.delete(this.seenMessages.keys().next().value)
+    }
+    return offset
   }
 
   // task = { name, chat, sender, isOwner, heavy, fn, onDrop, skipCooldown }
@@ -117,7 +141,11 @@ class SessionExecutor {
         return this._drop(task, 'queue_full', resolve)
       }
 
-      const job = { task, name, resolve, reject, heavy: lane === this.heavy }
+      const job = {
+        task, name, resolve, reject,
+        heavy: lane === this.heavy,
+        globalHeavy: task.globalHeavy === true,
+      }
       ;(task.isOwner ? lane.high : lane.normal).push(job)
       this._pump(lane)
     })
@@ -147,14 +175,21 @@ class SessionExecutor {
 
   _pump(lane) {
     while (lane.active < lane.max) {
-      const job = lane.high.shift() || lane.normal.shift()
-      if (!job) break
-      if (lane === this.heavy && globalHeavyActive >= GLOBAL_HEAVY_MAX) {
-        ;(job.task.isOwner ? lane.high : lane.normal).unshift(job)
-        globalHeavyWaiters.add(this)
+      const takeEligible = queue => {
+        const index = queue.findIndex(job =>
+          !job.globalHeavy || globalHeavyActive < GLOBAL_HEAVY_MAX
+        )
+        return index < 0 ? null : queue.splice(index, 1)[0]
+      }
+      const job = takeEligible(lane.high) || takeEligible(lane.normal)
+      if (!job) {
+        if (lane.high.some(item => item.globalHeavy) ||
+            lane.normal.some(item => item.globalHeavy)) {
+          globalHeavyWaiters.add(this)
+        }
         break
       }
-      if (lane === this.heavy) globalHeavyActive++
+      if (job.globalHeavy) globalHeavyActive++
       this._run(lane, job)
     }
   }
@@ -174,7 +209,7 @@ class SessionExecutor {
       settled = true
       clearTimeout(timer)
       lane.active--
-      if (job.heavy) {
+      if (job.globalHeavy) {
         globalHeavyActive = Math.max(0, globalHeavyActive - 1)
         globalHeavyWaiters.add(this)
       }
@@ -196,8 +231,8 @@ class SessionExecutor {
         job.resolve(value)
       }
 
-      if (job.heavy) pumpGlobalHeavy()
-      else this._pump(lane)
+      if (job.globalHeavy) pumpGlobalHeavy()
+      this._pump(lane)
     }
 
     timer = setTimeout(() => finish(null, undefined, true), timeoutMs)
@@ -232,12 +267,15 @@ class SessionExecutor {
     globalHeavyWaiters.delete(this)
     this.lastRun.clear()
     this.lastNote.clear()
+    this.seenMessages.clear()
   }
 }
 
 // One executor per session state — created on first use, lives on the state object
 function forState(state) {
-  if (!state.executor) state.executor = new SessionExecutor(state.phone)
+  if (!state.executor || state.executor.phone !== state.phone) {
+    state.executor = new SessionExecutor(state.phone)
+  }
   return state.executor
 }
 

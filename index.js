@@ -1140,6 +1140,7 @@ function makeSessionState(phone) {
     settings:      makeSessionSettings(phone),
     groupCache:    {},
     msgRetryCounterCache: makeTtlCache(),
+    executor:      new sessionExecutor.SessionExecutor(phone),
     retries:       0,
     sock:                 null,
     connected:            false,
@@ -2540,7 +2541,7 @@ const GROUP_COMMAND_DM_NOTICE =
   '*❌ 𝚁𝙴𝚂𝚃𝚁𝙸𝙲𝚃𝙴𝙳.*\n\n' +
   '*— 𝚃𝙷𝙸𝚂 𝙲𝙾𝙼𝙼𝙰𝙽𝙳 𝙸𝚂 𝚁𝙴𝚂𝚃𝚁𝙸𝙲𝚃𝙴𝙳 𝚃𝙾 𝙶𝚁𝙾𝚄𝙿𝚂.*'
 
-async function handleMessage(state, sock, msg) {
+async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
   if (!msg?.message) return
   if (msg.key.remoteJid === "status@broadcast") return
   const body = extractBody(msg)
@@ -2740,6 +2741,7 @@ async function handleMessage(state, sock, msg) {
     text: rest, full: body,
     commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
     settings: state.settings, lib, api, config, helper,
+    sessionPhone: state.phone, sessionMessageOffset,
     isOwner, isGroup, isAdmin, isBotAdmin, fromMe,
     extractBody, groupCache: state.groupCache,
     checkIsOwner: (s, a) => checkIsOwner(state, s, a, false),
@@ -2765,7 +2767,8 @@ async function handleMessage(state, sock, msg) {
   const runGuarded = (_isRetry = false) =>
     sessionExecutor.forState(state).submit({
       name:         rawCmd,
-      heavy:        command.heavy === true || command.resourceIntensive === true,
+      heavy:        command.heavy === true || command.globalHeavy === true || command.resourceIntensive === true,
+      globalHeavy:  command.globalHeavy === true || command.resourceIntensive === true,
       timeoutMs:    commandTimeoutMs ? commandTimeoutMs + 5000 : undefined,
       chat:         from,
       sender:       normalizeNum(sender || from),
@@ -3394,7 +3397,16 @@ async function startBot(phone) {
       } catch {}
 
       if (isCmd) {
-        handleMessage(state, sock, m).catch(e => console.error("[" + phone + "] MSG ERR:", e.message))
+        // Offsets and duplicate receipts are scoped to this socket's session.
+        // Thus one bot can never consume another bot's copy of a group trigger.
+        const messageOffset = sessionExecutor.forState(state).claimMessageOffset(m)
+        if (messageOffset !== null) {
+          handleMessage(state, sock, m, messageOffset).catch(e =>
+            console.error("[" + phone + "] MSG ERR:", e.message)
+          )
+        } else if (process.env.COMMAND_TRACE === "1") {
+          console.log("[" + phone + "] duplicate command receipt skipped: " + (m.key.id || "no-id"))
+        }
       }
 
       // Everything else runs after, on the next tick
