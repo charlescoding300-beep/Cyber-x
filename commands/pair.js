@@ -29,11 +29,42 @@ function buildChannelContext() {
 }
 
 function normalizeNumber(raw) {
-  return String(raw || '').replace(/\D/g, '')
+  const input = String(raw || '').trim()
+  if (!input || !/^[+()\d\s.-]+$/.test(input)) return ''
+  let number = input.replace(/\D/g, '')
+  if (number.startsWith('00')) number = number.slice(2)
+  return number
 }
 
 function validNumber(number) {
-  return number.length >= 7 && number.length <= 15
+  return /^\d{7,15}$/.test(number) && !number.startsWith('0')
+}
+
+function privateJidForMessage(msg, sender, senderAlt) {
+  const candidates = [
+    senderAlt,
+    msg?.key?.participantPn,
+    msg?.key?.participantAlt,
+    sender,
+    msg?.key?.participant,
+  ].filter(value => typeof value === 'string' && value.includes('@'))
+  return candidates.find(jid => /@(s\.whatsapp\.net|lid)$/i.test(jid)) || null
+}
+
+function pairingInstructions(number, slot) {
+  return `> 🔗 *ZEN X PAIRING CODE*
+>
+> 📱 Number: *${number}*
+> 🧩 Slot: *${slot ?? 'auto'}*
+>
+> Watch the phone for WhatsApp’s “Enter code to link new device” notification.
+>
+> If it does not appear, open:
+> *Settings → Linked Devices → Link a Device → Link with phone number instead*
+>
+> Enter the code from the next message. The code expires quickly.
+>
+${CREDIT}`
 }
 
 module.exports = {
@@ -42,19 +73,14 @@ module.exports = {
   usage: '.pair <number>',
   category: 'owner',
 
-  run: async ({ sock, from, msg, args }) => {
+  run: async ({ sock, from, msg, args, sender, senderAlt }) => {
 
-    if (String(from || '').endsWith('@g.us')) {
-      return sock.sendMessage(from, {
-        text: `> 🔒 *PRIVATE CHAT REQUIRED*\n>\n> Run *.pair <number>* in a direct message. Pairing codes must not be posted in groups.\n\n${CREDIT}`,
-        contextInfo: buildChannelContext(),
-      }, { quoted: msg })
-    }
+    const isGroup = String(from || '').endsWith('@g.us')
 
     const raw = (args || []).join(' ').trim()
     const number = normalizeNumber(raw)
 
-    if (!number) {
+    if (!raw) {
       return sock.sendMessage(
         from,
         {
@@ -80,16 +106,27 @@ ${CREDIT}`,
           text:
 `> ❌ *INVALID NUMBER*
 >
-> Include the full international country code.
+> Use a full international number with country code.
+> A leading +, spaces, hyphens, or parentheses are okay.
 >
-> Example:
-> *.pair 2348012345678*
+> Example: *.pair +234 801 234 5678*
 >
 ${CREDIT}`,
           contextInfo: buildChannelContext(),
         },
         { quoted: msg }
       )
+    }
+
+    const privateJid = isGroup
+      ? privateJidForMessage(msg, sender, senderAlt)
+      : from
+
+    if (!privateJid) {
+      return sock.sendMessage(from, {
+        text: `> ❌ *PRIVATE DELIVERY UNAVAILABLE*\n>\n> Open the bot’s DM and run *.pair <number>* there.\n\n${CREDIT}`,
+        contextInfo: buildChannelContext(),
+      }, { quoted: msg })
     }
 
     await sock.sendMessage(from, {
@@ -107,7 +144,7 @@ ${CREDIT}`,
       const url =
         `${PAIR_SERVER}/pair?phone=${encodeURIComponent(number)}`
 
-      console.log(`[PAIR] Requesting VPS pairing for ${number}`)
+      console.log(`[PAIR] Requesting VPS pairing for +…${number.slice(-4)}`)
 
       const response = await fetch(url, { signal: AbortSignal.timeout(35_000) })
 
@@ -136,38 +173,34 @@ ${CREDIT}`,
 
       console.log(`[PAIR] Real pairing code generated for +…${number.slice(-4)}`)
 
-      /*
-       * Information message.
-       */
-      await sock.sendMessage(
-        from,
-        {
-          text:
-`> 🔗 *ZEN X PAIRING CODE*
->
-> 📱 Number: *${number}*
-> 🧩 Slot: *${result.slot ?? 'auto'}*
->
-> Your pairing code is in the next message.
->
-> On the WhatsApp phone:
->
-> *Settings → Linked Devices → Link a Device → Link with phone number instead*
->
-> Enter the code from the next message.
->
-> The code expires quickly.
->
-${CREDIT}`,
+      if (isGroup) {
+        await sock.sendMessage(privateJid, {
+          text: pairingInstructions(number, result.slot) +
+            `\n\n> 🔐 *Pairing code: ${code}*`,
           contextInfo: buildChannelContext(),
-        },
-        { quoted: msg }
-      )
+        })
 
-      /*
-       * RAW CODE ONLY.
-       */
-      await sock.sendMessage(from, { text: code }, { quoted: msg })
+        await sock.sendMessage(
+          from,
+          {
+            text: '> ✅ *PAIRING CODE SENT PRIVATELY*\n> Check your private chat with the bot to continue.',
+            mentions: [privateJid],
+          },
+          { quoted: msg }
+        ).catch(error => {
+          console.error('[PAIR] Group confirmation failed:', error?.message || error)
+        })
+      } else {
+        await sock.sendMessage(
+          from,
+          {
+            text: pairingInstructions(number, result.slot),
+            contextInfo: buildChannelContext(),
+          },
+          { quoted: msg }
+        )
+        await sock.sendMessage(from, { text: code }, { quoted: msg })
+      }
 
       await sock.sendMessage(from, {
         react: {
@@ -190,13 +223,16 @@ ${CREDIT}`,
         },
       }).catch(() => {})
 
+      const failureReason = isGroup
+        ? 'Could not generate or privately deliver the code. Open the bot’s DM and try again.'
+        : error?.message || 'Could not contact the pairing server.'
       await sock.sendMessage(
         from,
         {
           text:
 `> ❌ *PAIRING FAILED*
 >
-> ${error?.message || 'Could not contact the pairing server.'}
+> ${failureReason}
 >
 > Check the number and try again.
 >

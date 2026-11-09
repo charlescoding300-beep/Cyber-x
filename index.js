@@ -2501,15 +2501,18 @@ function isPrivateLockdownActive(state) {
   return (state.settings.get("mode") || "public") === "private"
 }
 
-function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt) {
-  if (isOwner || fromMe) return false
-  if (!isPrivateLockdownActive(state)) return false
+function isSudoUser(state, sender, senderAlt) {
   const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
-  if (
+  return !!(
     (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n))) ||
     isStoredSudo(state, candidates)
-  ) return false
-  return true
+  )
+}
+
+function isBlockedByPrivateMode(state, isOwner, fromMe, sender, senderAlt, isSudo = isSudoUser(state, sender, senderAlt)) {
+  if (isOwner || fromMe) return false
+  if (!isPrivateLockdownActive(state)) return false
+  return !isSudo
 }
 
 // Commands that consume the group admin flags prepared by checkGroupAdmin.
@@ -2554,7 +2557,8 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
 
   const prefix = state.settings.get("prefix") || BOT_PREFIX
   const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
-  if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt)) {
+  const isSudoEarly = isSudoUser(state, sender, senderAlt)
+  if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt, isSudoEarly)) {
     // Keep private-mode behavior, but avoid synchronous log I/O and ban lookups
     // for ordinary chat messages that are already being ignored.
     if (body.startsWith(prefix)) {
@@ -2590,7 +2594,7 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
 
   const isOwner = isOwnerEarly
   const isGroup = from.endsWith("@g.us")
-  if (state.settings.get("groupOnly") && !isGroup && !isOwner) return
+  if (state.settings.get("groupOnly") && !isGroup && !isOwner && !isSudoEarly) return
   if (state.settings.get("dmOnly") && isGroup && !isOwner) return
 
   const slice    = body.slice(prefix.length).trimStart()
