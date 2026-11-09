@@ -3348,7 +3348,11 @@ async function startBot(phone) {
 
     if (!m.key.fromMe) {
       if (typeof lib.handleMemory   === "function") lib.handleMemory(sock, m, extractBody).catch(() => {})
-      ;(lib.handleAntilinkInline || handleAntilinkInline)(sock, m, phone).catch(e => console.error("[" + phone + "] ANTILINK ERR:", e.message))
+      try {
+        await require('./commands/antilink').handleAntiLink({ sock, msg: m, from: jid })
+      } catch (e) {
+        console.error("[" + phone + "] ANTILINK ERR:", e?.message || e)
+      }
       handleAntitagInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTITAG ERR:", e.message))
       if (typeof lib.handleAntistatusGroup === "function") lib.handleAntistatusGroup(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTATUS-GC ERR:", e.message))
       try {
