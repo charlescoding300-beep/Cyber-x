@@ -53,7 +53,7 @@ module.exports = {
   usage:    '.antibot kick|delete|warn|off|status|exempt <jid>|unexempt <jid>',
   category: 'group',
 
-  async run({ sock, from, msg, args, isOwner, isAdmin, isBotAdmin, isGroup }) {
+  async run({ sock, from, msg, args, isOwner, isAdmin, isBotAdmin, isGroup, sender }) {
     if (!isGroup) {
       return sock.sendMessage(from, { text: `❌ This command only works in groups.\n\n${BRAND}` }, { quoted: msg })
     }
@@ -77,12 +77,12 @@ module.exports = {
     if (action === 'on' || action === 'kick' || action === 'delete' || action === 'warn') {
       const mode = action === 'on' ? 'delete' : action
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
-      antibotEngine.setGroupState(phone, groupJid, { mode })
+      antibotEngine.setGroupState(phone, groupJid, { mode, configuredBy: sender || sock.user?.id || null, configuredAt: Date.now() })
       return sendModeConfirmation(sock, from, msg, mode)
     }
 
     if (action === 'off') {
-      antibotEngine.setGroupState(phone, groupJid, { mode: 'off' })
+      antibotEngine.setGroupState(phone, groupJid, { mode: 'off', configuredBy: null })
       return sock.sendMessage(from, { text: `🤖 Antibot disabled for this group.\n\n${BRAND}` }, { quoted: msg })
     }
 

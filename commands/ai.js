@@ -1,19 +1,28 @@
 // commands/ai.js — ZEN X_Bot AI Command (Groq + Vision + Voice + Full Support)
 const https = require("https")
 const { downloadMediaMessage } = require("@whiskeysockets/baileys")
+const { creditConfigurationHint } = require("../lib/providerErrors")
 
 const histories = new Map()
+const MAX_HISTORY_CHATS = 500
 
 const CREDIT = "> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*"
 const VOICE_CHANCE = 0.6 // 60% voice, 40% text
 
-function getHistory(jid) {
-  if (!histories.has(jid)) histories.set(jid, [])
-  return histories.get(jid)
+function trimHistories() {
+  while (histories.size > MAX_HISTORY_CHATS) histories.delete(histories.keys().next().value)
 }
-
-function clearHistory(jid) {
-  histories.set(jid, [])
+function getHistory(key) {
+  const history = histories.get(key) || []
+  histories.delete(key)
+  histories.set(key, history)
+  trimHistories()
+  return history
+}
+function clearHistory(key) {
+  histories.delete(key)
+  histories.set(key, [])
+  trimHistories()
 }
 
 async function askAI(jid, text, imageBase64 = null, imageMime = null) {
@@ -144,11 +153,12 @@ async function voiceRssTTS(text) {
   return data
 }
 
-const run = async ({ sock, from, message, text = "" }) => {
+const run = async ({ sock, from, message, text = "", sessionPhone = "" }) => {
+  const historyKey = String(sessionPhone || sock.user?.id || sock.user?.lid || "session") + "|" + from
   const requestText = String(text || "").trim()
 
   if (requestText.toLowerCase() === "reset") {
-    clearHistory(from)
+    clearHistory(historyKey)
     return sock.sendMessage(from, {
       text: "🧹 *Memory cleared!*\nFresh start — what's on your mind?\n\n" + CREDIT
     }, { quoted: message })
@@ -235,7 +245,7 @@ const run = async ({ sock, from, message, text = "" }) => {
       }
     }
 
-    const reply = await askAI(from, prompt, imageBase64, imageMime)
+    const reply = await askAI(historyKey, prompt, imageBase64, imageMime)
     let voiceSent = false
 
     if (process.env.VOICERSS_API_KEY && Math.random() < VOICE_CHANCE) {
@@ -269,6 +279,12 @@ const run = async ({ sock, from, message, text = "" }) => {
     await sock.sendMessage(from, {
       react: { text: "❌", key: message.key }
     }).catch(() => {})
+
+    const creditHint = creditConfigurationHint(error, "AI")
+    if (creditHint) {
+      await sock.sendMessage(from, { text: creditHint + "\n\n" + CREDIT }, { quoted: message })
+      return
+    }
 
     const friendly = error.message === "AI_API_KEY_NOT_SET"
       ? "❌ No AI API key is configured. Set GROQ_API_KEY or XAI_API_KEY/GROK_API_KEY."

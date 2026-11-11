@@ -65,7 +65,7 @@ module.exports = {
         if (sub === 'on' && !isBotAdmin) return sendBotNotAdmin(sock, from, msg)
 
         if (sub === 'on') {
-            global.__antitagEnable(phone, from)
+            global.__antitagEnable(phone, from, sender)
         } else {
             global.__antitagDisable(phone, from)
         }

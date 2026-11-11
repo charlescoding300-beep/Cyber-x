@@ -105,6 +105,18 @@ function setGroupConfig(ownerPhone, groupJid, updates) {
   db.setSection(ownerPhone, 'antibadword', section)
 }
 
+function autoDisableOnDemotion(ownerPhone, groupJid, demotedIds, botDemoted = false) {
+  const cfg = getGroupConfig(ownerPhone, groupJid)
+  if (!cfg.enabled) return false
+  const configuredBy = new Set(isAdminLib.identityKeys(cfg.configuredBy))
+  const controllerDemoted = configuredBy.size > 0 && (demotedIds || []).some(value =>
+    isAdminLib.identityKeys(value).some(key => configuredBy.has(key))
+  )
+  if (!botDemoted && !controllerDemoted && configuredBy.size > 0) return false
+  setGroupConfig(ownerPhone, groupJid, { enabled: false, action: 'delete', configuredBy: null, disabledAt: Date.now() })
+  return true
+}
+
 function getWarningCount(ownerPhone, groupJid, senderJid) {
   if (!db) return 0
   const section = db.getSection(ownerPhone, 'warns') || { groups: {} }
@@ -174,20 +186,20 @@ Action : *${cfg.action || 'delete'}*
     if (sub === 'on') {
       const cfg = getGroupConfig(ownerPhone, from)
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
-      setGroupConfig(ownerPhone, from, { enabled: true, action: cfg.action || 'delete' })
+      setGroupConfig(ownerPhone, from, { enabled: true, action: cfg.action || 'delete', configuredBy: sender || null, configuredAt: Date.now() })
       return sock.sendMessage(from, {
         text: `✅ AntiBadword *ON*\nAction: *${cfg.action || 'delete'}*`,
       }, { quoted: msg })
     }
 
     if (sub === 'off') {
-      setGroupConfig(ownerPhone, from, { enabled: false })
+      setGroupConfig(ownerPhone, from, { enabled: false, configuredBy: null })
       return sock.sendMessage(from, { text: '✅ AntiBadword *OFF* for this group.' }, { quoted: msg })
     }
 
     if (['delete', 'warn', 'kick'].includes(sub)) {
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
-      setGroupConfig(ownerPhone, from, { enabled: true, action: sub })
+      setGroupConfig(ownerPhone, from, { enabled: true, action: sub, configuredBy: sender || null, configuredAt: Date.now() })
       const desc = {
         delete: 'Message will be deleted only',
         warn:   'Warn → kick after 3 warnings',
@@ -206,7 +218,7 @@ Action : *${cfg.action || 'delete'}*
         }, { quoted: msg })
       }
       if (!isBotAdmin) return sendBotNotAdmin(sock, from, msg)
-      setGroupConfig(ownerPhone, from, { enabled: true, action })
+      setGroupConfig(ownerPhone, from, { enabled: true, action, configuredBy: sender || null, configuredAt: Date.now() })
       return sock.sendMessage(from, {
         text: `✅ AntiBadword *ON*\nAction set to: *${action}*`,
       }, { quoted: msg })
@@ -266,7 +278,8 @@ async function handleBadword(sock, msg, extractBody) {
 
   // Bot not admin → quoted notice only
   if (!isBotAdmin) {
-    await sendBotNotAdmin(sock, from, msg).catch(() => {})
+    autoDisableOnDemotion(ownerPhone, from, [], true)
+    console.log('[ANTIBADWORD] auto-disabled because this session is no longer a group admin: ' + from)
     return
   }
 
@@ -368,3 +381,4 @@ async function handleBadword(sock, msg, extractBody) {
 }
 
 module.exports.handleBadword = handleBadword
+module.exports.autoDisableOnDemotion = autoDisableOnDemotion

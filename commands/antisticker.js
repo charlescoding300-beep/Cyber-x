@@ -22,7 +22,7 @@ module.exports = {
     }
   },
 
-  async run({ sock, m, msg, from, args, phone, isAdmin, isBotAdmin }) {
+  async run({ sock, m, msg, from, args, phone, isAdmin, isBotAdmin, sender }) {
     const sourceMessage = msg || m
     const jid = from || sourceMessage?.key?.remoteJid
     if (!jid || !sourceMessage) return
@@ -61,7 +61,7 @@ module.exports = {
     if (option !== 'off' && !isBotAdmin) return sendBotNotAdmin(sock, jid, sourceMessage)
 
     if (option === 'on') {
-      antisticker.antistickerEnable(owner, jid, 'delete', 3, false)
+      antisticker.antistickerEnable(owner, jid, 'delete', 3, false, sender || null)
       return sock.sendMessage(jid, {
         text: `✅ *Anti-Sticker Enabled*\n\nAction: *DELETE*\nAdmins are exempt.\n\n> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*`
       }, { quoted: sourceMessage })
@@ -76,7 +76,7 @@ module.exports = {
 
     if (['delete', 'warn', 'kick'].includes(option)) {
       const current = antisticker.getConfig(owner, jid)
-      antisticker.antistickerEnable(owner, jid, option, current.maxWarns || 3, current.applyToAdmins)
+      antisticker.antistickerEnable(owner, jid, option, current.maxWarns || 3, current.applyToAdmins, sender || null)
       return sock.sendMessage(jid, {
         text: `✅ *Anti-Sticker Action Updated*\n\nNew Action: *${option.toUpperCase()}*\n\n> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*`
       }, { quoted: sourceMessage })
@@ -88,7 +88,7 @@ module.exports = {
         return sock.sendMessage(jid, { text: '❌ Please enter a number between 1 and 10' }, { quoted: sourceMessage })
       }
       const current = antisticker.getConfig(owner, jid)
-      antisticker.antistickerEnable(owner, jid, current.action || 'delete', max, current.applyToAdmins)
+      antisticker.antistickerEnable(owner, jid, current.action || 'delete', max, current.applyToAdmins, sender || null)
       return sock.sendMessage(jid, {
         text: `✅ *Max Warnings set to ${max}*\n\n> *© 𓃦 𝗭Ξ𝗡 𝗫_𝗕𝗼𝘁 𓃦*`
       }, { quoted: sourceMessage })

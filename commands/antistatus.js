@@ -109,7 +109,7 @@ module.exports = {
   category: 'group',
   adminOnly: true,
 
-  run: async ({ sock, from, msg, args, lib, isGroup, isAdmin, isBotAdmin }) => {
+  run: async ({ sock, from, msg, args, lib, isGroup, isAdmin, isBotAdmin, sender }) => {
     const reply = (text, mentions) =>
       sock.sendMessage(from, mentions ? { text, mentions } : { text }, { quoted: msg })
 
@@ -138,7 +138,7 @@ module.exports = {
       const botIsAdmin = !!isBotAdmin || direct.admin
       if (!botIsAdmin) return sendBotNotAdmin(sock, from, msg)
 
-      enable(phone, from, mode)
+      enable(phone, from, mode, sender || sock.user?.id || null)
 
       return sendModeConfirmation(sock, from, msg, mode)
     }

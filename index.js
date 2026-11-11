@@ -5,7 +5,9 @@ if (!process.env.UV_THREADPOOL_SIZE) {
 }
 require("dotenv").config()
 const fs   = require("fs")
-const autoVV = require('./commands/autovv')
+const autoVVPath = __dirname + '/commands/autovv.js'
+const autoVV = fs.existsSync(autoVVPath) ? require(autoVVPath) : null
+if (!autoVV) console.warn('[AUTO-VV] commands/autovv.js is absent; feature remains disabled')
 const autoTag = require('./commands/autotag')
 const path = require("path")
 const Pino = require("pino")
@@ -631,9 +633,20 @@ async function getProfilePictureSafe(sock, jid, opts = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OWNER / ADMIN RECOGNITION
 // ─────────────────────────────────────────────────────────────────────────────
-function checkIsOwner(state, sender, senderAlt, fromMe) {
+async function resolveIdentityNumbers(sock, ...jids) {
+  const numbers = new Set(jids.filter(Boolean).map(normalizeNum).filter(Boolean))
+  const mapping = sock?.signalRepository?.lidMapping
+  if (!mapping || typeof mapping.getPNForLID !== "function") return [...numbers]
+  const lids = [...new Set(jids.filter(j => typeof j === "string" && /@lid$/i.test(j)))]
+  await Promise.all(lids.map(async jid => {
+    try { const pn = await mapping.getPNForLID(jid); const n = normalizeNum(pn); if (n) numbers.add(n) } catch {}
+  }))
+  return [...numbers]
+}
+
+function checkIsOwner(state, sender, senderAlt, fromMe, resolvedNumbers = null) {
   if (fromMe === true) return true
-  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+  const candidates = (Array.isArray(resolvedNumbers) ? resolvedNumbers : [sender, senderAlt]).filter(Boolean).map(normalizeNum)
   const sessionPhone = normalizeNum(state.phone)
   if (sessionPhone && candidates.some(n => n === sessionPhone)) return true
   if (OWNER_NUMBERS.length && candidates.some(n => OWNER_NUMBERS.includes(n))) return true
@@ -653,7 +666,7 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
   // For an outgoing command, the group message may omit its participant JID.
   // In that case use the connected account's own WhatsApp identities.
   if (fromMe) candidates.push(sock?.user?.id, sock?.user?.lid)
-  const candidateNums = candidates.filter(Boolean).map(normalizeNum).filter(Boolean)
+  const candidateNums = await resolveIdentityNumbers(sock, ...candidates)
 
   let meta = null
   if (isOwner && verifyOwnerRole) {
@@ -727,6 +740,27 @@ function extractBody(msg) {
     inner.templateButtonReplyMessage?.selectedId ||
     ""
   )
+}
+
+function unwrapModerationMessage(message) {
+  let content = message
+  for (let depth = 0; depth < 8 && content && typeof content === "object"; depth++) {
+    const next = content.groupStatusMessageV2?.message ||
+      content.groupStatusMessage?.message ||
+      content.groupStatusMentionMessage?.message ||
+      content.statusMentionMessage?.message ||
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.documentWithCaptionMessage?.message
+    if (!next || next === content) break
+    content = next
+  }
+  return content && typeof content === "object" ? content : {}
+}
+
+function extractModerationBody(msg) {
+  return extractBody({ ...msg, message: unwrapModerationMessage(msg?.message) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2196,19 +2230,39 @@ function antitagSave(phone, data) {
 function antitagIsEnabled(phone, groupId) {
   return !!antitagLoad(phone).groups[groupId]?.enabled
 }
-function antitagEnable(phone, groupId) {
+function antitagEnable(phone, groupId, configuredBy = null) {
   const data = antitagLoad(phone)
   if (!data.groups[groupId]) data.groups[groupId] = {}
   data.groups[groupId].enabled = true
+  data.groups[groupId].configuredBy = configuredBy || null
+  data.groups[groupId].disabledAt = null
   antitagSave(phone, data)
 }
 function antitagDisable(phone, groupId) {
   const data = antitagLoad(phone)
-  if (data.groups[groupId]) { data.groups[groupId].enabled = false; antitagSave(phone, data) }
+  if (data.groups[groupId]) {
+    data.groups[groupId].enabled = false
+    data.groups[groupId].configuredBy = null
+    antitagSave(phone, data)
+  }
 }
-
+function antitagAutoDisableOnDemotion(phone, groupId, demotedIds, botDemoted = false) {
+  const data = antitagLoad(phone)
+  const cfg = data.groups[groupId]
+  if (!cfg?.enabled) return false
+  const configuredBy = new Set(isAdminLib.identityKeys(cfg.configuredBy))
+  const controllerDemoted = configuredBy.size > 0 && (demotedIds || []).some(value =>
+    isAdminLib.identityKeys(value).some(key => configuredBy.has(key))
+  )
+  if (!botDemoted && !controllerDemoted) return false
+  cfg.enabled = false
+  cfg.configuredBy = null
+  cfg.disabledAt = Date.now()
+  antitagSave(phone, data)
+  return true
+}
 function antitagGetMentions(msg) {
-  const m = msg.message
+  const m = unwrapModerationMessage(msg?.message)
   const ctx = m?.extendedTextMessage?.contextInfo || m?.imageMessage?.contextInfo ||
               m?.videoMessage?.contextInfo || m?.conversation?.contextInfo
   return ctx?.mentionedJid || []
@@ -2246,7 +2300,9 @@ async function handleAntitagInline(sock, msg, phone) {
     }
     if (adminContext.senderAdmin) return
     if (!adminContext.botAdmin) {
-      return require("./lib/groupAdminNotice").sendBotNotAdmin(sock, groupId, msg).catch(() => {})
+      antitagAutoDisableOnDemotion(phone, groupId, [], true)
+      console.log("[ANTITAG] auto-disabled in " + groupId + " because this session is no longer a group admin")
+      return
     }
 
     try {
@@ -2318,16 +2374,40 @@ function antistatusSave(phone, data) {
 function antistatusIsEnabled(phone, groupId) {
   return !!antistatusLoad(phone).groups[groupId]?.enabled
 }
-function antistatusEnable(phone, groupId, mode = "warn") {
+function antistatusEnable(phone, groupId, mode = "warn", configuredBy = null) {
   const data = antistatusLoad(phone)
   if (!data.groups[groupId]) data.groups[groupId] = {}
   data.groups[groupId].enabled = true
   data.groups[groupId].mode = mode
+  data.groups[groupId].configuredBy = configuredBy || null
+  data.groups[groupId].disabledAt = null
   antistatusSave(phone, data)
 }
 function antistatusDisable(phone, groupId) {
   const data = antistatusLoad(phone)
-  if (data.groups[groupId]) { data.groups[groupId].enabled = false; antistatusSave(phone, data) }
+  if (data.groups[groupId]) {
+    data.groups[groupId].enabled = false
+    data.groups[groupId].mode = "warn"
+    data.groups[groupId].configuredBy = null
+    antistatusSave(phone, data)
+  }
+}
+function antistatusAutoDisableOnDemotion(phone, groupId, demotedIds, botDemoted = false) {
+  const data = antistatusLoad(phone)
+  const cfg = data.groups[groupId]
+  if (!cfg?.enabled) return false
+  const configuredBy = new Set(isAdminLib.identityKeys(cfg.configuredBy))
+  const controllerDemoted = configuredBy.size > 0 && (demotedIds || []).some(value =>
+    isAdminLib.identityKeys(value).some(key => configuredBy.has(key))
+  )
+  // Legacy entries have no setter identity; disable once on a demotion, then
+  // subsequent enables record the admin and can be matched precisely.
+  if (!botDemoted && !controllerDemoted && configuredBy.size > 0) return false
+  cfg.enabled = false
+  cfg.mode = "warn"
+  cfg.configuredBy = null
+  cfg.disabledAt = Date.now()
+  return antistatusSave(phone, data)
 }
 function antistatusGetMode(phone, groupId) {
   return antistatusLoad(phone).groups[groupId]?.mode || "warn"
@@ -2501,8 +2581,8 @@ function isPrivateLockdownActive(state) {
   return (state.settings.get("mode") || "public") === "private"
 }
 
-function isSudoUser(state, sender, senderAlt) {
-  const candidates = [sender, senderAlt].filter(Boolean).map(normalizeNum)
+function isSudoUser(state, sender, senderAlt, resolvedNumbers = null) {
+  const candidates = (Array.isArray(resolvedNumbers) ? resolvedNumbers : [sender, senderAlt]).filter(Boolean).map(normalizeNum)
   return !!(
     (SUDO_NUMBERS.length && candidates.some(n => SUDO_NUMBERS.includes(n))) ||
     isStoredSudo(state, candidates)
@@ -2552,12 +2632,13 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
 
   const from      = msg.key.remoteJid
   const sender    = msg.key.participant || from
-  const senderAlt = msg.key.participantPn || msg.key.participantAlt || null
+  const senderAlt = msg.key.participantPn || msg.key.participantAlt || msg.participantPn || msg.participantAlt || null
   const fromMe    = msg.key.fromMe === true
 
   const prefix = state.settings.get("prefix") || BOT_PREFIX
-  const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe)
-  const isSudoEarly = isSudoUser(state, sender, senderAlt)
+  const identityNumbers = await resolveIdentityNumbers(sock, sender, senderAlt)
+  const isOwnerEarly = checkIsOwner(state, sender, senderAlt, fromMe, identityNumbers)
+  const isSudoEarly = isSudoUser(state, sender, senderAlt, identityNumbers)
   if (isBlockedByPrivateMode(state, isOwnerEarly, fromMe, sender, senderAlt, isSudoEarly)) {
     // Keep private-mode behavior, but avoid synchronous log I/O and ban lookups
     // for ordinary chat messages that are already being ignored.
@@ -2667,26 +2748,11 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
     return
   }
 
-  // Future group commands declare ownerOnly, adminOnly/requiresGroupAdmin,
-  // adminOrOwner, and/or botAdmin/requiresBotAdmin. Optional permissions(ctx)
-  // handles subcommands; keep it synchronous and side-effect free. Public
-  // group utilities stay open unless they opt into an access rule.
-  const requiresSenderGroupAdmin = isGroupCommand && (
-    commandPermissions.groupAdmin === undefined
-      ? command.adminOnly === true || command.requiresAdmin === true ||
-        command.requiresGroupAdmin === true ||
-        COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
-      : commandPermissions.groupAdmin === true
-  )
-  const allowsOwnerWithAdmin = command.ownerOnly === true || command.adminOrOwner === true ||
-    commandPermissions.adminOrOwner === true
-  const requiresBotGroupAdmin = isGroupCommand && (
-    commandPermissions.botAdmin === undefined
-      ? command.botAdmin === true || command.requiresBotAdmin === true
-      : commandPermissions.botAdmin === true
-  )
-  const ownerMustBeGroupAdmin = command.ownerMustBeGroupAdmin === true ||
-    COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
+  // Central policy for current and future group-category commands:
+  // the invoking member and this linked bot session must both be group admins.
+  const requiresSenderGroupAdmin = isGroupCommand
+  const requiresBotGroupAdmin = isGroupCommand
+  const ownerMustBeGroupAdmin = isGroupCommand
 
   const declaredTimeout = Number(command.timeoutMs)
   const independentCommand = command.independent === true
@@ -2710,14 +2776,14 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
   if (isGroup && needsGroupAdminContext) {
     ;({ isAdmin, isBotAdmin, isActualGroupAdmin } = await checkGroupAdmin(
       state, sock, from, sender, senderAlt, isOwner, fromMe,
-      isOwner && (ownerMustBeGroupAdmin || (requiresSenderGroupAdmin && !allowsOwnerWithAdmin))
+      isOwner && ownerMustBeGroupAdmin
     ))
   }
 
   const senderHasGroupAdminPermission = isActualGroupAdmin === true
   if (
     isGroup && requiresSenderGroupAdmin &&
-    !(senderHasGroupAdminPermission || (isOwner && allowsOwnerWithAdmin))
+    !senderHasGroupAdminPermission
   ) {
     if (isOwner && isActualGroupAdmin === false && ownerMustBeGroupAdmin) {
       await sock.sendMessage(from, { text: GROUP_ADMIN_REQUIRED_NOTICE }, { quoted: msg }).catch(() => {})
@@ -2741,7 +2807,7 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
     jid => getGroupMetaForCommand(sock, state.phone, jid)
   )
   const runCommand = () => command.run({
-    sock: commandSock, from, msg, message: msg, sender, args,
+    sock: commandSock, from, msg, message: msg, sender, sessionPhone: state.phone, args,
     text: rest, full: body,
     commands: registry.map, cmdList: registry.list, cmdDetails: registry.details,
     settings: state.settings, lib, api, config, helper,
@@ -2905,6 +2971,49 @@ async function startBot(phone) {
     const { id: groupId, participants, action, author } = update
     if (!groupId?.endsWith("@g.us")) return
     if (!["add", "remove", "promote", "demote"].includes(action)) return
+
+    if (action === "demote") {
+      const changed = Array.isArray(participants) ? participants : []
+      const demotedIds = changed.flatMap(raw => typeof raw === "string"
+        ? [raw]
+        : [raw?.id, raw?.jid, raw?.lid, raw?.phoneNumber].filter(Boolean))
+      const normalize = value => String(value || "").trim().toLowerCase().replace(/:\d+(?=@)/, "")
+      const botIds = [sock.user?.id, sock.user?.lid, phone].map(normalize).filter(Boolean)
+      const botParticipant = (meta?.participants || []).find(p =>
+        [p.id, p.jid, p.lid, p.phoneNumber].some(id => botIds.includes(normalize(id)))
+      )
+      const botNoLongerAdmin = !!botParticipant &&
+        !(botParticipant.admin === "admin" || botParticipant.admin === "superadmin" ||
+          botParticipant.isAdmin === true || botParticipant.isSuperAdmin === true)
+      const botWasDemoted = demotedIds.some(id => botIds.includes(normalize(id)))
+      const botDemoted = botNoLongerAdmin || botWasDemoted
+      let disabledCount = 0
+      try {
+        if (antistatusAutoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antistatus cleanup failed:", e.message) }
+      try {
+        const antiLink = require("./commands/antilink")
+        if (antiLink.autoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antilink cleanup failed:", e.message) }
+      try {
+        const antiBot = require("./lib/antibot")
+        if (antiBot.autoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antibot cleanup failed:", e.message) }
+      try {
+        if (antitagAutoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antitag cleanup failed:", e.message) }
+      try {
+        const antiBadword = require("./commands/antibadword")
+        if (antiBadword.autoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antibadword cleanup failed:", e.message) }
+      try {
+        const antiSticker = require("./lib/antisticker")
+        if (antiSticker.autoDisableOnDemotion(phone, groupId, demotedIds, botDemoted)) disabledCount += 1
+      } catch (e) { console.error("[POLICY] antisticker cleanup failed:", e.message) }
+      if (disabledCount) console.log("[POLICY] auto-disabled " + disabledCount +
+        " group protection(s) in " + groupId + (botDemoted
+          ? " because this bot lost admin." : " because its configuring admin was demoted."))
+    }
 
     const groupName   = meta?.subject || groupId
     const memberCount = (meta?.participants || []).length
@@ -3166,7 +3275,42 @@ async function startBot(phone) {
   })
 
   let pairingCodeRequested = false
-  const PAIRING_MIN_GAP_MS = 20000 // never re-request a pairing code faster than this, even across reconnects
+  let pairingRetryTimer = null
+  const PAIRING_MIN_GAP_MS = 20000
+  const pairingStillActive = () => !authState.creds.registered && state.pairingMode !== "qr" && !state.connected && state.startingUp && state.sock === sock
+  const schedulePairingRetry = (minimumDelayMs = 0) => {
+    if (pairingRetryTimer || pairingCodeRequested || !pairingStillActive()) return
+    const elapsed = state.lastPairingAttemptAt ? Date.now() - state.lastPairingAttemptAt : Infinity
+    const gapDelay = Number.isFinite(elapsed) ? Math.max(0, PAIRING_MIN_GAP_MS - elapsed + 250) : 0
+    pairingRetryTimer = setTimeout(() => {
+      pairingRetryTimer = null
+      requestPairingCode().catch(e => console.error(`[${phone}] PAIR RETRY ERR:`, e?.message || e))
+    }, Math.max(250, minimumDelayMs, gapDelay))
+    pairingRetryTimer.unref?.()
+  }
+  const requestPairingCode = async () => {
+    if (pairingCodeRequested || !pairingStillActive()) return
+    const elapsed = state.lastPairingAttemptAt ? Date.now() - state.lastPairingAttemptAt : Infinity
+    if (elapsed < PAIRING_MIN_GAP_MS) return schedulePairingRetry()
+    pairingCodeRequested = true
+    state.lastPairingAttemptAt = Date.now()
+    try {
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      if (!pairingStillActive()) { pairingCodeRequested = false; return }
+      const code = await sock.requestPairingCode(phone.replace(/\D/g, ""))
+      if (!code) throw new Error("WhatsApp returned an empty pairing code")
+      if (!pairingStillActive()) return
+      state.pairingCode = code
+      state.pairingCodeExpiresAt = Date.now() + PAIRING_CODE_TTL_MS
+      logOnce(phone, "pair-code", `[${phone}] 📱 PAIRING CODE: ${code} (generated ${nowWAT()} WAT — expires in 60s)`)
+    } catch (e) {
+      console.error(`[${phone}] PAIR ERR:`, e?.message || e)
+      state.pairingCode = null
+      state.pairingCodeExpiresAt = null
+      pairingCodeRequested = false
+      schedulePairingRetry()
+    }
+  }
 
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update
@@ -3184,36 +3328,16 @@ async function startBot(phone) {
       }
     }
 
-    if (
-      !authState.creds.registered &&
-      state.pairingMode !== "qr" &&
-      !pairingCodeRequested &&
-      connection === "connecting" &&
-      !qr
-    ) {
-      const sinceLast = state.lastPairingAttemptAt ? Date.now() - state.lastPairingAttemptAt : Infinity
-      if (sinceLast < PAIRING_MIN_GAP_MS) {
-        logOnce(phone, "pair-cooldown", `[${phone}] ⏳ Skipping pairing request — last one was ${Math.round(sinceLast / 1000)}s ago, waiting for ${PAIRING_MIN_GAP_MS / 1000}s cooldown`)
-      } else {
-        pairingCodeRequested = true
-        state.lastPairingAttemptAt = Date.now()
-        const number = phone.replace(/\D/g, "")
-        try {
-          await new Promise(r => setTimeout(r, 3000))
-          const code = await sock.requestPairingCode(number)
-          state.pairingCode          = code
-          state.pairingCodeExpiresAt = Date.now() + PAIRING_CODE_TTL_MS
-          logOnce(phone, "pair-code", `[${phone}] 📱 PAIRING CODE: ${code} (generated ${nowWAT()} WAT — expires in 60s)`)
-        } catch (e) {
-          console.error(`[${phone}] PAIR ERR:`, e.message)
-          pairingCodeRequested = false
-          state.pairingCode          = null
-          state.pairingCodeExpiresAt = null
-        }
-      }
+    if (connection === "connecting" && !qr) {
+      requestPairingCode().catch(e =>
+        console.error(`[${phone}] PAIR REQUEST ERR:`, e?.message || e)
+      )
     }
 
     if (connection === "open") {
+      if (pairingRetryTimer) clearTimeout(pairingRetryTimer)
+      pairingRetryTimer = null
+      pairingCodeRequested = false
       state.connected            = true
       state.startingUp           = false
       state.retries              = 0
@@ -3262,6 +3386,9 @@ async function startBot(phone) {
     }
 
     if (connection === "close") {
+      if (pairingRetryTimer) clearTimeout(pairingRetryTimer)
+      pairingRetryTimer = null
+      pairingCodeRequested = false
       state.connected  = false
       state.startingUp = false
       const statusCode = lastDisconnect?.error?.output?.statusCode
@@ -3358,14 +3485,14 @@ async function startBot(phone) {
       try {
         const badwordCommand = require(path.join(CMD_DIR, "antibadword.js"))
         if (typeof badwordCommand.handleBadword === "function") {
-          badwordCommand.handleBadword(sock, m, extractBody).catch(e => console.error("[" + phone + "] ANTIBADWORD ERR:", e.message))
+          badwordCommand.handleBadword(sock, m, extractModerationBody).catch(e => console.error("[" + phone + "] ANTIBADWORD ERR:", e.message))
         }
       } catch (e) {
         console.error("[" + phone + "] ANTIBADWORD LOAD ERR:", e.message)
       }
       if (typeof lib.handleAntistickerInline === "function") lib.handleAntistickerInline(sock, m, phone).catch(e => console.error("[" + phone + "] ANTISTICKER ERR:", e.message))
-      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractBody, lib).catch(e => console.error("[" + phone + "] ANTIBOT ERR:", e?.message || e))
-      if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
+      if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractModerationBody, lib).catch(e => console.error("[" + phone + "] ANTIBOT ERR:", e?.message || e))
+      if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractModerationBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
     }
 
     // AUTO-VV: authorized chats first — media-only View Once messages may have no text body.
@@ -3423,6 +3550,8 @@ async function startBot(phone) {
       })
     }
   })
+
+  if (!authState.creds.registered && state.pairingMode !== "qr") schedulePairingRetry(5000)
 
   sock.ev.on("messages.update", async (updates) => {
     handleMessageRevocation(sock, phone, updates, "update").catch(e =>

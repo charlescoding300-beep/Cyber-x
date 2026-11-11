@@ -16,6 +16,7 @@
 let db
 try { db = require('../lib/userDb') } catch { db = null }
 const { sendBotNotAdmin } = require('../lib/groupAdminNotice')
+const adminLib = require('../lib/isAdmin')
 const { sendMessageUnstyled } = require('../core/responseTextStyle')
 
 let baileys = {}
@@ -44,6 +45,18 @@ function setCfg(phone, jid, updates) {
   s.groups = s.groups || {}
   s.groups[jid] = { ...(s.groups[jid] || { enabled: false, action: 'delete' }), ...updates }
   db.setSection(phone, 'antilink', s)
+}
+
+function autoDisableOnDemotion(phone, jid, demotedIds, botDemoted = false) {
+  const cfg = getCfg(phone, jid)
+  if (!cfg.enabled) return false
+  const configuredBy = new Set(adminLib.identityKeys(cfg.configuredBy))
+  const controllerDemoted = configuredBy.size > 0 && (demotedIds || []).some(value =>
+    adminLib.identityKeys(value).some(key => configuredBy.has(key))
+  )
+  if (!botDemoted && !controllerDemoted && configuredBy.size > 0) return false
+  setCfg(phone, jid, { enabled: false, action: 'delete', configuredBy: null, disabledAt: Date.now() })
+  return true
 }
 
 const memWarns = new Map()
@@ -251,9 +264,21 @@ const seenBySock = new WeakMap()
 const noticeAt = new Map()
 const adminNoticeAt = new Map()
 
-async function say(sock, from, text, mentions = []) {
-  try { await sendMessageUnstyled(sock, from, { text, mentions }) }
-  catch (_) { try { await sock.sendMessage(from, { text, mentions }) } catch (__) {} }
+async function say(sock, from, text, mentions = [], quoted) {
+  const options = quoted ? { quoted } : {}
+  try { await sendMessageUnstyled(sock, from, { text, mentions }, options) }
+  catch (_) { try { await sock.sendMessage(from, { text, mentions }, options) } catch (__) {} }
+}
+
+function codedLinkNotice(mode, tag, isGroupStatus, count, limit) {
+  const target = tag || "user"
+  const subject = isGroupStatus ? "𝙶𝚁𝙾𝚄𝙿 𝚂𝚃𝙰𝚃𝚄𝚂 𝙻𝙸𝙽𝙺" : "𝙻𝙸𝙽𝙺"
+  if (mode === "warn") return "*⚠️ @" + target + " " + subject +
+    " 𝙳𝙴𝚃𝙴𝙲𝚃𝙴𝙳.*\n*— 𝚆𝙰𝚁𝙽𝙸𝙽𝙶: " + count + "/" + limit + "*"
+  if (mode === "kick") return "*🔗 @" + target + " " + subject +
+    " 𝙳𝙴𝚃𝙴𝙲𝚃𝙴𝙳.*\n*— 𝚁𝙴𝙼𝙾𝚅𝙴𝙳 𝙵𝚁𝙾𝙼 𝚃𝙷𝙴 𝙶𝚁𝙾𝚄𝙿.*"
+  return "*🔗 @" + target + " " + subject +
+    " 𝙳𝙴𝚃𝙴𝙲𝚃𝙴𝙳.*\n*— 𝙻𝙸𝙽𝙺 𝙲𝙾𝙽𝚃𝙴𝙽𝚃 𝚁𝙴𝙼𝙾𝚅𝙴𝙳.*"
 }
 
 async function handleAntiLink({ sock, msg, from }) {
@@ -284,10 +309,8 @@ async function handleAntiLink({ sock, msg, from }) {
     if (senderIsAdmin && !cfg.applyToAdmins) return false
 
     if (!isBotAdmin(sock, meta)) {
-      if (Date.now() - (adminNoticeAt.get(from) || 0) > 10 * 60 * 1000) {
-        adminNoticeAt.set(from, Date.now())
-        try { await sendBotNotAdmin(sock, from, msg) } catch (_) {}
-      }
+      autoDisableOnDemotion(phone, from, [], true)
+      console.log('[ANTILINK] protection auto-disabled because this session is no longer a group admin: ' + from)
       return true
     }
 
@@ -307,7 +330,7 @@ async function handleAntiLink({ sock, msg, from }) {
 
     if (action === 'kick' && !senderIsAdmin && target) {
       try { await sock.groupParticipantsUpdate(from, [target], 'remove') } catch (e) { console.log(`[ANTILINK] kick failed: ${e?.message || e}`) }
-      await say(sock, from, `🚫 @${num} was removed for posting a link${gs ? ' in the group status' : ''}.`, mention)
+      await say(sock, from, codedLinkNotice('kick', num, gs), mention, msg)
       return true
     }
 
@@ -318,15 +341,15 @@ async function handleAntiLink({ sock, msg, from }) {
       if (n >= limit && !senderIsAdmin && target) {
         clearWarn(phone, from, [key])
         try { await sock.groupParticipantsUpdate(from, [target], 'remove') } catch (e) { console.log(`[ANTILINK] kick failed: ${e?.message || e}`) }
-        await say(sock, from, `🚫 @${num} reached ${limit} warnings and was removed.`, mention)
+        await say(sock, from, codedLinkNotice('kick', num, gs), mention, msg)
       } else {
-        await say(sock, from, `⚠️ @${num}, links are not allowed here${gs ? ' (group status)' : ''}. Warning ${n}/${limit}.`, mention)
+        await say(sock, from, codedLinkNotice('warn', num, gs, n, limit), mention, msg)
       }
       noticeAt.set(nkey, Date.now())
       return true
     }
 
-    if (!quiet) await say(sock, from, `🚫 @${num}, links are not allowed in this group${gs ? ' (group status removed)' : ''}.`, mention)
+    if (!quiet) await say(sock, from, codedLinkNotice('delete', num, gs), mention, msg)
     noticeAt.set(nkey, Date.now())
     return true
   } catch (e) {
@@ -343,7 +366,7 @@ module.exports = {
   usage: '.antilink [on|off|delete|warn|kick|admins on|off|status on|off|resetwarn]',
   category: 'group',
 
-  async run({ sock, from, msg, args, isGroup, isAdmin, isBotAdmin: botIsAdmin }) {
+  async run({ sock, from, msg, args, isGroup, isAdmin, isBotAdmin: botIsAdmin, sender }) {
     if (!isGroup) return sock.sendMessage(from, { text: 'Use *.antilink* inside a group.' }, { quoted: msg })
     if (!isAdmin) return sock.sendMessage(from, { text: 'Only group admins can change link protection settings.' }, { quoted: msg })
 
@@ -378,7 +401,7 @@ module.exports = {
 
     if (sub === 'on') {
       if (!botIsAdmin) return sendBotNotAdmin(sock, from, msg)
-      setCfg(phone, from, { enabled: true, action: 'delete' })
+      setCfg(phone, from, { enabled: true, action: 'delete', configuredBy: sender || sock.user?.id || null, configuredAt: Date.now() })
       return sendModeConfirmation(sock, from, msg, 'delete')
     }
 
@@ -391,14 +414,14 @@ module.exports = {
 
     if (ACTIONS.has(sub)) {
       if (!botIsAdmin) return sendBotNotAdmin(sock, from, msg)
-      setCfg(phone, from, { enabled: true, action: sub })
+      setCfg(phone, from, { enabled: true, action: sub, configuredBy: sender || sock.user?.id || null, configuredAt: Date.now() })
       return sendModeConfirmation(sock, from, msg, sub)
     }
 
     if (sub === 'admins' || sub === 'status') {
       const v = (args[1] || '').toLowerCase()
       if (v !== 'on' && v !== 'off') return sock.sendMessage(from, { text: `Use *.antilink ${sub} on* or *.antilink ${sub} off*` }, { quoted: msg })
-      setCfg(phone, from, sub === 'admins' ? { applyToAdmins: v === 'on' } : { scanStatus: v === 'on' })
+      setCfg(phone, from, sub === 'admins' ? { applyToAdmins: v === 'on', configuredBy: sender || sock.user?.id || null } : { scanStatus: v === 'on', configuredBy: sender || sock.user?.id || null })
       return sock.sendMessage(from, {
         text: sub === 'admins'
           ? `✅ Admins are now ${v === 'on' ? 'included in' : 'skipped by'} AntiLink.`
@@ -421,6 +444,7 @@ module.exports = {
   },
 
   handleAntiLink,
+  autoDisableOnDemotion,
   findLinks,
   isGroupStatus,
   _setOcr: (fn) => { ocrImpl = fn; OCR = true },
