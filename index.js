@@ -4,6 +4,56 @@ if (!process.env.UV_THREADPOOL_SIZE) {
   process.env.UV_THREADPOOL_SIZE = String(Math.min(32, Math.max(8, require("os").cpus().length * 2)))
 }
 require("dotenv").config()
+
+// Baileys' libsignal layer can emit the same Bad MAC stack repeatedly for a
+// stale/invalid message key. Keep a concise count instead of writing a full
+// stack for every occurrence; this does not suppress or alter message handling.
+const originalConsoleError = console.error.bind(console)
+const originalConsoleInfo = console.info.bind(console)
+const originalConsoleWarn = console.warn.bind(console)
+let badMacWindowStartedAt = Date.now()
+let badMacErrorCount = 0
+let signalSessionLogCount = 0
+let signalSessionLogWindowStartedAt = Date.now()
+const isVerboseSignalSessionDump = args =>
+  args.length > 0 && typeof args[0] === "string" &&
+  (/^(Closing|Opening) session:$/.test(args[0]) || args[0] === "Session already closed")
+const noteSuppressedSignalDump = () => {
+  signalSessionLogCount++
+  const now = Date.now()
+  if (now - signalSessionLogWindowStartedAt >= 60_000) {
+    if (signalSessionLogCount) {
+      originalConsoleWarn(`[BAILEYS] suppressed ${signalSessionLogCount} verbose session-object log(s) in the previous minute`)
+    }
+    signalSessionLogWindowStartedAt = now
+    signalSessionLogCount = 0
+  }
+}
+console.info = (...args) => {
+  if (isVerboseSignalSessionDump(args)) return noteSuppressedSignalDump()
+  return originalConsoleInfo(...args)
+}
+console.warn = (...args) => {
+  if (isVerboseSignalSessionDump(args)) return noteSuppressedSignalDump()
+  return originalConsoleWarn(...args)
+}
+console.error = (...args) => {
+  const isRepeatedBadMac = args.some(value =>
+    typeof value === "string" && value.includes("Session error:Error: Bad MAC")
+  )
+  if (!isRepeatedBadMac) return originalConsoleError(...args)
+  const now = Date.now()
+  if (now - badMacWindowStartedAt >= 60_000) {
+    originalConsoleError(`[BAILEYS] ${badMacErrorCount} Bad MAC decrypt errors in the previous minute; repeated stacks rate-limited`)
+    badMacWindowStartedAt = now
+    badMacErrorCount = 0
+  }
+  badMacErrorCount++
+  if (badMacErrorCount === 1) {
+    originalConsoleError("[BAILEYS] Bad MAC decrypt errors are being counted and rate-limited; session keys were not changed")
+  }
+}
+
 const fs   = require("fs")
 const autoVVPath = __dirname + '/commands/autovv.js'
 const autoVV = fs.existsSync(autoVVPath) ? require(autoVVPath) : null
@@ -2549,6 +2599,7 @@ async function handleAntistatusInline(sock, msg, phone) {
 // ─────────────────────────────────────────────────────────────────────────────
 const BAN_CACHE_TTL_MS = 15000
 const banCache = new Map()
+const banInflight = new Map()
 
 function banCacheKey(sessionPhone, targetPhone) {
   return `${sessionPhone}:${targetPhone}`
@@ -2563,13 +2614,31 @@ async function isBannedFast(sessionPhone, targetPhone, chatJid) {
   const cached = banCache.get(key)
   if (cached && Date.now() < cached.expiresAt) return cached.banned
 
-  let banned = false
-  if (typeof global.__isBanned === "function") {
-    try { banned = !!(await global.__isBanned(sessionPhone, targetPhone, chatJid)) }
-    catch (e) { console.error("[BAN] check error:", e.message); banned = false }
-  }
-  banCache.set(key, { banned, expiresAt: Date.now() + BAN_CACHE_TTL_MS })
-  return banned
+  // Upsert and command paths can ask about the same sender at once. Share the
+  // pending read so a burst does not fan out duplicate database queries.
+  const inflightKey = `${key}:${chatJid || ""}`
+  const pending = banInflight.get(inflightKey)
+  if (pending) return pending
+
+  const check = (async () => {
+    let banned = false
+    if (typeof global.__isBanned === "function") {
+      try { banned = !!(await global.__isBanned(sessionPhone, targetPhone, chatJid)) }
+      catch (e) { console.error("[BAN] check error:", e.message); banned = false }
+    }
+    banCache.set(key, { banned, expiresAt: Date.now() + BAN_CACHE_TTL_MS })
+    if (banCache.size > 5000) {
+      const now = Date.now()
+      for (const [cacheKey, value] of banCache) {
+        if (value.expiresAt <= now) banCache.delete(cacheKey)
+      }
+      while (banCache.size > 5000) banCache.delete(banCache.keys().next().value)
+    }
+    return banned
+  })()
+  banInflight.set(inflightKey, check)
+  try { return await check }
+  finally { if (banInflight.get(inflightKey) === check) banInflight.delete(inflightKey) }
 }
 
 global.__banCacheInvalidate = banCacheInvalidate
@@ -2914,7 +2983,10 @@ async function startBot(phone) {
     syncFullHistory:     false,
     keepAliveIntervalMs: 25000,
     connectTimeoutMs:    60000,
-    defaultQueryTimeoutMs: undefined,
+    // Never let a missing WhatsApp query acknowledgement wait forever.
+    defaultQueryTimeoutMs: Number(process.env.WA_QUERY_TIMEOUT_MS) > 0
+      ? Number(process.env.WA_QUERY_TIMEOUT_MS)
+      : 15000,
     retryRequestDelayMs: 2000,
     maxMsgRetryCount:    5,
     shouldSyncHistoryMessage: m => m.syncType === 0,

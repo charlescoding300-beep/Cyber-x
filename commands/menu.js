@@ -207,9 +207,26 @@ module.exports = {
                 combinedCommands.set(name, { pattern: name, category: cmd.category || 'general' })
             }
         }
-        // Always scan the directory too: this fills in newly added files even
-        // when the registry array exists but is stale or incomplete.
-        for (const cmd of discoverCommands()) combinedCommands.set(cmd.pattern, cmd)
+        // The live registry is rebuilt when command files change, so it is the
+        // source of truth for normal requests. Only use the filesystem fallback
+        // if the registry is genuinely empty; this avoids requiring every
+        // command module synchronously on each .menu invocation.
+        if (combinedCommands.size === 0 && commands && typeof commands.values === 'function') {
+            for (const mod of commands.values()) {
+                const candidates = [mod]
+                if (Array.isArray(mod?.sfxList)) candidates.push(...mod.sfxList)
+                if (Array.isArray(mod?.commands)) candidates.push(...mod.commands)
+                for (const cmd of candidates) {
+                    const name = String(cmd?.pattern || cmd?.name || '').replace(/^\./, '').toLowerCase()
+                    if (name && typeof cmd?.run === 'function') {
+                        combinedCommands.set(name, { pattern: name, category: cmd.category || 'general' })
+                    }
+                }
+            }
+        }
+        if (combinedCommands.size === 0) {
+            for (const cmd of discoverCommands()) combinedCommands.set(cmd.pattern, cmd)
+        }
 
         const grouped = new Map()
         for (const { pattern: name, category } of combinedCommands.values()) {
