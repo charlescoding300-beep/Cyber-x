@@ -17,13 +17,17 @@ let signalSessionLogCount = 0
 let signalSessionLogWindowStartedAt = Date.now()
 const isVerboseSignalSessionDump = args =>
   args.length > 0 && typeof args[0] === "string" &&
-  (/^(Closing|Opening) session:$/.test(args[0]) || args[0] === "Session already closed")
+  (/^(Closing|Opening) session:$/.test(args[0]) ||
+    args[0] === "Session already closed" ||
+    args[0] === "Decrypted message with closed session." ||
+    args[0] === "Closing open session in favor of incoming prekey bundle" ||
+    args[0] === "Failed to decrypt message with any known session...")
 const noteSuppressedSignalDump = () => {
   signalSessionLogCount++
   const now = Date.now()
   if (now - signalSessionLogWindowStartedAt >= 60_000) {
     if (signalSessionLogCount) {
-      originalConsoleWarn(`[BAILEYS] suppressed ${signalSessionLogCount} verbose session-object log(s) in the previous minute`)
+      originalConsoleWarn(`[BAILEYS] summarized ${signalSessionLogCount} repetitive libsignal diagnostic(s) in the previous minute`)
     }
     signalSessionLogWindowStartedAt = now
     signalSessionLogCount = 0
