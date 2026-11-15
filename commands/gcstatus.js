@@ -37,17 +37,12 @@
 //     image is converted to a proper JPEG before upload, and the thumbnail fields
 //     are written onto the message explicitly if the library didn't.
 //
-// OTHER FIX: the "library not patched" check used inspectLib() without await,
-//   which threw AFTER a successful media post and showed "Group Status failed".
+// STATUS ROUTE:
+//   The official Baileys socket publishes to status@broadcast with an explicit
+//   statusJidList audience. NeoXR prepares media; the existing official socket
+//   handles encryption/fan-out and posts the group-status mention. No second
+//   WhatsApp session is opened.
 //
-// WHY MEDIA USED TO FAIL (text worked):
-//   Group Status is a normal message wrapped in `groupStatusMessageV2`.
-//   Baileys' relayMessage() decides the stanza's `mediatype` attribute by
-//   looking only at the TOP level of the message → wrapped media never gets it.
-//   FIX: node patch-gcstatus-lib.js (run once, restart; re-run after npm install).
-//
-//   --flat : fallback engine, sends normal media with the group-status
-//            contextInfo flags. Use only if the wrapped engine doesn't show up.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { sendOwnerRestricted } = require('../lib/groupAdminNotice')
@@ -65,6 +60,10 @@ const {
   downloadMediaMessage,
   generateWAMessageContent,
 } = baileys
+const statusBaileys = require("@neoxr/baileys")
+const socketBaileys = require("@whiskeysockets/baileys")
+const { generateWAMessageContent: generateStatusContent } = statusBaileys
+const { generateWAMessageFromContent } = socketBaileys
 
 let sharp = null
 try { sharp = require("sharp") } catch {}
@@ -365,10 +364,15 @@ async function findGroup(sock, destination) {
 
 // ── status building blocks ───────────────────────────────────────────────────
 
-function buildStatusContext(statusSourceType) {
+function buildStatusContext(statusSourceType, userJid) {
+  const authorJid = String(userJid || "").replace(/:\d+(?=@)/, "")
+  const isText = statusSourceType === STATUS_SOURCE.text
   return {
     isGroupStatus: true,
     statusSourceType,
+    statusAttributions: isText
+      ? [{ type: 6, groupStatus: { authorJid } }]
+      : [{ type: 10 }],
     forwardingScore: 0,
     featureEligibilities: {
       canBeReshared: true,
@@ -385,25 +389,26 @@ function makeGroupStatusMessage(groupJid, inner, userJid, secret) {
     ? baileys.generateMessageIDV2(userJid)
     : crypto.randomBytes(10).toString("hex").toUpperCase()
 
-  const content = {
-    messageContextInfo: { messageSecret: secret },
-    groupStatusMessageV2: {
-      message: {
-        ...inner,
-        messageContextInfo: {
-          ...(inner.messageContextInfo || {}),
-          messageSecret: secret,
+  const hasMedia = ["imageMessage", "videoMessage", "audioMessage"]
+    .some(key => !!inner?.[key])
+  const content = hasMedia
+    ? { ...inner, messageContextInfo: { ...(inner.messageContextInfo || {}), messageSecret: secret } }
+    : {
+        messageContextInfo: { messageSecret: secret },
+        groupStatusMessageV2: {
+          message: {
+            ...inner,
+            messageContextInfo: { ...(inner.messageContextInfo || {}), messageSecret: secret },
+          },
         },
-      },
-    },
-  }
+      }
 
   const message = baileys.proto?.Message?.fromObject
     ? baileys.proto.Message.fromObject(content)
     : content
 
   return {
-    key: { remoteJid: groupJid, fromMe: true, id, participant: userJid },
+    key: { remoteJid: "status@broadcast", fromMe: true, id, participant: userJid },
     message,
   }
 }
@@ -1143,7 +1148,7 @@ async function buildTextStatus(sock, groupJid, text, userJid, preview, bg) {
 
   ext.contextInfo = {
     ...(ext.contextInfo || {}),
-    ...buildStatusContext(STATUS_SOURCE.text),
+    ...buildStatusContext(STATUS_SOURCE.text, userJid),
   }
 
   // background color + readable white text + font
@@ -1175,15 +1180,41 @@ async function buildTextStatus(sock, groupJid, text, userJid, preview, bg) {
 }
 
 async function relayStatus(sock, group, status, type) {
-  console.log("[GCSTATUS] Relaying Group Status", {
-    group: group.id,
+  const groupJid = group.id || group.jid
+  let participants = group.participants
+  if (!Array.isArray(participants) || !participants.length) {
+    participants = (await sock.groupMetadata(groupJid))?.participants || []
+  }
+  const audience = [...new Set(participants.map(p =>
+    typeof p === "string" ? p : p?.id || p?.jid || p?.lid
+  ).filter(Boolean))]
+  if (!audience.length) throw new Error("Couldn't resolve group members for the status audience")
+
+  await sock.relayMessage("status@broadcast", status.message, {
     messageId: status.key.id,
-    type,
+    statusJidList: audience,
+    additionalNodes: [{ tag: "meta", attrs: {}, content: [{
+      tag: "mentioned_users", attrs: {}, content: [{
+        tag: "to", attrs: { jid: groupJid }, content: undefined,
+      }],
+    }] }],
   })
 
-  await sock.relayMessage(group.id, status.message, { messageId: status.key.id })
-
-  console.log("[GCSTATUS] relayMessage completed", status.key.id)
+  try {
+    const mention = generateWAMessageFromContent(groupJid, {
+      messageContextInfo: { messageSecret: crypto.randomBytes(32) },
+      groupStatusMentionMessage: {
+        message: { protocolMessage: { key: status.key, type: 25 } },
+      },
+    }, { userJid: sock.user?.id })
+    await sock.relayMessage(groupJid, mention.message, {
+      messageId: mention.key.id,
+      additionalNodes: [{ tag: "meta", attrs: { is_group_status_mention: "true" }, content: undefined }],
+    })
+  } catch (e) {
+    console.warn(`[GCSTATUS] status sent; group notification failed: ${e.message}`)
+  }
+  console.log("[GCSTATUS] status broadcast completed", { group: groupJid, type, recipients: audience.length, id: status.key.id })
   return status
 }
 
@@ -1252,8 +1283,7 @@ async function buildMediaInput(content) {
   return input
 }
 
-// ENGINE 1 (default): wrapped in groupStatusMessageV2 — same shape as the text
-// path that already works, relayed with relayMessage().
+// Media stays unwrapped so official Baileys detects its mediatype.
 async function sendWrappedMedia(sock, groupJid, content) {
   const kind = statusKind(content)
   const input = await buildMediaInput(content)
@@ -1266,7 +1296,7 @@ async function sendWrappedMedia(sock, groupJid, content) {
     mimetype: input.mimetype,
   })
 
-  const prepared = await generateWAMessageContent(
+  const prepared = await generateStatusContent(
     input,
     {
       upload: sock.waUploadToServer,
@@ -1287,7 +1317,7 @@ async function sendWrappedMedia(sock, groupJid, content) {
 
   mediaMessage.contextInfo = {
     ...(mediaMessage.contextInfo || {}),
-    ...buildStatusContext(STATUS_SOURCE[kind]),
+    ...buildStatusContext(STATUS_SOURCE[kind], sock.user?.id)
   }
 
   // voice-note statuses get a background color too
@@ -1313,77 +1343,17 @@ async function sendWrappedMedia(sock, groupJid, content) {
   return status
 }
 
-// ENGINE 2 (--flat): ordinary media message carrying the group-status
-// contextInfo. No wrapper → no mediatype problem. Fallback only.
+// Legacy --flat flag routes through the same status-broadcast sender.
 async function sendFlatMedia(sock, groupJid, content) {
-  const kind = statusKind(content)
-  const input = await buildMediaInput(content)
-
-  input.contextInfo = {
-    isGroupStatus: true,
-    statusSourceType: STATUS_SOURCE_NAME[kind],
-    statusAttributions: [{ type: 10 }],
-    statusAudienceMetadata: { audienceType: "CLOSE_FRIENDS" },
-  }
-
-  console.log("[GCSTATUS] Sending FLAT media (--flat engine)", { type: content.type, kind })
-
-  const sent = await sendMessageUnstyled(sock, groupJid, input)
-  console.log("[GCSTATUS] flat send completed", sent?.key?.id)
-  return sent
+  return sendWrappedMedia(sock, groupJid, content)
 }
 
-// ── library patch diagnostics ────────────────────────────────────────────────
-
-const LIB_PACKAGES = ["@systemzero/baileys", "@whiskeysockets/baileys"]
-
-async function pkgRoot(name) {
-  let dir
-  try { dir = path.dirname(require.resolve(name)) } catch { return null }
-  for (let i = 0; i < 6; i++) {
-    const pj = path.join(dir, "package.json")
-    try {
-      if (JSON.parse(await fs.promises.readFile(pj, "utf8")).name === name) return dir
-    } catch {}
-    const up = path.dirname(dir)
-    if (up === dir) break
-    dir = up
-  }
-  return null
-}
-
-async function findSendFiles(dir, depth = 0, out = []) {
-  if (depth > 5) return out
-  let entries = []
-  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    if (e.name === "node_modules" || e.name === ".git") continue
-    const full = path.join(dir, e.name)
-    if (e.isDirectory()) await findSendFiles(full, depth + 1, out)
-    else if (/^messages-send\.(c|m)?js$/.test(e.name)) out.push(full)
-  }
-  return out
-}
-
-function isMediaTypeFixed(src) {
-  return (
-    src.includes("__gsInner(") ||
-    /getMediaType\)?\(\s*(?:\(0,\s*[\w$.]+\.normalizeMessageContent\)|normalizeMessageContent)\(/.test(src)
-  )
-}
-
-async function inspectLib() {
-  const report = []
-  for (const name of LIB_PACKAGES) {
-    const root = await pkgRoot(name)
-    if (!root) continue
-    for (const file of await findSendFiles(root)) {
-      let src = ""
-      try { src = await fs.promises.readFile(file, "utf8") } catch { continue }
-      report.push({ name, file, fixed: isMediaTypeFixed(src) })
-    }
-  }
-  return report
+// ── group-status route diagnostics ──────────────────────────────────────────
+function inspectLib(sock) {
+  return [
+    { name: "@whiskeysockets/baileys active socket", file: "statusJidList relay", fixed: typeof sock?.relayMessage === "function" },
+    { name: "@neoxr/baileys side helper", file: "group-status media helper", fixed: typeof generateStatusContent === "function" },
+  ]
 }
 
 // ── POST TO EVERY GROUP  (.gcstatus all) ─────────────────────────────────────
@@ -1422,7 +1392,7 @@ async function prepareWrappedMedia(sock, content) {
 
   console.log("[GCSTATUS ALL] Uploading media once", { type: content.type, kind, bytes: content.buffer.length })
 
-  const prepared = await generateWAMessageContent(
+  const prepared = await generateStatusContent(
     input,
     { upload: sock.waUploadToServer, logger: Pino({ level: "silent" }) }
   )
@@ -1437,7 +1407,7 @@ async function prepareWrappedMedia(sock, content) {
 
   mediaMessage.contextInfo = {
     ...(mediaMessage.contextInfo || {}),
-    ...buildStatusContext(STATUS_SOURCE[kind]),
+    ...buildStatusContext(STATUS_SOURCE[kind], sock.user?.id)
   }
 
   if (content.type === "audio") {
@@ -1624,13 +1594,13 @@ module.exports = {
 
     // diagnostics
     if (destination.toLowerCase() === "check") {
-      const report = await inspectLib()
+      const report = inspectLib(sock)
       if (!report.length) {
         return reply("> ⚠️ *Couldn't locate the baileys library files to inspect.*")
       }
       const lines = report.map(r => `> ${r.fixed ? "✅" : "❌"} ${r.name}\n>    ${r.file.split("node_modules/")[1] || r.file}`)
       const allFixed = report.every(r => r.fixed)
-      return reply(`> 🔎 *Group Status library check*\n>\n${lines.join("\n")}\n>\n> ${allFixed ? "All good — media group status should work." : "Run: *node patch-gcstatus-lib.js* then restart the bot."}`
+      return reply(`> 🔎 *Group Status library check*\n>\n${lines.join("\n")}\n>\n> ${allFixed ? "Both helpers are available; posts use status@broadcast audience fan-out." : "A required status helper is unavailable."}`
       )
     }
 
@@ -1745,14 +1715,6 @@ module.exports = {
       // warn if the library still has the mediatype bug (wrapped media only)
       const previewNote = preview ? `\n> Link card: *attached*${preview.hq ? " (big image)" : preview.jpegThumbnail ? " (small image)" : ""}\n> Image source: *${preview.imageSource || "unknown"}*` : ""
       let warn = ""
-      if (content.type !== "text" && !flat) {
-        // inspectLib() is async — it must be awaited (this used to throw here)
-        let unfixed = []
-        try { unfixed = (await inspectLib()).filter(r => !r.fixed) } catch {}
-        if (unfixed.length) {
-          warn = `\n>\n> ⚠️ *Library not patched yet* — media may not show.\n> Run *node patch-gcstatus-lib.js* and restart.`
-        }
-      }
 
       // When invoked from a group, keep the chat quiet after a successful
       // publish and acknowledge the command itself with a reaction. Derive
