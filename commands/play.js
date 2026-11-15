@@ -511,7 +511,7 @@ async function runCheck() {
 // ── the command ──────────────────────────────────────────────────────────────
 module.exports = {
   name: 'play',
-  aliases: ['song', 'ytplay'],
+  aliases: ['ytplay'],
   desc: 'Download a song from YouTube (name or link)',
   usage: '.play <song name or YouTube link>',
   category: 'download',

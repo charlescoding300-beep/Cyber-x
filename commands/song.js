@@ -11,87 +11,92 @@ const HEADERS = {
   'Accept': '*/*',
 }
 
-async function tryGet(fn, tries = 3) {
-  let last
-  for (let i = 0; i < tries; i++) {
-    try { return await fn() } catch (e) {
-      last = e
-      if (i < tries - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)))
-    }
-  }
-  throw last
-}
+const API_TIMEOUT_MS = 12000
+const DOWNLOAD_TIMEOUT_MS = 45000
 
-async function fetchBuffer(url) {
-  try {
-    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    return Buffer.from(r.data)
-  } catch {
-    const r = await axios.get(url, { responseType: 'stream', timeout: 90000,
-      maxContentLength: Infinity, maxBodyLength: Infinity,
-      headers: HEADERS, validateStatus: s => s >= 200 && s < 400 })
-    const chunks = []
-    await new Promise((res, rej) => {
-      r.data.on('data', c => chunks.push(c))
-      r.data.on('end', res)
-      r.data.on('error', rej)
-    })
-    return Buffer.concat(chunks)
-  }
+async function fetchBuffer(url, { signal, timeout = DOWNLOAD_TIMEOUT_MS } = {}) {
+  const r = await axios.get(url, {
+    responseType: 'arraybuffer', timeout,
+    maxContentLength: 100 * 1024 * 1024,
+    maxBodyLength: 100 * 1024 * 1024,
+    headers: HEADERS, signal,
+    validateStatus: s => s >= 200 && s < 400,
+  })
+  return Buffer.from(r.data)
 }
 
 const MP3_APIS = [
   {
     name: 'KnightBot API',
-    get: async (url) => (await knightApi.getAudio(url)).download,
+    get: async (url, options) => (await knightApi.getAudio(url, { ...options, timeout: API_TIMEOUT_MS })).download,
   },
   {
     name: 'EliteProTech',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp3`,
-        { timeout: 30000, headers: HEADERS }))
+    get: async (url, { signal }) => {
+      const r = await axios.get(`https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp3`, { timeout: API_TIMEOUT_MS, signal, headers: HEADERS })
       if (r?.data?.success && r?.data?.downloadURL) return r.data.downloadURL
       throw new Error('No URL')
     }
   },
   {
     name: 'Yupra',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
+    get: async (url, { signal }) => {
+      const r = await axios.get(`https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`, { timeout: API_TIMEOUT_MS, signal, headers: HEADERS })
       if (r?.data?.success && r?.data?.data?.download_url) return r.data.data.download_url
       throw new Error('No URL')
     }
   },
   {
     name: 'Okatsu',
-    get: async (url) => {
-      const r = await tryGet(() => axios.get(
-        `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`,
-        { timeout: 30000, headers: HEADERS }))
+    get: async (url, { signal }) => {
+      const r = await axios.get(`https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`, { timeout: API_TIMEOUT_MS, signal, headers: HEADERS })
       if (r?.data?.dl) return r.data.dl
       throw new Error('No URL')
     }
-  },
+  }
 ]
 
 async function downloadMp3(ytUrl) {
-  for (const api of MP3_APIS) {
-    try {
-      console.log(`[SONG] Trying ${api.name}...`)
-      const dlUrl = await api.get(ytUrl)
-      const buf   = await fetchBuffer(dlUrl)
-      if (buf?.length > 0) {
-        console.log(`[SONG] ✅ ${api.name} (${(buf.length/1e6).toFixed(1)}MB)`)
-        return buf
+  const controllers = new Set()
+  const active = new Map()
+  const failures = []
+  let next = 0
+
+  const startNext = () => {
+    if (next >= MP3_APIS.length) return
+    const api = MP3_APIS[next++]
+    const controller = new AbortController()
+    controllers.add(controller)
+    const task = (async () => {
+      try {
+        const dlUrl = await api.get(ytUrl, { signal: controller.signal })
+        if (!dlUrl) throw new Error('No download URL')
+        const buf = await fetchBuffer(dlUrl, { signal: controller.signal })
+        if (buf.length < 10000) throw new Error('Downloaded file is too small')
+        return { api, buf }
+      } catch (error) {
+        return { api, error }
       }
-    } catch (e) { console.log(`[SONG] ❌ ${api.name}: ${e.message}`) }
+    })()
+    active.set(api.name, task)
   }
-  throw new Error('All download sources failed')
+
+  // Race two providers at a time so one slow endpoint cannot block the others.
+  startNext()
+  startNext()
+  while (active.size) {
+    const result = await Promise.race(active.values())
+    active.delete(result.api.name)
+    if (result.buf) {
+      for (const controller of controllers) controller.abort()
+      console.log(`[SONG] ✅ ${result.api.name} (${(result.buf.length / 1e6).toFixed(1)}MB)`)
+      return result.buf
+    }
+    failures.push(`${result.api.name}: ${result.error?.message || 'failed'}`)
+    console.log(`[SONG] ❌ ${failures[failures.length - 1]}`)
+    startNext()
+  }
+  throw new Error(`All download sources failed: ${failures.join(' | ')}`)
 }
 
 function fmtViews(n) {
@@ -157,6 +162,8 @@ module.exports = {
 ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 ${CREDIT}`
 
+      const downloadResult = downloadMp3(ytUrl).then(buf => ({ buf }), error => ({ error }))
+
       // ── 3. Send thumbnail + card ─────────────────────────────────
       const infoMsg = await (async () => {
         try {
@@ -172,10 +179,12 @@ ${CREDIT}`
       // ── 4. Delete searching message AFTER thumbnail ──────────────
       sock.sendMessage(from, { delete: searchMsg.key }).catch(() => {})
 
-      // ── 5. Download + convert ────────────────────────────────────
-      const raw   = await downloadMp3(ytUrl)
+      // Finish the parallel download and avoid re-encoding an existing MP3.
+      const downloaded = await downloadResult
+      if (downloaded.error) throw downloaded.error
+      const raw = downloaded.buf
       const { ext } = detectFormat(raw)
-      const audio = await toAudio(raw, ext)
+      const audio = ext === 'mp3' ? raw : await toAudio(raw, ext)
 
       // ── 7. Send audio ────────────────────────────────────────────
       await sock.sendMessage(from, {
