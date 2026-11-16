@@ -1,19 +1,26 @@
-// commands/ping.js — ZEN X Ping
+// commands/ping.js — ZEN X responsive ping
 'use strict'
 
 module.exports = {
-  pattern: "ping",
+  name: 'ping',
+  pattern: 'ping',
+  // Keep ping out of the general session queue so slow media/API work cannot
+  // hold its progress reply behind unrelated commands from this same session.
+  independent: true,
 
   run: async ({ sock, from, msg }) => {
-    await sock.sendMessage(from, { react: { text: "🇺🇸", key: msg.key } }).catch(() => {})
+    const startedAt = process.hrtime.bigint()
+    const progress = await sock.sendMessage(
+      from,
+      { text: '⏳ *PINGING ZEN X…*' },
+      { quoted: msg }
+    )
+    if (!progress?.key) throw new Error('WhatsApp did not return the ping message key')
 
-    // Real latency: gap between when WhatsApp stamped the message and
-    // right now — not a fabricated/estimated split.
-    const msgTimestampMs = (msg.messageTimestamp || 0) * 1000
-    const latency = msgTimestampMs ? Date.now() - msgTimestampMs : 0
-
-    const text = `> 🎾 *𝙋𝙊𝙉𝙂: ${latency}ms*`
-
-    await sock.sendMessage(from, { text }, { quoted: msg })
-  }
+    // This is the time until WhatsApp acknowledges the initial reply, not a
+    // fabricated server/network round-trip measurement.
+    const elapsedSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
+    const finalText = `> 🏓 *PINGED • ${elapsedSeconds.toFixed(3)} seconds*`
+    await sock.sendMessage(from, { text: finalText, edit: progress.key })
+  },
 }

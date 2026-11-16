@@ -52,10 +52,8 @@ module.exports = {
         }
 
         return reply(
-`┏━━━━━━━「 PRIVATE MODE 」━━━━━━━┓
-┃ 🔒 Private mode is enabled.
-┃ 🤖 The bot will respond only to you.
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`
+`*✅ 𝙿𝚁𝙸𝚅𝙰𝚃𝙴 𝙼𝙾𝙳𝙴 𝙴𝙽𝙰𝙱𝙻𝙴𝙳.*
+*— 𝙱𝙾𝚃 𝚁𝙴𝙿𝙻𝙸𝙴𝚂 𝙰𝚁𝙴 𝙽𝙾𝚆 𝙿𝚁𝙸𝚅𝙰𝚃𝙴.*`
         )
       } catch (error) {
         console.error("[MODE] Failed to save private mode:", error)
@@ -82,10 +80,8 @@ module.exports = {
         }
 
         return reply(
-`┏━━━━━━━「 PUBLIC MODE 」━━━━━━━┓
-┃ 🌐 Public mode is enabled.
-┃ 🤖 The bot can respond to everyone.
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`
+`*✅ 𝙿𝚄𝙱𝙻𝙸𝙲 𝙼𝙾𝙳𝙴 𝙴𝙽𝙰𝙱𝙻𝙴𝙳.*
+*— 𝙱𝙾𝚃 𝚁𝙴𝙿𝙻𝙸𝙴𝚂 𝙰𝚁𝙴 𝙽𝙾𝚆 𝙿𝚄𝙱𝙻𝙸𝙲.*`
         )
       } catch (error) {
         console.error("[MODE] Failed to save public mode:", error)

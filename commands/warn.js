@@ -47,7 +47,7 @@ function saveDB(db) {
 loadDB()
 
 function getGroup(db, gid) {
-  if (!db[gid]) db[gid] = { maxwarn: 10, members: {} };
+  if (!db[gid]) db[gid] = { maxwarn: 3, members: {} };
   return db[gid];
 }
 
@@ -82,15 +82,22 @@ const DLINE = '═════════════════════�
 
 // ── Get quoted participant ───────────────────────────────────────
 function getQuoted(msg) {
-  const ctx =
-    msg.message?.extendedTextMessage?.contextInfo ||
-    msg.message?.imageMessage?.contextInfo        ||
-    msg.message?.videoMessage?.contextInfo        ||
-    msg.message?.stickerMessage?.contextInfo      ||
-    null;
-  if (!ctx?.quotedMessage) return null;
-  const raw = ctx.participantPn || ctx.participantAlt || ctx.participant || ctx.remoteJid || null;
-  return raw ? normalizeJid(raw) : null;
+  let content = msg?.message;
+  for (let depth = 0; content && depth < 10; depth++) {
+    for (const value of Object.values(content)) {
+      const ctx = value?.contextInfo;
+      if (ctx?.quotedMessage) {
+        const raw = ctx.participantPn || ctx.participantAlt || ctx.participant || ctx.remoteJid || null;
+        return raw ? normalizeJid(raw) : null;
+      }
+    }
+    const nested = content.ephemeralMessage?.message ||
+      content.viewOnceMessageV2Extension?.message || content.viewOnceMessageV2?.message ||
+      content.viewOnceMessage?.message || content.documentWithCaptionMessage?.message;
+    if (!nested) break;
+    content = nested;
+  }
+  return null;
 }
 
 function findParticipant(groupCache, groupJid, target) {
@@ -142,8 +149,8 @@ ${LINE}
 📋 *COMMANDS*
 ${LINE}
 
-▸ *.warn*
-  Reply to a message to issue a warn
+▸ *.warn* or *.warn @user*
+  Reply to a member message or mention them
 
 ▸ *.warn set <1–50>*
   Set the max warn limit for this group
@@ -361,8 +368,6 @@ _Tag the member you want to inspect._`
 
       const keys = matchingWarningKeys(g.members, targetAliases(participant, target));
       const count = keys.reduce((highest, key) => Math.max(highest, Number(g.members[key]) || 0), 0);
-      const left  = Math.max(0, g.maxwarn - count);
-      const bar   = progressBar(count, g.maxwarn);
 
       return sock.sendMessage(from, {
         text:
@@ -385,7 +390,11 @@ ${count >= g.maxwarn
 
     // ── .warn (main — reply required) ───────────────────────────
     if (!sub) {
-      const target = getQuoted(msg);
+      const context = msg.message?.extendedTextMessage?.contextInfo || {};
+      const mentioned = context.mentionedJid?.find(Boolean);
+      const typedNumber = (args || []).join(' ').match(/\d{7,15}/)?.[0];
+      const rawTarget = getQuoted(msg) || mentioned || (typedNumber ? `${typedNumber}@s.whatsapp.net` : null);
+      const target = rawTarget ? normalizeJid(rawTarget) : null;
 
       if (!target) {
         return sock.sendMessage(from, { text: usageCard() }, { quoted: msg });
@@ -428,8 +437,6 @@ Warns cannot be issued to admins.`,
       const previousCount = Number(g.members[target]) || 0
       g.members[target] = previousCount + 1
       const count = g.members[target];
-      const left  = Math.max(0, g.maxwarn - count);
-      const bar   = progressBar(count, g.maxwarn);
       try {
         await saveDB(db);
       } catch {
@@ -441,43 +448,9 @@ Warns cannot be issued to admins.`,
         }, { quoted: msg });
       }
 
-      // DM the warned member
-      try {
-        await sock.sendMessage(target, {
-          text:
-`⚠️ *YOU HAVE BEEN WARNED*
-${DLINE}
-
-You received a warning in a group.
-
-📊 *Progress*  : ${bar}
-⚠️  *Warns*     : ${count} / ${g.maxwarn}
-📌 *Remaining* : ${left} warn(s)
-🏷️  *Status*    : ${statusBadge(count, g.maxwarn)}
-
-${LINE}
-${count >= g.maxwarn
-  ? '🚨 *You have reached the max warn limit.*\nYou will be removed from the group.'
-  : `⚠️ *${left} more warn(s)* until you are removed.\nPlease follow the group rules.`}`
-        });
-      } catch {}
-
-      // Group warn notice
+      // Post one quoted warning in the group; never DM the warned member.
       await sock.sendMessage(from, {
-        text:
-`⚠️ *WARN ISSUED — ZENX*
-${DLINE}
-
-👤 *Member*    : ${fmt(target)}
-📊 *Progress*  : ${bar}
-⚠️  *Warns*     : ${count} / ${g.maxwarn}
-🏷️  *Status*    : ${statusBadge(count, g.maxwarn)}
-📌 *Remaining* : ${left > 0 ? `${left} warn(s) before removal` : '🚨 *REMOVAL TRIGGERED*'}
-
-${LINE}
-${count >= g.maxwarn
-  ? `🚨 *${fmt(target)} has hit the warn limit!*`
-  : `💡 _${left} more warn(s) until auto-removal._`}`,
+        text: `*⚠️ @${target.split('@')[0]} 𝙷𝙰𝚂 𝙱𝙴𝙴𝙽 𝚆𝙰𝚁𝙽𝙴𝙳.*\n*— 𝚆𝙰𝚁𝙽𝙸𝙽𝙶𝚂: ${count}/${g.maxwarn}*`,
         mentions: [target]
       }, { quoted: msg });
 

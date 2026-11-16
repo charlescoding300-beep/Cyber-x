@@ -155,7 +155,7 @@ const MEDIA_COMMAND_TIMEOUT_MS = (() => {
   return Number.isFinite(value) && value > 0 ? value : 300000
 })()
 // Future media commands should use a media/download category or declare media: true.
-const MEDIA_COMMAND_CATEGORIES = new Set(['media', 'download', 'sticker', 'soundeffect', 'ai', 'image', 'audio', 'video'])
+const MEDIA_COMMAND_CATEGORIES = new Set(['media', 'download', 'sticker', 'soundeffect', 'ai', 'image', 'audio', 'music', 'video'])
 
 const SETTINGS_ROOT = path.join(__dirname, "data", "settings")
 if (!fs.existsSync(SETTINGS_ROOT)) fs.mkdirSync(SETTINGS_ROOT, { recursive: true })
@@ -2829,10 +2829,12 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
 
   const declaredTimeout = Number(command.timeoutMs)
   const independentCommand = command.independent === true
-  const isMediaCommand = command.media === true ||
-    MEDIA_COMMAND_CATEGORIES.has(category) ||
-    command.heavy === true || command.resourceIntensive === true ||
-    sessionExecutor.HEAVY?.has(canonical)
+  // Media/download work uses this session's heavy lane. AI stays on the quick lane.
+  const isMediaLaneCommand = command.media === true ||
+    (category !== 'ai' && MEDIA_COMMAND_CATEGORIES.has(category)) ||
+    command.heavy === true || command.globalHeavy === true ||
+    command.resourceIntensive === true || sessionExecutor.HEAVY?.has(canonical)
+  const isMediaCommand = isMediaLaneCommand || category === 'ai'
   const commandTimeoutMs = independentCommand
     ? 0
     : Number.isFinite(declaredTimeout) && declaredTimeout > 0
@@ -2910,7 +2912,7 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
   const runGuarded = (_isRetry = false) =>
     sessionExecutor.forState(state).submit({
       name:         rawCmd,
-      heavy:        command.heavy === true || command.globalHeavy === true || command.resourceIntensive === true,
+      heavy:        isMediaLaneCommand,
       globalHeavy:  command.globalHeavy === true || command.resourceIntensive === true,
       timeoutMs:    commandTimeoutMs ? commandTimeoutMs + 5000 : undefined,
       chat:         from,
@@ -3573,6 +3575,12 @@ async function startBot(phone) {
       if (typeof lib.handleAntibot  === "function") lib.handleAntibot(sock, m, extractModerationBody, lib).catch(e => console.error("[" + phone + "] ANTIBOT ERR:", e?.message || e))
       if (typeof lib.handleAntispam === "function") lib.handleAntispam(sock, m, extractModerationBody, state).catch(e => console.error("[" + phone + "] ANTISPAM ERR:", e.message))
     }
+
+    // AutoReact runs independently of AutoVV so enabling one never depends on the other.
+    try {
+      Promise.resolve(require('./commands/autoreact').handleAutoReact({ state, sock, msg: m, from: jid }))
+        .catch(e => console.error('[AUTOREACT]', e?.message || e))
+    } catch (e) { console.error('[AUTOREACT] load failed:', e?.message || e) }
 
     // AUTO-VV: authorized chats first — media-only View Once messages may have no text body.
     if (typeof autoVV?.handleAutoVV === "function") {
