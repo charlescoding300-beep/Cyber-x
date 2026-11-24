@@ -715,31 +715,31 @@ function checkIsOwner(state, sender, senderAlt, fromMe, resolvedNumbers = null) 
   return false
 }
 
+function getGroupMetaForPermission(state, sock, jid) {
+  const meta = state?.groupCache?.[jid] || null
+  const cachedAt = Number(meta?._cachedAt) || 0
+  const fresh = !!(
+    meta &&
+    Array.isArray(meta.participants) &&
+    meta.participants.length > 0 &&
+    cachedAt > 0 &&
+    Date.now() - cachedAt <= 60_000
+  )
+  if (!fresh && state && sock) {
+    try { refreshGroupMeta(state, sock, jid).catch(() => {}) } catch {}
+  }
+  return { meta: fresh ? meta : null, unavailable: !fresh }
+}
+
 async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fromMe = false, verifyOwnerRole = false) {
   const candidates = [sender, senderAlt]
-  // For an outgoing command, the group message may omit its participant JID.
-  // In that case use the connected account's own WhatsApp identities.
   if (fromMe) candidates.push(sock?.user?.id, sock?.user?.lid)
   const candidateNums = await resolveIdentityNumbers(sock, ...candidates)
+  const { meta, unavailable: metadataUnavailable } =
+    getGroupMetaForPermission(state, sock, from)
 
-  let meta = null
-  if (isOwner && verifyOwnerRole) {
-    // This is the one path that needs a current WhatsApp role before deciding
-    // whether to show the owner-specific notice.
-    try { meta = await getGroupMetaForCommand(sock, state.phone, from) } catch {}
-  } else {
-    // This path is used only for commands that explicitly need group roles.
-    // Reuse a recent cache; when it is stale, await one shared refresh before
-    // authorizing the command so a recent promotion/demotion is not hidden by
-    // an old cached admin flag. Ordinary commands never enter this path.
-    meta = state.groupCache[from]
-    if (!meta || !Array.isArray(meta.participants)) {
-      try { meta = await refreshGroupMeta(state, sock, from) } catch {}
-    } else if (Date.now() - (meta._cachedAt || 0) > 60 * 1000) {
-      try { meta = await refreshGroupMeta(state, sock, from) } catch {}
-    }
-  }
-  const hasParticipants = Array.isArray(meta?.participants) && meta.participants.length > 0
+  const hasParticipants =
+    Array.isArray(meta?.participants) && meta.participants.length > 0
   let isActualGroupAdmin = null
   if (hasParticipants) {
     isActualGroupAdmin = meta.participants.some(p =>
@@ -748,21 +748,18 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
     )
   }
 
-  // Bot-owner authorization does not grant the connected WhatsApp account
-  // admin rights. Keep the owner override for sender authorization, while
-  // always reporting the bot account's actual role for API operations.
   const adminCache = meta?.participants
     ? { ...state.groupCache, [from]: meta }
     : state.groupCache
   let isBotAdmin = false
   try { isBotAdmin = isAdminLib.isBotAdmin(adminCache, from, sock) } catch {}
-  if (isOwner) return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
+  if (isOwner) return { isAdmin: true, isBotAdmin, isActualGroupAdmin, metadataUnavailable }
   if (
     (SUDO_NUMBERS.length && candidateNums.some(n => SUDO_NUMBERS.includes(n))) ||
     isStoredSudo(state, candidateNums)
-  ) return { isAdmin: true, isBotAdmin, isActualGroupAdmin }
-  if (!Array.isArray(meta?.participants) || !meta.participants.length) {
-    return { isAdmin: false, isBotAdmin: false, isActualGroupAdmin }
+  ) return { isAdmin: true, isBotAdmin, isActualGroupAdmin, metadataUnavailable }
+  if (!hasParticipants) {
+    return { isAdmin: false, isBotAdmin: false, isActualGroupAdmin, metadataUnavailable }
   }
 
   let isAdmin = false
@@ -773,7 +770,7 @@ async function checkGroupAdmin(state, sock, from, sender, senderAlt, isOwner, fr
       isAdminLib.participantMatches(p, ...candidates.filter(Boolean))
     )
   }
-  return { isAdmin, isBotAdmin, isActualGroupAdmin }
+  return { isAdmin, isBotAdmin, isActualGroupAdmin, metadataUnavailable }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2841,7 +2838,7 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
     ? declaredTimeout
     : isMediaCommand ? MEDIA_COMMAND_TIMEOUT_MS : undefined
 
-  let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null
+  let isAdmin = false, isBotAdmin = false, isActualGroupAdmin = null, groupMetaUnavailable = false
   const needsGroupAdminContext =
     requiresSenderGroupAdmin || requiresBotGroupAdmin ||
     command.adminOnly === true || command.botAdmin === true ||
@@ -2849,13 +2846,22 @@ async function handleMessage(state, sock, msg, sessionMessageOffset = null) {
     COMMANDS_NEEDING_GROUP_ADMIN_CONTEXT.has(canonical) ||
     COMMANDS_REQUIRING_SENDER_GROUP_ADMIN.has(canonical)
   if (isGroup && needsGroupAdminContext) {
-    ;({ isAdmin, isBotAdmin, isActualGroupAdmin } = await checkGroupAdmin(
+    ;({ isAdmin, isBotAdmin, isActualGroupAdmin, metadataUnavailable: groupMetaUnavailable } = await checkGroupAdmin(
       state, sock, from, sender, senderAlt, isOwner, fromMe,
       isOwner && ownerMustBeGroupAdmin
     ))
   }
 
   const senderHasGroupAdminPermission = isActualGroupAdmin === true
+  if (
+    isGroup && groupMetaUnavailable &&
+    ((requiresSenderGroupAdmin && isActualGroupAdmin === null) || requiresBotGroupAdmin)
+  ) {
+    await sock.sendMessage(from, {
+      text: "I could not verify group admin status right now. Please retry shortly."
+    }, { quoted: msg }).catch(() => {})
+    return
+  }
   if (
     isGroup && requiresSenderGroupAdmin &&
     !senderHasGroupAdminPermission
@@ -3032,13 +3038,17 @@ async function startBot(phone) {
   })
 
   sock.ev.on("group-participants.update", async (update) => {
-    let meta = null
+    const previousMeta = state.groupCache?.[update.id] || null
+    const roleChanged = update.action === "promote" || update.action === "demote"
+    if (roleChanged && state.groupCache) delete state.groupCache[update.id]
     try {
-      meta = await refreshGroupMeta(state, sock, update.id)
-      state.groupCache[update.id] = { ...meta, _cachedAt: Date.now() }
+      refreshGroupMeta(state, sock, update.id).catch(e => {
+        console.error("[WATCHDOG:" + phone + "] metadata fetch failed for " + update.id + ":", e.message)
+      })
     } catch (e) {
-      console.error(`[WATCHDOG:${phone}] metadata fetch failed for ${update.id}:`, e.message)
+      console.error("[WATCHDOG:" + phone + "] metadata fetch failed for " + update.id + ":", e.message)
     }
+    const meta = previousMeta
 
     if (typeof lib.handleGroupUpdate === "function") {
       lib.handleGroupUpdate(sock, update).catch(e =>
