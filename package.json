@@ -4,6 +4,7 @@
   "description": "ZENX WhatsApp Bot & Gateway",
   "main": "server.js",
   "scripts": {
+    "postinstall": "node scripts/patch-baileys-pairing.js",
     "start": "node index.js",
     "bot": "node --expose-gc index.js",
     "dev": "node --expose-gc index.js"
