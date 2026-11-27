@@ -3416,7 +3416,10 @@ async function startBot(phone) {
       }
     }
 
-    if (connection === "connecting" && !qr) {
+    // Baileys documents the QR update as the readiness signal for requesting
+    // a phone-number pairing code. Do not request during the earlier socket
+    // "connecting" phase; WhatsApp can reject that half-ready link handshake.
+    if (!authState.creds.registered && state.pairingMode !== "qr" && qr) {
       requestPairingCode().catch(e =>
         console.error(`[${phone}] PAIR REQUEST ERR:`, e?.message || e)
       )
@@ -3479,6 +3482,13 @@ async function startBot(phone) {
       pairingCodeRequested = false
       state.connected  = false
       state.startingUp = false
+      // A pairing code belongs to this live socket only. Never keep returning
+      // it after WhatsApp has closed the handshake.
+      if (!authState.creds.registered) {
+        state.pairingCode = null
+        state.pairingCodeExpiresAt = null
+        pairingCodeRequested = false
+      }
       const statusCode = lastDisconnect?.error?.output?.statusCode
       const loggedOut  = statusCode === DisconnectReason.loggedOut
 
@@ -3647,8 +3657,6 @@ async function startBot(phone) {
       })
     }
   })
-
-  if (!authState.creds.registered && state.pairingMode !== "qr") schedulePairingRetry(5000)
 
   sock.ev.on("messages.update", async (updates) => {
     handleMessageRevocation(sock, phone, updates, "update").catch(e =>
@@ -3944,11 +3952,14 @@ async function addSession(phone, preferredSlot = null) {
   await startBot(clean)
   saveMeta()
   const state = sessions.get(clean)
-  for (let i = 0; i < 30 && !state.pairingCode && !state.connected; i++) {
+  for (let i = 0; i < 30 && !state.pairingCode && !state.connected && state.startingUp; i++) {
     await new Promise(r => setTimeout(r, 1000))
   }
   if (!state.pairingCode && !state.connected) {
-    throw new Error("Timed out waiting for pairing code — try again")
+    if (!state.startingUp) {
+      throw new Error("WhatsApp closed the pairing connection before it completed. Request a fresh code and enter it promptly.")
+    }
+    throw new Error("Timed out waiting for WhatsApp to prepare the pairing code. Please try again.")
   }
   return {
     phone:       clean,
